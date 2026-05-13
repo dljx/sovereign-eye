@@ -828,16 +828,15 @@ function IntelFeed() {
             {newsLoading && <div className="no-data" style={{color:"var(--fg-3)"}}>Filtering headlines…</div>}
             {!newsLoading && newsItems.length === 0 && <div className="no-data">No significant news for your positions.</div>}
             {newsItems.map((n, i) => (
-                <div key={i} className="news-item">
-                  <div className="meta">
-                    <span className="src">{n.source || "—"}</span>
-                    <span className="ago">{n.ago ? n.ago + " ago" : "—"}</span>
-                  </div>
-                  <div className="ttl">{(n.headline || "").slice(0, 110)}</div>
-                  <span className="tk">{n.ticker || "—"}</span>
+              <div key={i} className="news-item">
+                <div className="meta">
+                  <span className="src">{n.source || "—"}</span>
+                  <span className="ago">{n.ago ? n.ago + " ago" : "—"}</span>
                 </div>
-              );
-            })}
+                <div className="ttl">{(n.headline || "").slice(0, 110)}</div>
+                <span className="tk">{n.ticker || "—"}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
