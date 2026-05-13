@@ -1249,10 +1249,16 @@ function DDPanel({ ticker, ddData, ddLoading, ddPolling, ddIndex, onTrigger, onF
           </div>
         )}
 
+        {!ddLoading && !ddPolling && ddData?._error && (
+          <div className="dd-status" style={{color:"var(--neg)"}}>
+            <span>⚠ {ddData._error}</span>
+          </div>
+        )}
+
         {!ddLoading && !ddData && !ddPolling && (
           <div className="dd-empty">
             <div className="dd-empty-title">SOVEREIGN DD</div>
-            <div className="dd-empty-sub">Click a position or enter a ticker to load analysis. Hit <b>Analyze</b> to run a fresh multi-agent debate.</div>
+            <div className="dd-empty-sub">Click a position or enter a ticker to load analysis. Hit <b>Analyze</b> to run a fresh multi-agent debate (~5 min).</div>
           </div>
         )}
 
@@ -1502,17 +1508,19 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticker }),
       });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        console.warn("[DD] dispatch failed:", res.status);
+        const msg = body?.error || `HTTP ${res.status}`;
         setDdPolling(false);
+        setDdData({ _error: `Dispatch failed: ${msg}` });
         return;
       }
     } catch (e) {
-      console.warn("[DD] dispatch error:", e);
       setDdPolling(false);
+      setDdData({ _error: `Dispatch error: ${e.message}` });
       return;
     }
-    // Poll every 60s for the result
+    // Poll every 30s for the result (analysis takes ~5 min)
     if (ddPollRef.current) clearInterval(ddPollRef.current);
     ddPollRef.current = setInterval(async () => {
       try {
@@ -1526,7 +1534,7 @@ function App() {
           }
         }
       } catch { /* keep polling */ }
-    }, 60000);
+    }, 30000);
   }, []);
 
   // Cleanup polling on unmount
