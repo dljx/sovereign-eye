@@ -21,33 +21,29 @@ function timeAgo(ts) {
 async function fetchFinnhubCompanyNews(tickers, apiKey) {
   const today = new Date().toISOString().slice(0, 10);
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-  const raw = [];
 
-  // Fetch up to 6 tickers sequentially (Finnhub rate limit)
-  for (const sym of tickers.slice(0, 6)) {
-    try {
-      const res = await fetch(
-        `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${weekAgo}&to=${today}&token=${apiKey}`
-      );
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (!Array.isArray(data)) continue;
-      data.slice(0, 5).forEach(n => {
-        if (!n.headline) return;
-        raw.push({
+  // Fetch all tickers in parallel
+  const results = await Promise.all(
+    tickers.slice(0, 6).map(async sym => {
+      try {
+        const res = await fetch(
+          `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${weekAgo}&to=${today}&token=${apiKey}`
+        );
+        if (!res.ok) return [];
+        const data = await res.json();
+        if (!Array.isArray(data)) return [];
+        return data.slice(0, 4).map(n => ({
           ticker: sym,
           source: n.source || "—",
           datetime: n.datetime || 0,
           ago: timeAgo(n.datetime || 0),
           headline: (n.headline || "").slice(0, 150),
-          url: n.url || "",
-        });
-      });
-      await new Promise(r => setTimeout(r, 100));
-    } catch {}
-  }
+        })).filter(n => n.headline);
+      } catch { return []; }
+    })
+  );
 
-  return raw.sort((a, b) => b.datetime - a.datetime);
+  return results.flat().sort((a, b) => b.datetime - a.datetime);
 }
 
 async function filterWithGemma(rawItems, tickers, apiKey) {
@@ -60,16 +56,16 @@ async function filterWithGemma(rawItems, tickers, apiKey) {
 
   const prompt = `You are an editorial filter for a stock portfolio dashboard holding: ${tickerList}.
 
-Filter the following company news headlines. Keep ONLY items with material investment significance: earnings results, revenue/EPS beats or misses, guidance changes, analyst upgrades/downgrades with price targets, M&A, major contracts, executive changes, regulatory actions, or significant product news.
+Review these company news headlines and keep any that are relevant to an investor holding these stocks. Keep items about: earnings, revenue, guidance, analyst ratings/price targets, M&A, products, contracts, management, legal/regulatory issues, or sector trends affecting these companies. Be inclusive — if in doubt, keep it.
 
-Discard: generic daily market summaries, articles primarily about OTHER companies, price-only updates ("stock falls 2%"), speculative opinion pieces with no new facts, and duplicate stories.
+Discard only: articles clearly about unrelated companies, pure stock-price-only updates with zero news content, and obvious duplicates.
 
-For each kept item, return:
-- "ticker": the exact ticker symbol
+For each kept item return:
+- "ticker": the exact portfolio ticker symbol it relates to
 - "source": keep original
 - "ago": keep original
-- "headline": rewrite to under 90 characters, leading with the key fact
-- "severity": "warn" for negative news, "info" for positive/neutral
+- "headline": rewrite concisely under 90 characters, leading with the key fact
+- "severity": "warn" for negative/risk news, "info" for positive/neutral
 
 Return ONLY a JSON array. If nothing qualifies, return [].
 
