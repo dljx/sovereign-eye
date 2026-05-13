@@ -66,7 +66,7 @@ const SECTOR_COLORS = {
 const SECTOR_OPTIONS = ["Tech","Financials","Healthcare","Cons. Disc.","Cons. Stap.","Energy","Industrials","Materials","Utilities","Real Estate","Comm.","Cash"];
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SYNTHESIS — Gemini-style intelligence (static seed; LLM-refreshable)
+// SYNTHESIS — Gemma-powered intelligence (static seed; LLM-refreshable)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const SYNTHESIS = {
@@ -99,7 +99,7 @@ const MACRO_SERIES = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SEC FILINGS — seed data with Gemini TL;DR summaries
+// SEC FILINGS — seed data with Gemma TL;DR summaries
 // ═══════════════════════════════════════════════════════════════════════════
 
 const SEC_SEED = [

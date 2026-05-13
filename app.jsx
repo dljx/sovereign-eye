@@ -749,7 +749,7 @@ function IntelFeed({ liveNews }) {
   const [synthLoading, setSynthLoading] = useState(true);
   const [synthCached, setSynthCached] = useState(false);
 
-  // Fetch live Gemini synthesis from backend
+  // Fetch live Gemma synthesis from backend
   useEffect(() => {
     const tickerList = Array.from(tickers).filter(t => t !== "USD").join(",");
     if (!tickerList) { setSynthLoading(false); return; }
@@ -788,7 +788,7 @@ function IntelFeed({ liveNews }) {
           <>
             {synthLoading && <div style={{fontFamily:"var(--mono)",fontSize:10,color:"var(--fg-3)",padding:"8px 0"}}>Fetching live synthesis…</div>}
             <div className="intel-section">
-              <h4><span className="dot cat"></span>CATALYSTS<span className="chip gem">{synthesis ? (synthCached ? "GEMINI · CACHED" : "GEMINI · LIVE") : "GEMINI · SEED"}</span></h4>
+              <h4><span className="dot cat"></span>CATALYSTS<span className="chip gem">{synthesis ? (synthCached ? "GEMMA · CACHED" : "GEMMA · LIVE") : "GEMMA · SEED"}</span></h4>
               <div className="bullets">
                 {synth.catalysts.map((b, i) => (
                   <div className="bullet" key={i}><span className="ix">C.{i+1}</span><span>{b}</span></div>
@@ -796,7 +796,7 @@ function IntelFeed({ liveNews }) {
               </div>
             </div>
             <div className="intel-section">
-              <h4><span className="dot rsk"></span>RISKS<span className="chip gem">{synthesis ? (synthCached ? "GEMINI · CACHED" : "GEMINI · LIVE") : "GEMINI · SEED"}</span></h4>
+              <h4><span className="dot rsk"></span>RISKS<span className="chip gem">{synthesis ? (synthCached ? "GEMMA · CACHED" : "GEMMA · LIVE") : "GEMMA · SEED"}</span></h4>
               <div className="bullets">
                 {synth.risks.map((b, i) => (
                   <div className="bullet" key={i}><span className="ix">R.{i+1}</span><span>{b}</span></div>
@@ -804,7 +804,7 @@ function IntelFeed({ liveNews }) {
               </div>
             </div>
             <div className="intel-section">
-              <h4><span className="dot mac"></span>MACRO ALIGNMENT<span className="chip gem">{synthesis ? (synthCached ? "GEMINI · CACHED" : "GEMINI · LIVE") : "GEMINI · SEED"}</span></h4>
+              <h4><span className="dot mac"></span>MACRO ALIGNMENT<span className="chip gem">{synthesis ? (synthCached ? "GEMMA · CACHED" : "GEMMA · LIVE") : "GEMMA · SEED"}</span></h4>
               <div className="bullets">
                 {synth.macro.map((b, i) => (
                   <div className="bullet" key={i}><span className="ix">M.{i+1}</span><span>{b}</span></div>
@@ -1029,12 +1029,12 @@ function SecTracker({ liveFilings }) {
           <span className="tab">10-Q</span>
           <span className="tab">10-K</span>
           <span className="tab">8-K</span>
-          <span className="src">EDGAR · GEMINI</span>
+          <span className="src">EDGAR · GEMMA</span>
         </div>
       </div>
       <div className="pane-body sec">
         <div className="sec-hdr">
-          <span>FORM</span><span>TKR</span><span>FILED</span><span>GEMINI TL;DR</span>
+          <span>FORM</span><span>TKR</span><span>FILED</span><span>GEMMA TL;DR</span>
           <span style={{textAlign:"right"}}>ACCESSION</span>
         </div>
         {filings.length === 0 && <div className="no-data">No EDGAR filings match your tickers.</div>}
