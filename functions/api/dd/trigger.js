@@ -32,7 +32,7 @@ export async function onRequestPost(context) {
         "Content-Type": "application/json",
         "User-Agent": "sovereign-eye",
       },
-      body: JSON.stringify({ ref: "main", inputs: { ticker } }),
+      body: JSON.stringify({ ref: "master", inputs: { ticker } }),
     }
   );
 
