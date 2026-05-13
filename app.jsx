@@ -1004,9 +1004,20 @@ function SecTracker({ liveFilings }) {
   const { rows } = useContext(PortfolioCtx);
   const tickers = new Set(rows.map(r => r.ticker));
 
-  // Merge: prefer live Finnhub filings, fall back to seed TL;DR
+  const MEANINGFUL_FORMS = new Set(["10-Q", "10-K", "8-K", "10-Q/A", "10-K/A", "6-K", "20-F"]);
   const seedFilings = SEC_SEED.filter(f => tickers.has(f.ticker));
-  const filings = liveFilings.length > 0 ? liveFilings : seedFilings;
+
+  // Filter live filings to meaningful forms only, then merge with seed:
+  // seed entries (which have Gemini TL;DRs) take priority per ticker;
+  // live filings fill in tickers not covered by seed.
+  const seedTickers = new Set(seedFilings.map(f => f.ticker));
+  const filteredLive = liveFilings.filter(f => {
+    const form = (f.form || f.type || "").toUpperCase().replace(/\s/g, "");
+    return MEANINGFUL_FORMS.has(form) && !seedTickers.has(f.ticker);
+  });
+  const filings = [...seedFilings, ...filteredLive]
+    .sort((a, b) => new Date(b.date || b.filedDate || 0) - new Date(a.date || a.filedDate || 0))
+    .slice(0, 8);
 
   return (
     <div className="pane">
