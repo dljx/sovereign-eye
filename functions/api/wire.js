@@ -67,10 +67,12 @@ async function fetchTavilyItems(tickers, apiKey) {
         body: JSON.stringify({
           api_key: apiKey,
           query: `${ticker} stock news today`,
+          topic: "news",
           search_depth: "basic",
           max_results: 2,
           include_answer: false,
           include_raw_content: false,
+          exclude_domains: ["finance.yahoo.com", "marketwatch.com", "google.com/finance", "robinhood.com", "wsj.com/market-data"],
         }),
       });
       if (!res.ok) continue;
@@ -99,10 +101,12 @@ async function fetchTavilyItems(tickers, apiKey) {
       body: JSON.stringify({
         api_key: apiKey,
         query: "stock market macro economic news today Federal Reserve",
+        topic: "news",
         search_depth: "basic",
         max_results: 3,
         include_answer: false,
         include_raw_content: false,
+        exclude_domains: ["finance.yahoo.com", "marketwatch.com", "robinhood.com"],
       }),
     });
     if (res.ok) {
