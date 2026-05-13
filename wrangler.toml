@@ -1,0 +1,14 @@
+name = "sovereign-eye"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "."
+
+# KV namespace binding — set id after creating the namespace in Cloudflare dashboard:
+#   wrangler kv:namespace create "sovereign-dd-results"
+# Then paste the id here and in Cloudflare Pages project settings.
+[[kv_namespaces]]
+binding = "DD_KV"
+id = "a3a124ad15af46fd98623e1f71c6533b"
+
+# Environment variables — also set these in Cloudflare Pages > Settings > Environment variables:
+#   GH_REPO  = "your-username/sovereign-dd"
+#   GH_TOKEN = "github_pat_..."  (fine-grained PAT: Actions: Read & Write)
