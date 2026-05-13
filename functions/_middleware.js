@@ -5,12 +5,19 @@ async function handleRequest(context) {
 
   if (auth) {
     const [scheme, encoded] = auth.split(" ");
+
+    // Basic auth — dashboard users
     if (scheme === "Basic") {
       const decoded = atob(encoded);
       const [user, pass] = decoded.split(":");
       if (user === CREDENTIALS.username && pass === CREDENTIALS.password) {
         return await context.next();
       }
+    }
+
+    // Bearer auth — let the individual handler validate the token
+    if (scheme === "Bearer") {
+      return await context.next();
     }
   }
 
