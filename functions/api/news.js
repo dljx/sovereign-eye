@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed";
+const CACHE_KEY = "news:feed:v2";
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -38,6 +38,7 @@ async function fetchFinnhubCompanyNews(tickers, apiKey) {
           datetime: n.datetime || 0,
           ago: timeAgo(n.datetime || 0),
           headline: (n.headline || "").slice(0, 150),
+          url: n.url || null,
         })).filter(n => n.headline);
       } catch { return []; }
     })
@@ -93,9 +94,12 @@ ${numbered}`;
     if (!Array.isArray(parsed)) return null;
     // Merge back datetime for proper sorting
     return parsed.map(item => {
-      const orig = rawItems.find(r => r.ticker === item.ticker &&
-        r.headline.slice(0, 30).toLowerCase() === (item.headline || "").slice(0, 30).toLowerCase())
-        || rawItems.find(r => r.ticker === item.ticker);
+      // Match by ticker + source (Gemma preserves source). Headline prefix is unreliable
+      // because Gemma rewrites headlines. Fall back to first item for that ticker.
+      const orig = rawItems.find(r =>
+          r.ticker === item.ticker &&
+          r.source?.toLowerCase() === (item.source || "").toLowerCase()
+        ) || rawItems.find(r => r.ticker === item.ticker);
       return {
         ticker: item.ticker || "—",
         source: item.source || orig?.source || "—",
@@ -103,6 +107,7 @@ ${numbered}`;
         datetime: orig?.datetime || 0,
         headline: (item.headline || "").slice(0, 110),
         severity: item.severity || "info",
+        url: orig?.url || null,
       };
     }).filter(item => item.headline);
   } catch { return null; }

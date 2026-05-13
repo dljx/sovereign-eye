@@ -1,46 +1,29 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sovereign Engine v1.0 — Portfolio Intelligence</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="mobile.css" />
+<meta charset="utf-8" />
+<title>Sovereign Eye</title>
+<meta name="viewport" content="width=1440" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css?v=20260514c" />
 </head>
 <body>
-  <div id="root"></div>
+<div id="root"></div>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 
-  <script src="positions.js"></script>
-  <script>
-    // Load mobile.jsx first (sets window.MobileApp), then load app.jsx.
-    // app.jsx detects viewport width and renders either MobileApp or App.
-    function injectScript(code, wrap) {
-      const s = document.createElement("script");
-      s.textContent = wrap ? "(function(){\n" + code + "\n})();" : code;
-      document.body.appendChild(s);
-    }
+<!-- User config + seed data (plain JS, not Babel-transformed) -->
+<script src="positions.js?v=20260514c"></script>
+<script src="seed.js?v=20260514c"></script>
 
-    fetch("mobile.jsx")
-      .then(r => r.text())
-      .then(code => {
-        injectScript(Babel.transform(code, { presets: ["react"] }).code, false);
-        return fetch("app.jsx");
-      })
-      .then(r => r.text())
-      .then(code => {
-        injectScript(Babel.transform(code, { presets: ["react"] }).code, true);
-      })
-      .catch(err => {
-        document.getElementById("root").innerHTML =
-          '<pre style="color:#f87171;padding:20px;font-family:monospace">Failed to load:\n' + err.message + '</pre>';
-      });
-  </script>
+<!-- React components — loaded in dependency order -->
+<script type="text/babel" src="holdings.jsx?v=20260514c"></script>
+<script type="text/babel" src="middle.jsx?v=20260514c"></script>
+<script type="text/babel" src="bottom.jsx?v=20260514c"></script>
+<script type="text/babel" src="app.jsx?v=20260514c"></script>
 </body>
 </html>

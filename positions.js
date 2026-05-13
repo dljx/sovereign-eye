@@ -23,18 +23,18 @@ const MY_POSITIONS = [
   { ticker: "AMZN",  name: "Amazon.com",            broker: "IBKR",  qty: 40,  avg: 237.45,  sector: "Cons. Disc.",  industry: "E-commerce · Cloud" },
   { ticker: "ANET",  name: "Arista Networks",       broker: "IBKR",  qty: 80,  avg: 143.64,  sector: "Tech",         industry: "Networking" },
   { ticker: "EME",   name: "EMCOR Group",           broker: "IBKR",  qty: 13,  avg: 922.69,  sector: "Industrials",  industry: "Electrical · Mech" },
-  { ticker: "MPWR",  name: "Monolithic Power Sys",  broker: "IBKR",  qty: 7,   avg: 1605.00, sector: "Tech",         industry: "Semis · Power" },
   { ticker: "MRVL",  name: "Marvell Technology",    broker: "IBKR",  qty: 67,  avg: 153.04,  sector: "Tech",         industry: "Semis · Custom AI" },
+  { ticker: "MTZ",   name: "MasTec Inc",            broker: "IBKR",  qty: 28,  avg: 407.71,  sector: "Industrials",  industry: "Infrastructure · Telecom" },
   { ticker: "PENG",  name: "Penguin Solutions",     broker: "IBKR",  qty: 234, avg: 22.37,   sector: "Tech",         industry: "AI Infra" },
-  { ticker: "SKWD",  name: "Skyward Specialty Ins", broker: "IBKR",  qty: 220, avg: 45.78,   sector: "Financials",   industry: "Specialty Insurance" },
+  { ticker: "VST",   name: "Vistra Corp",           broker: "IBKR",  qty: 69,  avg: 146.64,  sector: "Energy",       industry: "Power Generation" },
 
   // ── Tiger ──
   { ticker: "AVGO",  name: "Broadcom Inc",          broker: "Tiger", qty: 24,  avg: 373.41,  sector: "Tech",         industry: "Semis · Networking" },
   { ticker: "GOOG",  name: "Alphabet Cl C",         broker: "Tiger", qty: 30,  avg: 173.74,  sector: "Tech",         industry: "Internet · Ads" },
   { ticker: "MSFT",  name: "Microsoft Corp",        broker: "Tiger", qty: 27,  avg: 414.58,  sector: "Tech",         industry: "Software · Cloud" },
   { ticker: "MU",    name: "Micron Technology",     broker: "Tiger", qty: 17,  avg: 611.12,  sector: "Tech",         industry: "Semis · Memory" },
-  { ticker: "NOW",   name: "ServiceNow",            broker: "Tiger", qty: 112, avg: 92.02,   sector: "Tech",         industry: "Enterprise SaaS" },
-  { ticker: "RDDT",  name: "Reddit Inc",            broker: "Tiger", qty: 15,  avg: 172.71,  sector: "Comm.",        industry: "Social Media" },
+  { ticker: "NOW",   name: "ServiceNow",            broker: "Tiger", qty: 82,  avg: 92.02,   sector: "Tech",         industry: "Enterprise SaaS" },
+  { ticker: "P",     name: "Everpure",              broker: "Tiger", qty: 62,  avg: 82.14,   sector: "Cons. Disc.",  industry: "Consumer" },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -103,14 +103,18 @@ const MACRO_SERIES = {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const SEC_SEED = [
-  { ticker: "NVDA", form: "10-Q", date: "2026-05-07", url: "EDGAR/0001045810-26-000089", tldr: "DC revenue +147% YoY; Blackwell ramp ahead of plan; gross margin guided 75–76%." },
-  { ticker: "JPM",  form: "10-Q", date: "2026-05-07", url: "EDGAR/0000019617-26-000058", tldr: "NII up 4% QoQ; reserve build modest; CET1 15.4%; buyback authorization $30B reaffirmed." },
-  { ticker: "LLY",  form: "10-Q", date: "2026-05-06", url: "EDGAR/0000059478-26-000044", tldr: "GLP-1 portfolio +71% YoY; supply now constraint, not demand; FY guide raised twice." },
-  { ticker: "MSFT", form: "10-Q", date: "2026-05-06", url: "EDGAR/0000789019-26-000091", tldr: "Azure +33% cc; AI workloads contributing 8 pts; capex stepping up to $94B FY guide." },
-  { ticker: "AMZN", form: "10-Q", date: "2026-05-05", url: "EDGAR/0001018724-26-000038", tldr: "AWS +21% cc; retail margin expansion; capex front-loaded into AI infra." },
-  { ticker: "MU",   form: "8-K",  date: "2026-05-04", url: "EDGAR/0000723125-26-000112", tldr: "HBM3E qualified at second hyperscaler; FY27 HBM capacity sold-out commentary." },
-  { ticker: "XOM",  form: "10-Q", date: "2026-05-02", url: "EDGAR/0000034088-26-000071", tldr: "Permian production at record; downstream margin compressed; Pioneer synergies on track." },
-  { ticker: "UNH",  form: "8-K",  date: "2026-05-01", url: "EDGAR/0000731766-26-000034", tldr: "MLR elevated 84.8%; Optum Health margin reset; FY26 guide trimmed." },
+  { ticker: "MSFT", form: "10-Q", date: "2026-05-06", sentiment: "bull", tldr: "Azure +33% cc; AI workloads contributing 8 pts; capex stepping up to $94B FY guide." },
+  { ticker: "AMZN", form: "10-Q", date: "2026-05-05", sentiment: "bull", tldr: "AWS +21% cc; retail margin expansion; capex front-loaded into AI infra." },
+  { ticker: "MU",   form: "8-K",  date: "2026-05-04", sentiment: "bull", tldr: "HBM3E qualified at second hyperscaler; FY27 HBM capacity sold-out commentary." },
+  { ticker: "AVGO", form: "10-Q", date: "2026-05-03", sentiment: "bull", tldr: "Custom XPU revenue +140% YoY; AI revenue ~$12B annualised; VMware integration ahead of plan." },
+  { ticker: "GOOG", form: "10-Q", date: "2026-05-02", sentiment: "bull", tldr: "Search +12% YoY; YouTube +11%; Cloud +28%; Gemini integration lifting monetisation." },
+  { ticker: "ANET", form: "10-Q", date: "2026-05-01", sentiment: "bull", tldr: "Revenue +27% YoY; AI backend switching wins accelerating; campus adds incrementally." },
+  { ticker: "MRVL", form: "8-K",  date: "2026-04-28", sentiment: "bull", tldr: "Third hyperscaler DPU design win confirmed; FY27 custom silicon revenue guidance raised." },
+  { ticker: "NOW",  form: "10-Q", date: "2026-04-25", sentiment: "bull", tldr: "CRPO +22% YoY; Now Assist AI SKU penetrating installed base; NRR 122%." },
+  { ticker: "VST",  form: "10-Q", date: "2026-04-24", sentiment: "bull", tldr: "Nuclear capacity factor 93%; AI PPA pipeline $4.2B; FY26 EBITDA guidance raised." },
+  { ticker: "MTZ",  form: "10-Q", date: "2026-04-22", sentiment: "bull", tldr: "Backlog $14.6B record; utility + telecom mix 68%; EBITDA margin expanding on mix shift." },
+  { ticker: "EME",  form: "10-Q", date: "2026-04-21", sentiment: "bull", tldr: "RPO +18% YoY; data centre electrical work now 31% of revenue; margin at 7.4%." },
+  { ticker: "PENG", form: "8-K",  date: "2026-04-18", sentiment: "bull", tldr: "AI infrastructure segment revenue +42% QoQ; three new hyperscaler deployment contracts signed." },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════

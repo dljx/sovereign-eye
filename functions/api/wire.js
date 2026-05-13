@@ -6,7 +6,7 @@
  * Results are KV-cached for 10 minutes.
  */
 
-const CACHE_KEY = "wire:feed";
+const CACHE_KEY = "wire:feed:v2";
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 function timeAgo(dateStr) {
@@ -28,6 +28,7 @@ async function fetchFinnhubGeneralNews(apiKey) {
       source: n.source || "Finnhub",
       ago: timeAgo(new Date((n.datetime || 0) * 1000).toISOString()),
       headline: (n.headline || "").slice(0, 150),
+      url: n.url || null,
       hint: "MACRO",
     }));
   } catch { return []; }
@@ -64,6 +65,7 @@ async function fetchTavilyItems(tickers, apiKey) {
           source,
           ago: r.published_date ? timeAgo(r.published_date) : "?",
           headline,
+          url: r.url || null,
           hint: ticker,  // which ticker this query was for
         });
       });
@@ -94,7 +96,7 @@ async function fetchTavilyItems(tickers, apiKey) {
       if (!headline) return;
       let source = "unknown";
       try { source = new URL(r.url).hostname.replace("www.", ""); } catch {}
-      raw.push({ source, ago: r.published_date ? timeAgo(r.published_date) : "?", headline, hint: "MACRO" });
+      raw.push({ source, ago: r.published_date ? timeAgo(r.published_date) : "?", headline, url: r.url || null, hint: "MACRO" });
     });
   })
   .catch(() => {});
@@ -150,8 +152,13 @@ ${numbered}`;
     if (!Array.isArray(parsed)) return null;
     // Merge back the source/ago from the original items by matching headline prefix
     return parsed.map(item => {
-      const orig = rawItems.find(r => r.headline.slice(0, 40).toLowerCase() === (item.headline || "").slice(0, 40).toLowerCase())
-                || rawItems.find(r => r.hint === item.ticker_or_sector || r.hint === "MACRO");
+      // Match by source (Gemma preserves it) + hint. Headline prefix is unreliable
+      // because Gemma rewrites headlines.
+      const orig = rawItems.find(r =>
+          r.source?.toLowerCase() === (item.source || "").toLowerCase() &&
+          (r.hint === item.ticker_or_sector || r.hint === "MACRO")
+        ) || rawItems.find(r => r.source?.toLowerCase() === (item.source || "").toLowerCase())
+          || rawItems.find(r => r.hint === item.ticker_or_sector || r.hint === "MACRO");
       return {
         tag: item.tag || "TICKER",
         ticker_or_sector: item.ticker_or_sector || "—",
@@ -159,6 +166,7 @@ ${numbered}`;
         ago: orig?.ago || "?",
         headline: (item.headline || "").slice(0, 110),
         severity: item.severity || "info",
+        url: orig?.url || null,
       };
     }).filter(item => item.headline);
   } catch { return null; }
