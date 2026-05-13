@@ -1154,3 +1154,5 @@ function MobileApp() {
 }
 
 window.MobileApp = MobileApp;
+
+ReactDOM.createRoot(document.getElementById('root')).render(<MobileApp/>);
