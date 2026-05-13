@@ -740,37 +740,41 @@ function Treemap({ onHover, onLeave, mode }) {
 }
 
 // ─────────── Intelligence Feed (Synthesis + News) ───────────
-function IntelFeed({ liveNews }) {
+function IntelFeed() {
   const { rows } = useContext(PortfolioCtx);
   const tickers = new Set(rows.map(r => r.ticker));
-  const filteredSeedNews = NEWS_SEED.filter(n => tickers.has(n.ticker));
+  const tickerList = Array.from(tickers).filter(t => t !== "USD").join(",");
   const [tab, setTab] = useState("synthesis");
   const [synthesis, setSynthesis] = useState(null);
   const [synthLoading, setSynthLoading] = useState(true);
   const [synthCached, setSynthCached] = useState(false);
+  const [newsItems, setNewsItems] = useState([]);
+  const [newsLoading, setNewsLoading] = useState(true);
 
   // Fetch live Gemma synthesis from backend
   useEffect(() => {
-    const tickerList = Array.from(tickers).filter(t => t !== "USD").join(",");
     if (!tickerList) { setSynthLoading(false); return; }
-    setSynthLoading(true);
     fetch(`/api/synthesis?tickers=${tickerList}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data && data.catalysts) {
-          setSynthesis(data);
-          setSynthCached(!!data.cached);
-        }
+        if (data && data.catalysts) { setSynthesis(data); setSynthCached(!!data.cached); }
       })
       .catch(() => {})
       .finally(() => setSynthLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fetch Gemma-filtered news from backend
+  useEffect(() => {
+    if (!tickerList) { setNewsLoading(false); return; }
+    fetch(`/api/news?tickers=${tickerList}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (Array.isArray(data) && data.length > 0) setNewsItems(data); })
+      .catch(() => {})
+      .finally(() => setNewsLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Use live synthesis if available, fall back to seed
   const synth = synthesis || SYNTHESIS;
-
-  // Merge live news with seed news, preferring live
-  const newsItems = liveNews.length > 0 ? liveNews : filteredSeedNews;
 
   return (
     <div className="pane">
@@ -780,7 +784,7 @@ function IntelFeed({ liveNews }) {
         <div className="right">
           <span className={"tab " + (tab === "synthesis" ? "on" : "")} onClick={() => setTab("synthesis")}>Synthesis</span>
           <span className={"tab " + (tab === "news" ? "on" : "")} onClick={() => setTab("news")}>News · {newsItems.length}</span>
-          <span className="src">{liveNews.length > 0 ? "FINNHUB · LIVE" : "FINNHUB · SEED"}</span>
+          <span className="src">{newsItems.length > 0 ? "FINNHUB · GEMMA" : "LOADING"}</span>
         </div>
       </div>
       <div className="pane-body intel">
@@ -821,17 +825,16 @@ function IntelFeed({ liveNews }) {
           </>
         ) : (
           <div className="news">
-            {newsItems.length === 0 && <div className="no-data">No headlines match your positions.</div>}
-            {newsItems.map((n, i) => {
-              const dateStr = n.datetime ? new Date(n.datetime * 1000).toISOString() : "";
-              return (
+            {newsLoading && <div className="no-data" style={{color:"var(--fg-3)"}}>Filtering headlines…</div>}
+            {!newsLoading && newsItems.length === 0 && <div className="no-data">No significant news for your positions.</div>}
+            {newsItems.map((n, i) => (
                 <div key={i} className="news-item">
                   <div className="meta">
-                    <span className="src">{n.source || n.src || n.site || "—"}</span>
-                    <span className="ago">{dateStr ? timeAgo(dateStr) + " ago" : (n.ago ? n.ago + " ago" : "—")}</span>
+                    <span className="src">{n.source || "—"}</span>
+                    <span className="ago">{n.ago ? n.ago + " ago" : "—"}</span>
                   </div>
-                  <div className="ttl">{(n.headline || n.title || "").slice(0, 120)}</div>
-                  <span className="tk">{n.ticker || n.related || n.symbol || "—"}</span>
+                  <div className="ttl">{(n.headline || "").slice(0, 110)}</div>
+                  <span className="tk">{n.ticker || "—"}</span>
                 </div>
               );
             })}
@@ -1713,7 +1716,7 @@ function App() {
             </div>
           </div>
           <div className="right-stack">
-            <IntelFeed liveNews={liveNews} />
+            <IntelFeed />
             {scouts.length > 0
               ? <ScoutFeed scouts={scouts} />
               : <NewsWire tickers={tickers} />

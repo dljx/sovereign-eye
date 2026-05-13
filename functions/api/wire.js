@@ -1,21 +1,13 @@
 /**
  * GET /api/wire?tickers=AMZN,MSFT,...
  *
- * Returns a live news wire by merging:
- *   1. Finnhub general market news (broad macro/market items)
- *   2. Tavily search queries for each ticker + macro terms
- *
- * Response shape matches WIRE_SEED:
- *   [{ tag, ticker_or_sector, source, ago, headline, severity }, ...]
+ * Fetches raw news from Finnhub + Tavily, then passes everything through
+ * Gemma to filter to material items only and correct attribution.
+ * Results are KV-cached for 10 minutes.
  */
 
-const MACRO_TERMS = ["yield curve", "Federal Reserve", "inflation", "CPI", "S&P 500", "interest rates"];
-const SECTOR_MAP = {
-  AMZN: "Cons. Disc.", ANET: "Tech", EME: "Industrials", MPWR: "Tech",
-  MRVL: "Tech", PENG: "Tech", SKWD: "Financials", AVGO: "Tech",
-  GOOG: "Tech", MSFT: "Tech", MU: "Tech", NOW: "Tech",
-  RDDT: "Comm.", NVDA: "Tech", AAPL: "Tech", META: "Tech",
-};
+const CACHE_KEY = "wire:feed";
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
 function timeAgo(dateStr) {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -26,109 +18,150 @@ function timeAgo(dateStr) {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-function scoreSeverity(headline) {
-  const h = headline.toLowerCase();
-  if (/plunge|crash|collapse|warning|probe|doj|sec.{0,10}investi|recall|crisis|downgrade|miss|cut guidance/.test(h)) return "warn";
-  if (/surge|record|beat|raised guidance|new high|bull|upgrade/.test(h)) return "info";
-  return "info";
-}
-
 async function fetchFinnhubGeneralNews(apiKey) {
   try {
-    const res = await fetch(
-      `https://finnhub.io/api/v1/news?category=general&minId=0&token=${apiKey}`
-    );
+    const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${apiKey}`);
     if (!res.ok) return [];
     const data = await res.json();
     if (!Array.isArray(data)) return [];
-    return data.slice(0, 10).map(n => ({
-      tag: "MACRO",
-      ticker_or_sector: "MACRO",
+    return data.slice(0, 15).map(n => ({
       source: n.source || "Finnhub",
-      ago: timeAgo(new Date(n.datetime * 1000).toISOString()),
-      headline: (n.headline || "").slice(0, 120),
-      severity: scoreSeverity(n.headline || ""),
+      ago: timeAgo(new Date((n.datetime || 0) * 1000).toISOString()),
+      headline: (n.headline || "").slice(0, 150),
+      hint: "MACRO",
     }));
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 async function fetchTavilyItems(tickers, apiKey) {
-  const results = [];
+  const raw = [];
 
-  // Ticker-specific queries (top 4 tickers)
-  const topTickers = tickers.slice(0, 4);
-  for (const ticker of topTickers) {
-    try {
-      const res = await fetch("https://api.tavily.com/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_key: apiKey,
-          query: `${ticker} stock news today`,
-          topic: "news",
-          search_depth: "basic",
-          max_results: 2,
-          include_answer: false,
-          include_raw_content: false,
-          exclude_domains: ["finance.yahoo.com", "marketwatch.com", "google.com/finance", "robinhood.com", "wsj.com/market-data"],
-        }),
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (!Array.isArray(data.results)) continue;
-      data.results.forEach(r => {
-        const headline = (r.title || "").slice(0, 120);
-        if (!headline) return;
-        results.push({
-          tag: "TICKER",
-          ticker_or_sector: ticker,
-          source: new URL(r.url || "https://unknown.com").hostname.replace("www.", ""),
-          ago: r.published_date ? timeAgo(r.published_date) : "?",
-          headline,
-          severity: scoreSeverity(headline),
-        });
-      });
-    } catch { /* skip */ }
-  }
-
-  // One macro query
-  try {
-    const res = await fetch("https://api.tavily.com/search", {
+  // Query top 5 tickers in parallel
+  const tickerQueries = tickers.slice(0, 5).map(ticker =>
+    fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         api_key: apiKey,
-        query: "stock market macro economic news today Federal Reserve",
+        query: `${ticker} earnings revenue analyst guidance 2026`,
         topic: "news",
         search_depth: "basic",
         max_results: 3,
         include_answer: false,
         include_raw_content: false,
-        exclude_domains: ["finance.yahoo.com", "marketwatch.com", "robinhood.com"],
+        exclude_domains: ["finance.yahoo.com", "marketwatch.com", "robinhood.com", "wsj.com/market-data", "google.com"],
       }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.results)) {
-        data.results.forEach(r => {
-          const headline = (r.title || "").slice(0, 120);
-          if (!headline) return;
-          results.push({
-            tag: "MACRO",
-            ticker_or_sector: "MACRO",
-            source: new URL(r.url || "https://unknown.com").hostname.replace("www.", ""),
-            ago: r.published_date ? timeAgo(r.published_date) : "?",
-            headline,
-            severity: scoreSeverity(headline),
-          });
+    })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if (!data?.results) return;
+      data.results.forEach(r => {
+        const headline = (r.title || "").slice(0, 150);
+        if (!headline) return;
+        let source = "unknown";
+        try { source = new URL(r.url).hostname.replace("www.", ""); } catch {}
+        raw.push({
+          source,
+          ago: r.published_date ? timeAgo(r.published_date) : "?",
+          headline,
+          hint: ticker,  // which ticker this query was for
         });
-      }
-    }
-  } catch { /* skip */ }
+      });
+    })
+    .catch(() => {})
+  );
 
-  return results;
+  // One macro query
+  const macroQuery = fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query: "Federal Reserve interest rates earnings recession GDP inflation 2026",
+      topic: "news",
+      search_depth: "basic",
+      max_results: 4,
+      include_answer: false,
+      include_raw_content: false,
+      exclude_domains: ["finance.yahoo.com", "marketwatch.com", "robinhood.com"],
+    }),
+  })
+  .then(r => r.ok ? r.json() : null)
+  .then(data => {
+    if (!data?.results) return;
+    data.results.forEach(r => {
+      const headline = (r.title || "").slice(0, 150);
+      if (!headline) return;
+      let source = "unknown";
+      try { source = new URL(r.url).hostname.replace("www.", ""); } catch {}
+      raw.push({ source, ago: r.published_date ? timeAgo(r.published_date) : "?", headline, hint: "MACRO" });
+    });
+  })
+  .catch(() => {});
+
+  await Promise.all([...tickerQueries, macroQuery]);
+  return raw;
+}
+
+async function filterWithGemma(rawItems, tickers, apiKey) {
+  if (!apiKey || rawItems.length === 0) return [];
+
+  const tickerList = tickers.join(", ");
+  const numbered = rawItems.map((item, i) =>
+    `${i + 1}. [hint: ${item.hint}] "${item.headline}" (${item.source}, ${item.ago} ago)`
+  ).join("\n");
+
+  const prompt = `You are an editorial filter for a stock portfolio dashboard. The portfolio holds: ${tickerList}.
+
+Below are raw news headlines fetched from various sources. Many are noise — generic market recaps, price-only updates, articles about companies NOT in the portfolio, or irrelevant content.
+
+Your job: return ONLY headlines that are materially significant for an investor holding these specific stocks. Material means: earnings results, revenue/guidance changes, analyst upgrades/downgrades with price targets, M&A activity, major product launches, executive changes, regulatory/legal actions, or important macro data (Fed decisions, CPI, GDP).
+
+For each item you keep:
+- Set "tag" to "TICKER" if it's about a specific portfolio company, "MACRO" if it's a broad market/economic item, "SECTOR" if it's about a sector trend
+- Set "ticker_or_sector" to the exact ticker symbol (e.g. "AMZN") for TICKER items, "MACRO" for macro, or sector name for SECTOR
+- Only assign a ticker if the article is genuinely about that company — not just tangentially mentioning it
+- Write a clean "headline" under 100 characters that captures the key fact
+- Set "severity" to "warn" for negative news, "info" for positive/neutral
+
+Return ONLY a JSON array (no markdown, no explanation). If nothing qualifies, return [].
+
+Headlines to evaluate:
+${numbered}`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+        }),
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
+    const jsonStr = raw.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+    const parsed = JSON.parse(jsonStr);
+    if (!Array.isArray(parsed)) return null;
+    // Merge back the source/ago from the original items by matching headline prefix
+    return parsed.map(item => {
+      const orig = rawItems.find(r => r.headline.slice(0, 40).toLowerCase() === (item.headline || "").slice(0, 40).toLowerCase())
+                || rawItems.find(r => r.hint === item.ticker_or_sector || r.hint === "MACRO");
+      return {
+        tag: item.tag || "TICKER",
+        ticker_or_sector: item.ticker_or_sector || "—",
+        source: orig?.source || "—",
+        ago: orig?.ago || "?",
+        headline: (item.headline || "").slice(0, 110),
+        severity: item.severity || "info",
+      };
+    }).filter(item => item.headline);
+  } catch { return null; }
 }
 
 export async function onRequestGet(context) {
@@ -138,32 +171,65 @@ export async function onRequestGet(context) {
 
   const fhKey = context.env.FINNHUB_API_KEY;
   const tvKey = context.env.TAVILY_API_KEY;
+  const gemKey = context.env.GEMINI_API_KEY;
 
-  if (!fhKey && !tvKey) {
-    return new Response(JSON.stringify({ error: "No API keys configured" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+  // Check KV cache
+  if (context.env.DD_KV) {
+    try {
+      const cached = await context.env.DD_KV.get(CACHE_KEY, "json");
+      if (cached?.items && cached.updatedAt) {
+        const age = Date.now() - new Date(cached.updatedAt).getTime();
+        if (age < CACHE_TTL_MS) {
+          return new Response(JSON.stringify(cached.items), {
+            headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+          });
+        }
+      }
+    } catch {}
   }
 
+  // Fetch raw items in parallel
   const [finnhubItems, tavilyItems] = await Promise.all([
     fhKey ? fetchFinnhubGeneralNews(fhKey) : Promise.resolve([]),
     tvKey && tickers.length > 0 ? fetchTavilyItems(tickers, tvKey) : Promise.resolve([]),
   ]);
 
-  // Merge, deduplicate by headline prefix, cap at 12 items
+  // Deduplicate by headline prefix before sending to Gemma
   const seen = new Set();
-  const merged = [...tavilyItems, ...finnhubItems].filter(item => {
-    const key = item.headline.slice(0, 50).toLowerCase();
+  const allRaw = [...tavilyItems, ...finnhubItems].filter(item => {
+    const key = item.headline.slice(0, 60).toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
-  }).slice(0, 12);
+  });
 
-  return new Response(JSON.stringify(merged), {
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "public, max-age=120", // 2-min browser cache
-    },
+  // Run Gemma editorial filter
+  let items = gemKey ? await filterWithGemma(allRaw, tickers, gemKey) : null;
+
+  // Fallback: basic keyword filter if Gemma fails
+  if (!items) {
+    const NOISE = /stock price|quote|buy or sell|market data|at a glance|weekly recap|week that was|today.*dow.*nasdaq|live updates/i;
+    items = allRaw
+      .filter(r => !NOISE.test(r.headline))
+      .slice(0, 8)
+      .map(r => ({
+        tag: r.hint === "MACRO" ? "MACRO" : "TICKER",
+        ticker_or_sector: r.hint,
+        source: r.source,
+        ago: r.ago,
+        headline: r.headline.slice(0, 110),
+        severity: "info",
+      }));
+  }
+
+  // Cache result
+  if (context.env.DD_KV && items.length > 0) {
+    try {
+      await context.env.DD_KV.put(CACHE_KEY, JSON.stringify({ items, updatedAt: new Date().toISOString() }), { expirationTtl: 3600 });
+    } catch {}
+  }
+
+  return new Response(JSON.stringify(items), {
+    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 }
