@@ -72,13 +72,13 @@ Recent headlines:
 ${headlineBlock}`;
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
+        generationConfig: { temperature: 0.3, maxOutputTokens: 1024 },
       }),
     }
   );
@@ -89,7 +89,9 @@ ${headlineBlock}`;
   }
 
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  // Gemma thinking models return multiple parts; skip thought traces, grab first real output
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
 
   // Strip markdown code fences if present
   const jsonStr = raw.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
