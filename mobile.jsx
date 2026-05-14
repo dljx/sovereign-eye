@@ -4,10 +4,12 @@
 
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-const {
-  MY_POSITIONS: SEED_POSITIONS, CONFIG,
-  SYNTHESIS: SEED_SYNTHESIS, SEC_SEED, NEWS_SEED, WIRE_SEED,
-} = window.SE_CONFIG;
+// Rename everything to avoid clashing with const declarations in positions.js
+const M_POSITIONS  = window.SE_CONFIG.MY_POSITIONS;
+const M_CONFIG     = window.SE_CONFIG.CONFIG;
+const M_SYNTHESIS  = window.SE_CONFIG.SYNTHESIS;
+const M_SEC_SEED   = window.SE_CONFIG.SEC_SEED;
+const M_NEWS_SEED  = window.SE_CONFIG.NEWS_SEED;
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const SE = {
@@ -124,7 +126,7 @@ async function loadPositions() {
   const kv = await kvLoad();
   if (kv) return kv;
   try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p) && p.length) return p; } } catch (e) {}
-  return SEED_POSITIONS;
+  return M_POSITIONS;
 }
 
 // ── Data enrichment ────────────────────────────────────────────────────────────
@@ -482,7 +484,7 @@ function SEScreenIntel({ data, onNavigate, initialTab = 'SYNTHESIS' }) {
 }
 
 function IntelSynthesis({ synthesis }) {
-  const s = synthesis || SEED_SYNTHESIS;
+  const s = synthesis || M_SYNTHESIS;
   return (
     <div>
       <div style={{
@@ -560,7 +562,7 @@ function IntelNews({ news }) {
 }
 
 function IntelSEC({ filings }) {
-  const items = (filings && filings.length) ? filings : SEC_SEED;
+  const items = (filings && filings.length) ? filings : M_SEC_SEED;
   return (
     <div>
       {items.map((f, i) => {
@@ -771,10 +773,10 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
   if (!pos) return null;
   const ext = pos.px * (1 + (pos.dPct >= 0 ? 0.0018 : -0.0022));
   const metrics = METRICS_MAP[pos.t] || { pe: 30, eps: 5, tgt: pos.px * 1.1, beta: pos.beta || 1 };
-  const relevantNews = NEWS_SEED.filter(n => n.ticker === pos.t);
-  const relevantFilings = SEC_SEED.filter(f => f.ticker === pos.t);
-  const displayNews = relevantNews.length > 0 ? relevantNews : NEWS_SEED.slice(0, 3).map(n => ({ ...n, ticker: pos.t }));
-  const displayFilings = relevantFilings.length > 0 ? relevantFilings : SEC_SEED.slice(0, 2).map(f => ({ ...f, ticker: pos.t }));
+  const relevantNews = M_NEWS_SEED.filter(n => n.ticker === pos.t);
+  const relevantFilings = M_SEC_SEED.filter(f => f.ticker === pos.t);
+  const displayNews = relevantNews.length > 0 ? relevantNews : M_NEWS_SEED.slice(0, 3).map(n => ({ ...n, ticker: pos.t }));
+  const displayFilings = relevantFilings.length > 0 ? relevantFilings : M_SEC_SEED.slice(0, 2).map(f => ({ ...f, ticker: pos.t }));
 
   return (
     <SEPhone>
@@ -915,7 +917,7 @@ function SEScreenSettings({ data, onNavigate, positions, onSavePositions }) {
   const [syncStatus, setSyncStatus] = useState('');
 
   const tickers = positions.map(p => p.ticker).join(', ');
-  const apiKey = CONFIG.FINNHUB_API_KEY || '';
+  const apiKey = M_CONFIG.FINNHUB_API_KEY || '';
   const maskedKey = apiKey ? apiKey.slice(0, 4) + '••••••••' + apiKey.slice(-4) : '(not configured)';
 
   const handleSync = async () => {
@@ -1077,9 +1079,9 @@ function MobileApp() {
 
   const fetchLive = useCallback(async () => {
     if (!tickers.length) return;
-    const q = await fetchQuotes(tickers, CONFIG.FINNHUB_API_KEY);
+    const q = await fetchQuotes(tickers, M_CONFIG.FINNHUB_API_KEY);
     if (Object.keys(q).length) setQuotes(q);
-    const n = await fetchFinnhubNews(tickers, CONFIG.FINNHUB_API_KEY);
+    const n = await fetchFinnhubNews(tickers, M_CONFIG.FINNHUB_API_KEY);
     if (n.length) setLiveNews(n);
     const s = await fetchSynthesis(tickers);
     if (s) setSynthesis(s);
@@ -1088,7 +1090,7 @@ function MobileApp() {
   useEffect(() => {
     if (!tickers.length) return;
     fetchLive();
-    const ms = CONFIG.REFRESH_INTERVAL_MS || 30000;
+    const ms = M_CONFIG.REFRESH_INTERVAL_MS || 30000;
     const t = setInterval(fetchLive, ms);
     return () => clearInterval(t);
   }, [fetchLive]);
@@ -1118,7 +1120,7 @@ function MobileApp() {
         sent: 'BULL', // Finnhub doesn't provide sentiment — defaulting
       }));
     }
-    return NEWS_SEED.map(n => ({ ticker: n.ticker, src: n.src, ago: n.ago, headline: n.title, sent: 'BULL' }));
+    return M_NEWS_SEED.map(n => ({ ticker: n.ticker, src: n.src, ago: n.ago, headline: n.title, sent: 'BULL' }));
   }, [liveNews]);
 
   const data = { portfolio, positions: enriched, meta, synthesis, news: intelNews, filings: null, scout };
