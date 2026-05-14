@@ -74,6 +74,137 @@ function DDGradeBadge({ grade, large = false }) {
   );
 }
 
+// ── Pixel Debate animation ─────────────────────────────────────────────────────
+const M_PIXEL_AGENTS = [
+  { name: 'VALUE',  body: '#c8a030', head: '#e8c870', dark: '#7a5f10' },
+  { name: 'GROWTH', body: '#3080c8', head: '#70b0e8', dark: '#103878' },
+  { name: 'QUANT',  body: '#8030c8', head: '#b070e8', dark: '#401078' },
+  { name: 'RISK',   body: '#c83030', head: '#e87070', dark: '#781010' },
+  { name: 'MACRO',  body: '#20a880', head: '#60d8b0', dark: '#0e5a44' },
+];
+const M_BUBBLE_WORDS = ['DCF!', '+40%', 'RISK!', 'P/E?', 'FCF!', 'BUY!', 'MACRO', 'HOLD?', 'EPS↑', 'WACC'];
+
+function MPixelDebate({ elapsed, ticker }) {
+  const canvasRef = useRef(null);
+  const animRef   = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const cx = W / 2, cy = H / 2 - 8;
+    const r  = Math.min(W, H) * 0.30;
+
+    const pos = M_PIXEL_AGENTS.map((_, i) => {
+      const a = (i * 2 * Math.PI / 5) - Math.PI / 2;
+      return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+    });
+
+    let conns = [], bubbles = [], lastConn = 0, lastBubble = 0;
+
+    function drawChar(x, y, agent, bob) {
+      const P = 3;
+      const bx = Math.round(x - 4.5 * P), by = Math.round(y - 9 * P + bob);
+      ctx.fillStyle = agent.head;
+      ctx.fillRect(bx + P,   by,       3*P, P);
+      ctx.fillRect(bx,       by + P,   5*P, 2*P);
+      ctx.fillRect(bx + P,   by + 3*P, 3*P, P);
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(bx + P,   by + P,   P, P);
+      ctx.fillRect(bx + 3*P, by + P,   P, P);
+      ctx.fillStyle = agent.body;
+      ctx.fillRect(bx + P,   by + 4*P, 3*P, 3*P);
+      ctx.fillRect(bx,       by + 5*P, P,   P);
+      ctx.fillRect(bx + 4*P, by + 5*P, P,   P);
+      ctx.fillStyle = agent.dark;
+      ctx.fillRect(bx + P,   by + 7*P, P, 2*P);
+      ctx.fillRect(bx + 3*P, by + 7*P, P, 2*P);
+      ctx.fillStyle = 'rgba(161,161,170,0.75)';
+      ctx.font = '7px ' + SE.mono;
+      ctx.textAlign = 'center';
+      ctx.fillText(agent.name, x, y + 4*P);
+    }
+
+    function drawConn(p1, p2, alpha) {
+      ctx.save();
+      ctx.strokeStyle = `rgba(129,140,248,${alpha})`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y - 12);
+      ctx.lineTo(p2.x, p2.y - 12);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawBubble(x, y, text, alpha) {
+      const w = text.length * 5 + 10;
+      const bx = x - w/2, by = y - 38;
+      ctx.fillStyle = `rgba(17,17,20,${alpha})`;
+      ctx.fillRect(bx, by, w, 12);
+      ctx.strokeStyle = `rgba(129,140,248,${alpha * 0.9})`;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(bx, by, w, 12);
+      ctx.fillStyle = `rgba(244,244,245,${alpha})`;
+      ctx.font = '7px ' + SE.mono;
+      ctx.textAlign = 'center';
+      ctx.fillText(text, x, by + 9);
+    }
+
+    function frame(ts) {
+      const t = ts / 1000;
+      ctx.clearRect(0, 0, W, H);
+      if (t - lastConn > 2.2) {
+        lastConn = t;
+        const pairs = [];
+        for (let a = 0; a < 5; a++)
+          for (let b = a+1; b < 5; b++) pairs.push([a, b]);
+        pairs.sort(() => Math.random() - 0.5);
+        conns = pairs.slice(0, 2 + Math.floor(Math.random() * 2)).map(([a, b]) => ({ a, b, born: t }));
+      }
+      if (t - lastBubble > 1.4) {
+        lastBubble = t;
+        bubbles.push({ i: Math.floor(Math.random() * 5), text: M_BUBBLE_WORDS[Math.floor(Math.random() * M_BUBBLE_WORDS.length)], born: t });
+        if (bubbles.length > 4) bubbles.shift();
+      }
+      conns.forEach(c => {
+        const age = t - c.born;
+        const alpha = age < 0.25 ? age/0.25 : age < 1.6 ? 1 : Math.max(0, 1 - (age-1.6)/0.6);
+        if (alpha > 0) drawConn(pos[c.a], pos[c.b], alpha * 0.55);
+      });
+      M_PIXEL_AGENTS.forEach((agent, i) => {
+        const bob = Math.sin(t * 1.8 + i * 0.7) * 1.8;
+        drawChar(pos[i].x, pos[i].y, agent, bob);
+      });
+      bubbles.forEach(b => {
+        const age = t - b.born;
+        const alpha = age < 0.15 ? age/0.15 : age < 0.9 ? 1 : Math.max(0, 1 - (age-0.9)/0.5);
+        if (alpha > 0) drawBubble(pos[b.i].x, pos[b.i].y, b.text, alpha);
+      });
+      animRef.current = requestAnimationFrame(frame);
+    }
+
+    animRef.current = requestAnimationFrame(frame);
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
+  }, []);
+
+  const mins = Math.floor((elapsed || 0) / 60), secs = (elapsed || 0) % 60;
+  const elFmt = mins > 0 ? `${mins}m ${secs < 10 ? '0' : ''}${secs}s` : `${secs}s`;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '8px 0' }}>
+      <canvas ref={canvasRef} width={200} height={160} style={{ imageRendering: 'pixelated' }}/>
+      <div style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: '0.1em' }}>
+        {ticker ? `DEBATING ${ticker} · ` : 'DEBATING · '}{elFmt}
+      </div>
+      <div style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: '0.08em', opacity: 0.6 }}>
+        5 AGENTS · PARALLEL · RUNS IN CLOUD
+      </div>
+    </div>
+  );
+}
+
 // ── Formatters ─────────────────────────────────────────────────────────────────
 const money = (n, dp = 2) => (+n || 0).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 const pct   = (n, dp = 2) => (+n || 0).toFixed(dp) + '%';
@@ -839,13 +970,18 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
 
   const [ddData, setDdData] = useState(null);
   const [ddLoading, setDdLoading] = useState(true);
+  const [ddElapsed, setDdElapsed] = useState(0);
   useEffect(() => {
     setDdData(null);
     setDdLoading(true);
+    setDdElapsed(0);
+    const start = Date.now();
+    const timer = setInterval(() => setDdElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
     fetch(`/api/dd/${pos.t.toLowerCase()}`)
       .then(r => r.ok ? r.json() : null)
-      .then(raw => { setDdData(extractDD(raw)); setDdLoading(false); })
-      .catch(() => setDdLoading(false));
+      .then(raw => { setDdData(extractDD(raw)); setDdLoading(false); clearInterval(timer); })
+      .catch(() => { setDdLoading(false); clearInterval(timer); });
+    return () => clearInterval(timer);
   }, [pos.t]);
 
   return (
@@ -945,7 +1081,7 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
         <SESectionHeader label="SOVEREIGN DD"/>
         <div style={{ margin: '0 16px 12px', border: `1px solid ${SE.b1}`, background: SE.bg1 }}>
           {ddLoading ? (
-            <div style={{ padding: '14px 16px', fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1 }}>LOADING…</div>
+            <MPixelDebate elapsed={ddElapsed} ticker={pos.t}/>
           ) : !ddData ? (
             <div style={{ padding: '14px 16px', fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1 }}>NO ANALYSIS AVAILABLE</div>
           ) : (
