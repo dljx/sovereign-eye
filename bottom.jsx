@@ -15,13 +15,14 @@ function fmtElapsed(secs) {
 // Map sovereign-dd result shape → display shape
 function mapDDResult(data) {
   if (!data) return null;
-  const score = data.consensus_score ?? data.score ?? 0;
-  const rawGrade = (data.consensus_grade ?? data.grade ?? "HOLD").trim();
+  const d = data.result || data;
+  const score = d.consensus_score ?? d.score ?? 0;
+  const rawGrade = (d.consensus_grade ?? d.grade ?? "HOLD").trim();
   const grade = rawGrade.replace(/ /g, "-").toUpperCase();
-  const confidence = data.confidence ?? "MEDIUM";
-  const thesis = data.majority_thesis ?? data.thesis ?? "";
-  const swing = data.key_swing_factor ?? data.swing ?? "";
-  const agents = (data.agents || []).map(a => {
+  const confidence = d.confidence ?? "MEDIUM";
+  const thesis = d.majority_thesis ?? d.thesis ?? "";
+  const swing = d.key_swing_factor ?? d.swing ?? "";
+  const agents = (d.agents || []).map(a => {
     const rawVote = (a.signal ?? a.vote ?? a.stance ?? "HOLD").toUpperCase();
     const vote = (rawVote === "BUY" || rawVote === "STRONG BUY" || rawVote === "STRONG-BUY" || rawVote === "BULL")
       ? "bull"
@@ -196,7 +197,8 @@ function SovereignDD({ ticker, onTickerChange }) {
       fetch(`/api/dd/${ticker.toLowerCase()}`)
         .then(r => r.ok ? r.json() : null)
         .then(data => {
-          if (data && (data.consensus_score != null || data.score != null)) {
+          const rd = data?.result || data;
+          if (data && (rd.consensus_score != null || rd.score != null)) {
             const mapped = mapDDResult(data);
             if (mapped) {
               setResult(mapped);
@@ -249,7 +251,8 @@ function SovereignDD({ ticker, onTickerChange }) {
         const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
         if (r.ok) {
           const data = await r.json();
-          if (data && (data.consensus_score != null || data.score != null)) {
+          const r2 = data?.result || data;
+          if (data && (r2.consensus_score != null || r2.score != null)) {
             stopAll();
             const mapped = mapDDResult(data);
             if (mapped) {
