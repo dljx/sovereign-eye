@@ -21,6 +21,59 @@ const SE = {
   sans: 'Inter, -apple-system, system-ui, sans-serif',
 };
 
+// ── DD helpers ─────────────────────────────────────────────────────────────────
+function extractDD(raw) {
+  if (!raw) return null;
+  const r = raw.result || raw;
+  if (r.consensus_score == null && r.score == null) return null;
+  return {
+    score:      +(r.consensus_score ?? r.score ?? 0).toFixed(2),
+    grade:      (r.consensus_grade ?? r.grade ?? 'HOLD').trim().toUpperCase(),
+    confidence: r.confidence ?? 'MEDIUM',
+    thesis:     r.majority_thesis ?? r.thesis ?? '',
+    swing:      r.key_swing_factor ?? '',
+    dissent:    r.dissent ?? '',
+    agentScores: r.agent_final_scores ?? {},
+    loops:      r.loops_run ?? 0,
+    converged:  r.converged ?? false,
+  };
+}
+
+function ddGradeColor(grade) {
+  if (!grade) return SE.fg3;
+  const g = grade.toUpperCase();
+  if (g === 'STRONG BUY' || g === 'BUY')   return SE.green;
+  if (g === 'STRONG SELL' || g === 'SELL') return SE.red;
+  return SE.fg3;
+}
+
+function ddGradeAbbr(grade) {
+  if (!grade) return '?';
+  switch (grade.toUpperCase()) {
+    case 'STRONG BUY':  return 'SB';
+    case 'BUY':         return 'B';
+    case 'HOLD':        return 'H';
+    case 'SELL':        return 'S';
+    case 'STRONG SELL': return 'SS';
+    default:            return grade.charAt(0);
+  }
+}
+
+function DDGradeBadge({ grade, large = false }) {
+  const color = ddGradeColor(grade);
+  const bg    = color === SE.fg3 ? SE.bg3 : color + '22';
+  return (
+    <span style={{
+      fontFamily: SE.mono, fontSize: large ? 9 : 7, fontWeight: 700,
+      letterSpacing: large ? 1 : 0.8, color,
+      background: bg, padding: large ? '2px 6px' : '1px 4px',
+      lineHeight: 1, flexShrink: 0,
+    }}>
+      {large ? grade : ddGradeAbbr(grade)}
+    </span>
+  );
+}
+
 // ── Formatters ─────────────────────────────────────────────────────────────────
 const money = (n, dp = 2) => (+n || 0).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
 const pct   = (n, dp = 2) => (+n || 0).toFixed(dp) + '%';
@@ -362,7 +415,7 @@ function SEPriceSpark({ dir, ticker }) {
 // ── SCREEN 1: Portfolio ────────────────────────────────────────────────────────
 
 function SEScreenHome({ data, onNavigate, onTapPosition }) {
-  const { portfolio: p, positions, meta } = data;
+  const { portfolio: p, positions, meta, ddIndex = {} } = data;
   return (
     <SEPhone>
       <SEAppHeader session={meta.session} sgt={meta.sgt} sub={meta.date}/>
@@ -419,7 +472,10 @@ function SEScreenHome({ data, onNavigate, onTapPosition }) {
             }}>
               <div style={{ display: 'grid', gridTemplateColumns: '68px 1fr 62px 52px', gap: 6, alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontFamily: SE.mono, fontSize: 13, fontWeight: 700, color: SE.fg0, letterSpacing: 0.4 }}>{pos.t}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontFamily: SE.mono, fontSize: 13, fontWeight: 700, color: SE.fg0, letterSpacing: 0.4 }}>{pos.t}</span>
+                    {ddIndex[pos.t] && <DDGradeBadge grade={ddIndex[pos.t].grade}/>}
+                  </div>
                   <SETrend dir={pos.trend} value={pos.t} width={42} height={13}/>
                 </div>
                 <div>
@@ -781,6 +837,17 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
   const displayNews = relevantNews.length > 0 ? relevantNews : M_NEWS_SEED.slice(0, 3).map(n => ({ ...n, ticker: pos.t }));
   const displayFilings = relevantFilings.length > 0 ? relevantFilings : M_SEC_SEED.slice(0, 2).map(f => ({ ...f, ticker: pos.t }));
 
+  const [ddData, setDdData] = useState(null);
+  const [ddLoading, setDdLoading] = useState(true);
+  useEffect(() => {
+    setDdData(null);
+    setDdLoading(true);
+    fetch(`/api/dd/${pos.t.toLowerCase()}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(raw => { setDdData(extractDD(raw)); setDdLoading(false); })
+      .catch(() => setDdLoading(false));
+  }, [pos.t]);
+
   return (
     <SEPhone>
       {/* Custom header */}
@@ -872,6 +939,63 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
               <div style={{ fontFamily: SE.mono, fontSize: 15, color: SE.fg0, fontVariantNumeric: 'tabular-nums', marginTop: 3, fontWeight: 600 }}>{v}</div>
             </div>
           ))}
+        </div>
+
+        {/* Sovereign DD */}
+        <SESectionHeader label="SOVEREIGN DD"/>
+        <div style={{ margin: '0 16px 12px', border: `1px solid ${SE.b1}`, background: SE.bg1 }}>
+          {ddLoading ? (
+            <div style={{ padding: '14px 16px', fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1 }}>LOADING…</div>
+          ) : !ddData ? (
+            <div style={{ padding: '14px 16px', fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1 }}>NO ANALYSIS AVAILABLE</div>
+          ) : (
+            <div>
+              {/* Score + grade row */}
+              <div style={{ padding: '12px 14px 10px', borderBottom: `1px solid ${SE.b1}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontFamily: SE.mono, fontSize: 26, fontWeight: 700, color: SE.fg0, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                  {ddData.score.toFixed(2)}
+                </span>
+                <span style={{ fontFamily: SE.mono, fontSize: 11, color: SE.fg3, marginTop: 2 }}>/ 10</span>
+                <DDGradeBadge grade={ddData.grade} large={true}/>
+                <span style={{ marginLeft: 'auto', fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1 }}>
+                  {ddData.confidence}
+                </span>
+              </div>
+              {/* Thesis */}
+              {ddData.thesis ? (
+                <div style={{ padding: '10px 14px', borderBottom: `1px solid ${SE.b1}`, fontFamily: SE.sans, fontSize: 11.5, color: SE.fg1, lineHeight: 1.55 }}>
+                  {ddData.thesis}
+                </div>
+              ) : null}
+              {/* Key swing factor */}
+              {ddData.swing ? (
+                <div style={{ padding: '8px 14px', borderBottom: `1px solid ${SE.b1}`, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  <span style={{ fontFamily: SE.mono, fontSize: 8, fontWeight: 700, letterSpacing: 1, color: SE.amber, flexShrink: 0, marginTop: 1 }}>SWING</span>
+                  <span style={{ fontFamily: SE.sans, fontSize: 11, color: SE.fg2, lineHeight: 1.4 }}>{ddData.swing}</span>
+                </div>
+              ) : null}
+              {/* Agent scores */}
+              {Object.keys(ddData.agentScores).length > 0 ? (
+                <div style={{ padding: '8px 14px' }}>
+                  <div style={{ fontFamily: SE.mono, fontSize: 8, color: SE.fg3, letterSpacing: 1.2, fontWeight: 600, marginBottom: 6 }}>AGENT SCORES</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px' }}>
+                    {Object.entries(ddData.agentScores).map(([agent, score]) => {
+                      const s = +score;
+                      const color = s >= 6.5 ? SE.green : s <= 4.5 ? SE.red : SE.fg3;
+                      const arrow = s >= 6.5 ? '▲' : s <= 4.5 ? '▼' : '→';
+                      return (
+                        <div key={agent} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                          <span style={{ fontFamily: SE.mono, fontSize: 8, color: SE.fg3, letterSpacing: 0.5, minWidth: 70 }}>{agent.toUpperCase().slice(0, 10)}</span>
+                          <span style={{ fontFamily: SE.mono, fontSize: 10, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{s.toFixed(1)}</span>
+                          <span style={{ fontFamily: SE.mono, fontSize: 8, color }}>{arrow}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
 
         {/* Recent news */}
@@ -1059,6 +1183,7 @@ function MobileApp() {
   const [liveNews, setLiveNews] = useState([]);
   const [synthesis, setSynthesis] = useState(null);
   const [scout, setScout] = useState(null);
+  const [ddIndex, setDdIndex] = useState({});
   const [screen, setScreen] = useState('portfolio');
   const [detailPos, setDetailPos] = useState(null);
   const [tick, setTick] = useState(0);
@@ -1068,6 +1193,7 @@ function MobileApp() {
     loadPositions().then(p => setPositions(p));
     fetchSGD().then(r => setSgdRate(r));
     fetchScoutResults().then(r => { if (r) setScout(r); });
+    fetch('/api/dd/').then(r => r.ok ? r.json() : {}).then(idx => { if (idx) setDdIndex(idx); }).catch(() => {});
   }, []);
 
   // Save to localStorage + KV when positions change
@@ -1132,7 +1258,7 @@ function MobileApp() {
     return M_NEWS_SEED.map(n => ({ ticker: n.ticker, src: n.src, ago: n.ago, headline: n.title, sent: 'BULL' }));
   }, [liveNews]);
 
-  const data = { portfolio, positions: enriched, meta, synthesis, news: intelNews, filings: null, scout };
+  const data = { portfolio, positions: enriched, meta, synthesis, news: intelNews, filings: null, scout, ddIndex };
 
   const navigate = (s) => { setScreen(s); setDetailPos(null); };
   const tapPosition = (pos) => { setDetailPos(pos); setScreen('detail'); };
