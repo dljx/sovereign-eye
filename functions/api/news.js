@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed:v2";
+const CACHE_KEY = "news:feed:v3";
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -55,14 +55,24 @@ async function filterWithGemma(rawItems, tickers, apiKey) {
     `${i + 1}. [${item.ticker}] "${item.headline}" (${item.source}, ${item.ago} ago)`
   ).join("\n");
 
-  const prompt = `You are an editorial filter for a stock portfolio dashboard holding: ${tickerList}.
+  const prompt = `You are an editorial filter for a stock portfolio dashboard. Portfolio tickers: ${tickerList}.
 
-Review these company news headlines and keep any that are relevant to an investor holding these stocks. Keep items about: earnings, revenue, guidance, analyst ratings/price targets, M&A, products, contracts, management, legal/regulatory issues, or sector trends affecting these companies. Be inclusive — if in doubt, keep it.
+Each headline below is tagged with the ticker whose Finnhub feed it came from, but that tag may be WRONG — Finnhub sometimes returns articles that only mention a stock in passing.
 
-Discard only: articles clearly about unrelated companies, pure stock-price-only updates with zero news content, and obvious duplicates.
+Your job:
+1. Identify the PRIMARY company the article is actually about (the main subject of the headline).
+2. If that primary company is one of the portfolio tickers, keep it and set "ticker" to that portfolio symbol.
+3. If the primary company is NOT in the portfolio — even if a portfolio ticker is mentioned in passing — DISCARD the article.
+4. Discard pure price-recap articles ("stock up 2%", "week in review"), obvious duplicates, and generic market roundups with no specific portfolio company as the subject.
 
-For each kept item return:
-- "ticker": the exact portfolio ticker symbol it relates to
+Examples of correct behaviour:
+- "[AMZN] Why The Market Is Re-Rating Google Stock" → primary subject is GOOG → discard (GOOG not in portfolio) OR reassign to GOOG if it is
+- "[AMZN] Cisco Is Up 17%... like Arista Networks" → primary subject is Cisco → discard unless CSCO is in portfolio
+- "[MRVL] Everyone's Talking About Micron" → primary subject is Micron → discard unless MU is in portfolio
+
+For each KEPT item return:
+- "ticker": the PRIMARY portfolio ticker this article is about
+- "orig_ticker": the original bracket ticker from the input line
 - "source": keep original
 - "ago": keep original
 - "headline": rewrite concisely under 90 characters, leading with the key fact
@@ -92,16 +102,20 @@ ${numbered}`;
     const jsonStr = raw.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
     const parsed = JSON.parse(jsonStr);
     if (!Array.isArray(parsed)) return null;
-    // Merge back datetime for proper sorting
-    return parsed.map(item => {
-      // Match by ticker + source (Gemma preserves source). Headline prefix is unreliable
-      // because Gemma rewrites headlines. Fall back to first item for that ticker.
+    // Hard-filter: only keep items whose assigned ticker is actually in the portfolio
+    const validSet = new Set(tickers);
+    const kept = parsed.filter(item => item.ticker && validSet.has(item.ticker));
+    // Merge back datetime/url. Use orig_ticker (the Finnhub source ticker) for the lookup
+    // since Gemma may have reassigned ticker to a different portfolio symbol.
+    return kept.map(item => {
+      const origTk = item.orig_ticker || item.ticker;
       const orig = rawItems.find(r =>
-          r.ticker === item.ticker &&
+          r.ticker === origTk &&
           r.source?.toLowerCase() === (item.source || "").toLowerCase()
-        ) || rawItems.find(r => r.ticker === item.ticker);
+        ) || rawItems.find(r => r.ticker === origTk)
+          || rawItems.find(r => r.source?.toLowerCase() === (item.source || "").toLowerCase());
       return {
-        ticker: item.ticker || "—",
+        ticker: item.ticker,
         source: item.source || orig?.source || "—",
         ago: item.ago || orig?.ago || "?",
         datetime: orig?.datetime || 0,
