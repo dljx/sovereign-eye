@@ -162,11 +162,11 @@ function SECTracker({ tickers }) {
 
 // ── Pixel Debate animation — delegates to shared DebateRoom ────────────────
 
-function PixelDebate({ elapsed, ticker }) {
+function PixelDebate({ elapsed, ticker, liveEvents }) {
   // window.DebateRoom is loaded by debate-room.jsx (before this file)
   const DR = window.DebateRoom;
   if (!DR) return null;
-  return <DR elapsed={elapsed} ticker={ticker} width={320} height={230}/>;
+  return <DR elapsed={elapsed} ticker={ticker} liveEvents={liveEvents} width={320} height={230}/>;
 }
 
 // ── Sovereign DD ───────────────────────────────────────────────────────────
@@ -178,13 +178,17 @@ function SovereignDD({ ticker, onTickerChange }) {
   const [elapsed, setElapsed] = useS3(0);
   const [errMsg, setErrMsg] = useS3("");
   const [analyzedTk, setAnalyzedTk] = useS3(null);
+  const [liveEvents, setLiveEvents] = useS3([]);
   const pollRef = useR3(null);
   const elapsedRef = useR3(null);
+  const livePollRef = useR3(null);
+  const liveCountRef = useR3(0);
   const startRef = useR3(0);
 
   const stopAll = useC3(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null; }
+    if (livePollRef.current) { clearInterval(livePollRef.current); livePollRef.current = null; }
   }, []);
 
   // When ticker selected from inventory/heatmap: update input + try to auto-load from KV
@@ -269,6 +273,29 @@ function SovereignDD({ ticker, onTickerChange }) {
       doPoll();
       pollRef.current = setInterval(doPoll, 15_000);
     }, 5_000);
+
+    // Reset live event state for new run
+    setLiveEvents([]);
+    liveCountRef.current = 0;
+
+    // Poll live events every 5s — animates agents as debate progresses
+    const doLivePoll = async () => {
+      try {
+        const r = await fetch(`/api/dd/live/${tk.toLowerCase()}?after=${liveCountRef.current}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data.events?.length) {
+          setLiveEvents(prev => [...prev, ...data.events]);
+          liveCountRef.current += data.events.length;
+        }
+        if (data.done) {
+          clearInterval(livePollRef.current);
+          livePollRef.current = null;
+          doPoll(); // fetch final result immediately
+        }
+      } catch {}
+    };
+    livePollRef.current = setInterval(doLivePoll, 5_000);
   }, [input]);
 
   // Phase badge
@@ -306,7 +333,7 @@ function SovereignDD({ ticker, onTickerChange }) {
 
           {phase === "running" && (
             <div className="dd-loading" style={{ flex:1, minHeight:0 }}>
-              <PixelDebate elapsed={elapsed} ticker={analyzedTk} mono="var(--mono)" fg3="var(--fg-3)" fg4="var(--fg-4)"/>
+              <PixelDebate elapsed={elapsed} ticker={analyzedTk} liveEvents={liveEvents}/>
             </div>
           )}
 

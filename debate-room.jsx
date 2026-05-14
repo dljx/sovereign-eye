@@ -432,7 +432,7 @@ function buildEventQueue(rawData) {
 }
 
 // ── DebateRoom component ──────────────────────────────────────────────────────
-function DebateRoom({ ddData = null, elapsed = 0, ticker = '', width = 380, height = 280 }) {
+function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null, width = 380, height = 280 }) {
   const canvasRef  = React.useRef(null);
   const wrapRef    = React.useRef(null);
   const rafRef     = React.useRef(null);
@@ -444,6 +444,10 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', width = 380, heig
   React.useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
   const tickerRef = React.useRef(ticker);
   React.useEffect(() => { tickerRef.current = ticker; }, [ticker]);
+  // liveEvents arrives as a growing array from the parent — use a ref so
+  // the animation loop always reads the latest slice without restarting.
+  const liveRef = React.useRef(liveEvents || []);
+  React.useEffect(() => { liveRef.current = liveEvents || []; }, [liveEvents]);
 
   // Fill container — resize observer reads both width and height
   React.useEffect(() => {
@@ -499,7 +503,49 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', width = 380, heig
     stateRef.current = {
       t0:null, lastTs:null, prevSimT:0, fired:new Set(),
       noDataWalk:null, nextNoDataWalk:2500,
+      // Live mode
+      liveProcessed:0, lastLiveEventT:-999, pendingActions:[],
     };
+
+    // Process a single live pipeline event into immediate agent state changes
+    function applyLiveEvent(ev, simT) {
+      const st = stateRef.current;
+      if (ev.type === 'START') return;
+      if (ev.type === 'DONE') return;
+
+      if (ev.type === 'R1_SCORE') {
+        const idx = drIdx(ev.agent); if (idx < 0) return;
+        const score = +(ev.score || 0);
+        const col = score >= 6.5 ? '#4ade80' : score <= 4.5 ? '#f87171' : '#a1a1aa';
+        agents[idx].bubble = { text: score.toFixed(1), color: col, t: simT };
+      }
+      else if (ev.type === 'R2_CHALLENGE') {
+        const from = drIdx(ev.agent), to = drIdx(ev.target);
+        if (from < 0 || to < 0 || from === to) return;
+        // Walk to target
+        agents[from].tx = deskPos[to].x;
+        agents[from].ty = deskPos[to].y;
+        // Show challenge bubble after walk delay
+        const snippet = (ev.challenge || 'CHALLENGE').slice(0, 26);
+        st.pendingActions.push(
+          { fireAt: simT + 1.6, fn: () => { agents[from].bubble = { text: snippet, color: '#f87171', t: simT+1.6 }; } },
+          { fireAt: simT + 4.2, fn: () => { agents[from].bubble = null; agents[from].tx = agents[from].hx; agents[from].ty = agents[from].hy; } }
+        );
+      }
+      else if (ev.type === 'R3_DELTA') {
+        const idx = drIdx(ev.agent); if (idx < 0) return;
+        const delta = +(ev.delta ?? ev.score_delta ?? 0);
+        const col = delta > 0 ? '#4ade80' : delta < 0 ? '#f87171' : '#a1a1aa';
+        agents[idx].delta = { text: (delta >= 0 ? '+' : '') + delta.toFixed(1), color: col, t: simT };
+      }
+      else if (ev.type === 'CONSENSUS') {
+        const grade = (ev.grade || 'HOLD').replace(/-/g, ' ');
+        agents.forEach((a, i) => {
+          a.tx = deskPos[i].x; a.ty = deskPos[i].y; a.dir = 'down';
+          a.bubble = { text: grade, color: '#818cf8', t: simT };
+        });
+      }
+    }
 
     function frame(ts) {
       const st = stateRef.current;
@@ -508,7 +554,27 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', width = 380, heig
       st.lastTs = ts;
       let simT = 0;
 
-      if (DURATION > 0) {
+      // ── Live mode: process arriving pipeline events ────────────────────────
+      const live = liveRef.current;
+      if (live && live.length > 0) {
+        simT = (ts - st.t0) / 1000; // monotonic, no looping
+
+        // Fire any pending delayed actions (walk → bubble → return sequences)
+        st.pendingActions = st.pendingActions.filter(a => {
+          if (simT >= a.fireAt) { a.fn(); return false; }
+          return true;
+        });
+
+        // Process new live events with a minimum gap between them
+        while (st.liveProcessed < live.length) {
+          if (simT - st.lastLiveEventT < 0.7) break; // stagger events
+          applyLiveEvent(live[st.liveProcessed], simT);
+          st.lastLiveEventT = simT;
+          st.liveProcessed++;
+        }
+
+      } else if (DURATION > 0) {
+        // ── Replay mode: looping transcript animation ──────────────────────
         simT = ((ts-st.t0)/1000) % DURATION;
         if (st.prevSimT > simT+1) {
           st.fired.clear();

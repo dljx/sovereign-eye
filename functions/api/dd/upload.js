@@ -31,11 +31,16 @@ export async function onRequestPost(context) {
   const written = [];
   const failed = [];
 
-  // Write individual ticker results
+  // Write individual ticker results + clean up live event keys
   for (const { key, value } of results) {
     try {
       await context.env.DD_KV.put(key, JSON.stringify(value));
       written.push(key);
+      // Delete the live event stream now that final result is stored
+      if (key.startsWith("dd:")) {
+        const ticker = key.slice(3); // "dd:GOOG" → "GOOG"
+        await context.env.DD_KV.delete(`dd:live:${ticker}`).catch(() => {});
+      }
     } catch (e) {
       failed.push({ key, error: e.message });
     }
