@@ -445,17 +445,18 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', width = 380, heig
   const tickerRef = React.useRef(ticker);
   React.useEffect(() => { tickerRef.current = ticker; }, [ticker]);
 
-  // Fill container width — resize observer keeps canvas in sync
+  // Fill container — resize observer reads both width and height
   React.useEffect(() => {
     if (!wrapRef.current) return;
     const obs = new ResizeObserver(entries => {
-      const cw = Math.floor(entries[0].contentRect.width);
-      if (cw > 10) setCanvasSize({ w: cw, h: Math.round(cw * height / width) });
+      const { width: cw, height: ch } = entries[0].contentRect;
+      if (cw > 10 && ch > 10) setCanvasSize({ w: Math.floor(cw), h: Math.floor(ch) });
     });
     obs.observe(wrapRef.current);
-    // Seed with current width immediately
+    // Seed immediately
     const cw = Math.floor(wrapRef.current.offsetWidth);
-    if (cw > 10) setCanvasSize({ w: cw, h: Math.round(cw * height / width) });
+    const ch = Math.floor(wrapRef.current.offsetHeight);
+    if (cw > 10 && ch > 10) setCanvasSize({ w: cw, h: ch });
     return () => obs.disconnect();
   }, []);
 
@@ -667,7 +668,7 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', width = 380, heig
   }, [assetsReady, ddData, canvasSize]);
 
   return (
-    <div ref={wrapRef} style={{ width:'100%' }}>
+    <div ref={wrapRef} style={{ width:'100%', height:'100%', minHeight:0 }}>
       <canvas
         ref={canvasRef}
         width={canvasSize.w}

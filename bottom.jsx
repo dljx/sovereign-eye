@@ -305,7 +305,7 @@ function SovereignDD({ ticker, onTickerChange }) {
           )}
 
           {phase === "running" && (
-            <div className="dd-loading">
+            <div className="dd-loading" style={{ flex:1, minHeight:0 }}>
               <PixelDebate elapsed={elapsed} ticker={analyzedTk} mono="var(--mono)" fg3="var(--fg-3)" fg4="var(--fg-4)"/>
             </div>
           )}
