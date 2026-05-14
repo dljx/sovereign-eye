@@ -561,7 +561,7 @@ input:focus { border-color: var(--acc); }
 .dd-input-row button:hover { background: #c4b5fd; border-color: #c4b5fd; }
 .dd-input-row button:disabled { background: var(--bg-3); color: var(--fg-3); border-color: var(--border-2); }
 
-.dd-body { padding: 8px 10px; flex: 1; overflow: auto; }
+.dd-body { padding: 8px 10px; flex: 1; overflow: auto; display: flex; flex-direction: column; }
 
 .dd-loading {
   display: flex; flex-direction: column; gap: 6px;
