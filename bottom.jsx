@@ -264,11 +264,11 @@ function SovereignDD({ ticker, onTickerChange }) {
       } catch {}
     };
 
-    // First poll after 60s, then every 30s
+    // Poll every 15s, starting immediately after a short delay
     setTimeout(() => {
       doPoll();
-      pollRef.current = setInterval(doPoll, 30_000);
-    }, 60_000);
+      pollRef.current = setInterval(doPoll, 15_000);
+    }, 5_000);
   }, [input]);
 
   // Phase badge

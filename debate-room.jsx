@@ -434,10 +434,30 @@ function buildEventQueue(rawData) {
 // ── DebateRoom component ──────────────────────────────────────────────────────
 function DebateRoom({ ddData = null, elapsed = 0, ticker = '', width = 380, height = 280 }) {
   const canvasRef  = React.useRef(null);
+  const wrapRef    = React.useRef(null);
   const rafRef     = React.useRef(null);
   const stateRef   = React.useRef(null);
   const [assets, setAssets]       = React.useState(null);
   const [assetsReady, setReady]   = React.useState(false);
+  const [canvasSize, setCanvasSize] = React.useState({ w: width, h: height });
+  const elapsedRef = React.useRef(elapsed);
+  React.useEffect(() => { elapsedRef.current = elapsed; }, [elapsed]);
+  const tickerRef = React.useRef(ticker);
+  React.useEffect(() => { tickerRef.current = ticker; }, [ticker]);
+
+  // Fill container width — resize observer keeps canvas in sync
+  React.useEffect(() => {
+    if (!wrapRef.current) return;
+    const obs = new ResizeObserver(entries => {
+      const cw = Math.floor(entries[0].contentRect.width);
+      if (cw > 10) setCanvasSize({ w: cw, h: Math.round(cw * height / width) });
+    });
+    obs.observe(wrapRef.current);
+    // Seed with current width immediately
+    const cw = Math.floor(wrapRef.current.offsetWidth);
+    if (cw > 10) setCanvasSize({ w: cw, h: Math.round(cw * height / width) });
+    return () => obs.disconnect();
+  }, []);
 
   // Load all assets once
   React.useEffect(() => {
@@ -621,30 +641,39 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', width = 380, heig
         }
       });
 
+      // ── HUD overlay — bottom of canvas ──────────────────────────────────
+      const el = elapsedRef.current, tk = tickerRef.current;
+      const mins2 = Math.floor(el/60), secs2 = el%60;
+      const elFmt2 = mins2>0 ? `${mins2}m ${secs2<10?'0':''}${secs2}s` : `${el}s`;
+      const line1 = tk ? `DEBATING ${tk.toUpperCase()} · ${elFmt2}` : `AGENTS IN SESSION · ${elFmt2}`;
+      const line2 = '5 AGENTS · SOVEREIGN DD';
+      const hudH = 26;
+      ctx.fillStyle = 'rgba(9,9,11,0.72)';
+      ctx.fillRect(0, H - hudH, W, hudH);
+      ctx.font = `${Math.max(8,P*4)}px "JetBrains Mono", monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#71717a';
+      ctx.fillText(line1, W/2, H - hudH + 8);
+      ctx.font = `${Math.max(7,P*3)}px "JetBrains Mono", monospace`;
+      ctx.fillStyle = '#52525b';
+      ctx.fillText(line2, W/2, H - hudH + 20);
+
       rafRef.current = requestAnimationFrame(frame);
     }
 
     rafRef.current = requestAnimationFrame(frame);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [assetsReady, ddData]);
-
-  const mins = Math.floor(elapsed/60), secs = elapsed%60;
-  const elFmt = mins>0 ? `${mins}m ${secs<10?'0':''}${secs}s` : `${elapsed}s`;
+  }, [assetsReady, ddData, canvasSize]);
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, padding:'6px 0' }}>
+    <div ref={wrapRef} style={{ width:'100%' }}>
       <canvas
         ref={canvasRef}
-        width={width}
-        height={height}
-        style={{ imageRendering:'pixelated', display:'block' }}
+        width={canvasSize.w}
+        height={canvasSize.h}
+        style={{ imageRendering:'pixelated', display:'block', width:'100%' }}
       />
-      <div style={{ fontFamily:'"JetBrains Mono", monospace', fontSize:10, color:'#71717a', letterSpacing:'0.1em' }}>
-        {ticker ? `DEBATING ${ticker.toUpperCase()} · ` : 'AGENTS IN SESSION · '}{elFmt}
-      </div>
-      <div style={{ fontFamily:'"JetBrains Mono", monospace', fontSize:9, color:'#52525b', letterSpacing:'0.08em' }}>
-        5 AGENTS · SOVEREIGN DD
-      </div>
     </div>
   );
 }
