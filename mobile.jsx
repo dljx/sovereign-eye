@@ -583,7 +583,10 @@ function IntelSEC({ filings }) {
               <SEPill kind={sent === 'bull' ? 'BULL' : sent === 'bear' ? 'BEAR' : sent.toUpperCase()}/>
               <span style={{ marginLeft: 'auto', fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{ago}</span>
             </div>
-            <div style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.5 }}>{desc}</div>
+            {f.url
+              ? <a href={f.url} target="_blank" rel="noreferrer" style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.5, textDecoration: 'none' }}>{desc}</a>
+              : <div style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.5 }}>{desc}</div>
+            }
           </div>
         );
       })}
@@ -881,7 +884,10 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
                 <span style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{n.src || n.source}</span>
                 <span style={{ marginLeft: 'auto', fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{n.ago || '—'}</span>
               </div>
-              <div style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.4 }}>{n.title || n.headline}</div>
+              {n.url
+                ? <a href={n.url} target="_blank" rel="noreferrer" style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.4, textDecoration: 'none' }}>{n.title || n.headline}</a>
+                : <div style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.4 }}>{n.title || n.headline}</div>
+              }
             </div>
           ))}
         </div>
@@ -893,7 +899,10 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
             <div key={i} style={{ padding: '10px 16px', borderBottom: `1px solid ${SE.b1}`, display: 'flex', alignItems: 'flex-start', gap: 9 }}>
               <span style={{ padding: '2px 6px', background: SE.bg3, border: `1px solid ${SE.b2}`, fontFamily: SE.mono, fontSize: 9, fontWeight: 700, color: SE.fg1, letterSpacing: 1, borderRadius: 2, flexShrink: 0, marginTop: 2 }}>{f.form}</span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: SE.sans, fontSize: 11.5, color: SE.fg1, lineHeight: 1.4 }}>{f.tldr || f.desc}</div>
+                {f.url
+                  ? <a href={f.url} target="_blank" rel="noreferrer" style={{ fontFamily: SE.sans, fontSize: 11.5, color: SE.fg1, lineHeight: 1.4, textDecoration: 'none' }}>{f.tldr || f.desc}</a>
+                  : <div style={{ fontFamily: SE.sans, fontSize: 11.5, color: SE.fg1, lineHeight: 1.4 }}>{f.tldr || f.desc}</div>
+                }
                 <div style={{ marginTop: 4, fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{f.date || f.ago}</div>
               </div>
             </div>
