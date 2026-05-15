@@ -6,14 +6,20 @@
  * Response: { events: [...], done: boolean, total: number }
  * `done` is true when a DONE event exists in the list.
  */
+const TICKER_RE = /^[A-Z0-9.\-]{1,10}$/;
+
 export async function onRequestGet(context) {
   if (!context.env.DD_KV) {
     return Response.json({ events: [], done: false, total: 0 });
   }
 
   const ticker = (context.params.ticker || "").toUpperCase();
-  const url    = new URL(context.request.url);
-  const after  = Math.max(0, parseInt(url.searchParams.get("after") || "0", 10));
+  if (!TICKER_RE.test(ticker)) {
+    return Response.json({ error: "invalid ticker" }, { status: 400 });
+  }
+
+  const url   = new URL(context.request.url);
+  const after = Math.max(0, parseInt(url.searchParams.get("after") || "0", 10));
 
   const kvKey = `dd:live:${ticker}`;
 

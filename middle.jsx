@@ -2,6 +2,19 @@
 
 const { useState: useS2, useMemo: useM2, useEffect: useE2, useRef: useR2 } = React;
 
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+// Escape HTML then re-allow only safe inline tags (<b>, <strong>, <em>, <i>).
+// Prevents XSS from LLM-generated content rendered as inner HTML.
+function sanitizeInlineHtml(str) {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/&lt;(\/?(?:b|strong|em|i))&gt;/g, "<$1>");
+}
+
 // ── Intelligence Feed ──────────────────────────────────────────────────────
 
 function IntelligenceFeed({ tickers }) {
@@ -72,7 +85,7 @@ function IntelligenceFeed({ tickers }) {
             <div className="num">0{i + 1}</div>
             <div className="body">
               <span className={"tag " + (it.tagClass || "")}>{it.tag}</span>
-              <span dangerouslySetInnerHTML={{ __html: it.text }} />
+              <span dangerouslySetInnerHTML={{ __html: sanitizeInlineHtml(it.text) }} />
             </div>
           </div>
         ))}

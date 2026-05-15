@@ -120,15 +120,34 @@ function timeAgo(ts) {
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
 async function fetchQuotes(tickers, key) {
-  if (!key || !tickers.length) return {};
+  const filtered = tickers.filter(t => t !== 'USD');
+  if (!filtered.length) return {};
+  // Try server-side proxy first; fall back to direct Finnhub only in local dev
+  try {
+    const r = await fetch(`/api/quotes?tickers=${filtered.join(',')}`);
+    if (r.ok) {
+      const data = await r.json();
+      const map = {};
+      for (const [t, q] of Object.entries(data)) {
+        if (q?.c > 0) map[t] = { price: q.c, dPct: q.dp || 0 };
+      }
+      if (Object.keys(map).length) return map;
+    }
+  } catch {}
+  // Fallback: direct Finnhub with client-side key (local dev only)
+  if (!key) return {};
+  const results = await Promise.all(
+    filtered.map(t =>
+      fetch(`https://finnhub.io/api/v1/quote?symbol=${t}&token=${key}`)
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null)
+    )
+  );
   const map = {};
-  for (const t of tickers.filter(t => t !== 'USD')) {
-    try {
-      const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${t}&token=${key}`);
-      if (r.ok) { const q = await r.json(); if (q?.c > 0) map[t] = { price: q.c, dPct: q.dp || 0 }; }
-    } catch (e) {}
-    await delay(120);
-  }
+  filtered.forEach((t, i) => {
+    const q = results[i];
+    if (q?.c > 0) map[t] = { price: q.c, dPct: q.dp || 0 };
+  });
   return map;
 }
 
@@ -815,6 +834,17 @@ function DebateRow({ label, color, text, bold }) {
 
 // ── SCREEN 4: Position Detail ──────────────────────────────────────────────────
 
+const EXCHANGE_MAP = {
+  // NASDAQ
+  AMZN: 'NASDAQ', MRVL: 'NASDAQ', PENG: 'NASDAQ',
+  AVGO: 'NASDAQ', GOOG: 'NASDAQ', GOOGL: 'NASDAQ',
+  MSFT: 'NASDAQ', MU: 'NASDAQ', NVDA: 'NASDAQ',
+  AAPL: 'NASDAQ', META: 'NASDAQ', TSLA: 'NASDAQ',
+  // NYSE
+  ANET: 'NYSE', EME: 'NYSE', MTZ: 'NYSE', VST: 'NYSE', NOW: 'NYSE',
+  JPM: 'NYSE', BAC: 'NYSE', XOM: 'NYSE', GE: 'NYSE', UNH: 'NYSE',
+};
+
 const METRICS_MAP = {
   NVDA: { pe: 48.2, eps: 23.31, tgt: 1280, beta: 1.74 },
   AMZN: { pe: 41.6, eps:  5.74, tgt:  260, beta: 1.18 },
@@ -885,7 +915,7 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
         <div style={{
           padding: '4px 8px', border: `1px solid ${SE.b2}`,
           fontFamily: SE.mono, fontSize: 9, color: SE.fg2, letterSpacing: 1.2, fontWeight: 700,
-        }}>NASDAQ</div>
+        }}>{EXCHANGE_MAP[pos.t] || 'US EQUITY'}</div>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -1197,6 +1227,7 @@ function SEScreenSettings({ data, onNavigate, positions, onSavePositions }) {
 
 function MobileApp() {
   const [positions, setPositions] = useState(null);
+  const prevPositions = useRef(null); // dirty-tracking: skip kvSave on initial load
   const [quotes, setQuotes] = useState({});
   const [sgdRate, setSgdRate] = useState(1.35);
   const [liveNews, setLiveNews] = useState([]);
@@ -1215,11 +1246,15 @@ function MobileApp() {
     fetch('/api/dd/').then(r => r.ok ? r.json() : {}).then(idx => { if (idx) setDdIndex(idx); }).catch(() => {});
   }, []);
 
-  // Save to localStorage + KV when positions change
+  // Save to localStorage + KV when positions change.
+  // Skip kvSave on the initial load (prevPositions is null) — only save user edits.
   useEffect(() => {
     if (!positions) return;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(positions)); } catch (e) {}
-    kvSave(positions);
+    if (prevPositions.current !== null) {
+      kvSave(positions);
+    }
+    prevPositions.current = positions;
   }, [positions]);
 
   // Clock tick (every 30s)

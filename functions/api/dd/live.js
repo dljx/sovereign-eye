@@ -6,6 +6,9 @@
  *
  * Body: { ticker: "GOOG", event: { type, agent, score, target, challenge, delta, grade, ts } }
  */
+const TICKER_RE = /^[A-Z0-9.\-]{1,10}$/;
+const MAX_EVENTS = 200; // guard against unbounded KV write growth
+
 export async function onRequestPost(context) {
   const uploadSecret = context.env.DD_UPLOAD_SECRET;
   if (!uploadSecret) {
@@ -31,8 +34,8 @@ export async function onRequestPost(context) {
 
   const ticker = (body.ticker || "").toUpperCase().trim();
   const event  = body.event;
-  if (!ticker || !event || !event.type) {
-    return Response.json({ error: "Missing ticker or event.type" }, { status: 400 });
+  if (!ticker || !TICKER_RE.test(ticker) || !event || !event.type) {
+    return Response.json({ error: "Missing or invalid ticker / event.type" }, { status: 400 });
   }
 
   const kvKey = `dd:live:${ticker}`;
@@ -45,6 +48,9 @@ export async function onRequestPost(context) {
   } catch {}
 
   events.push({ ...event, _idx: events.length });
+
+  // Cap to prevent unbounded KV write growth (keeps most recent events)
+  if (events.length > MAX_EVENTS) events = events.slice(-MAX_EVENTS);
 
   try {
     await context.env.DD_KV.put(kvKey, JSON.stringify(events), { expirationTtl: 3600 });

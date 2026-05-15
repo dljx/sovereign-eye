@@ -178,7 +178,12 @@ function drawSpriteFrame(ctx, frame, x, y, P) {
 }
 
 // ── Load all room assets ──────────────────────────────────────────────────────
+// Module-level cache — assets are only fetched once regardless of how many
+// DebateRoom components mount/unmount across ticker selections.
+let _assetCache = null;
+
 async function loadAllAssets() {
+  if (_assetCache) return _assetCache;
   const [floorImg, wallImg, deskImg, ...charImgs] = await Promise.all([
     loadImage(FLOOR_URL),
     loadImage(WALL_URL),
@@ -200,7 +205,8 @@ async function loadAllAssets() {
   const charSprites = charImgs.slice(0, 5).map(img => extractCharFrames(img));
   const fetcherSprite = extractCharFrames(charImgs[5] || charImgs[FETCHER_AGENT.charIdx]);
 
-  return { floorTiles, wallTile, deskSprite, charSprites, fetcherSprite };
+  _assetCache = { floorTiles, wallTile, deskSprite, charSprites, fetcherSprite };
+  return _assetCache;
 }
 
 // ── Fallback solid-colour floor tile ─────────────────────────────────────────

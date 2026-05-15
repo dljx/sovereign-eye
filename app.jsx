@@ -72,37 +72,48 @@ function useQuotes(positions) {
     const sess = getMarketSession();
     setSession(sess);
 
-    if (!apiKey) { setQuoteSrc("no-key"); return; }
     const tickers = positions.map(p => p.ticker).filter(t => t && t !== "USD");
+    if (!tickers.length) return;
 
     try {
-      const results = await Promise.all(
-        tickers.map(t =>
-          fetch(`https://finnhub.io/api/v1/quote?symbol=${t}&token=${apiKey}`)
-            .then(r => r.ok ? r.json() : null)
-            .catch(() => null)
-        )
-      );
+      // Try server-side proxy first (keeps API key out of client JS)
+      let quotesMap = null;
+      const proxyRes = await fetch(`/api/quotes?tickers=${tickers.join(",")}`).catch(() => null);
+      if (proxyRes?.ok) {
+        quotesMap = await proxyRes.json();
+      } else if (apiKey) {
+        // Fallback: direct Finnhub with client-side key (local dev only)
+        const results = await Promise.all(
+          tickers.map(t =>
+            fetch(`https://finnhub.io/api/v1/quote?symbol=${t}&token=${apiKey}`)
+              .then(r => r.ok ? r.json() : null)
+              .catch(() => null)
+          )
+        );
+        quotesMap = {};
+        tickers.forEach((t, i) => { if (results[i]?.c > 0) quotesMap[t] = results[i]; });
+      }
 
-      setQuotes(prev => {
-        const next = { ...prev };
-        tickers.forEach((t, i) => {
-          const r = results[i];
-          if (r && r.c > 0) {
-            // Merge Finnhub data; preserve seed pe/eps/target if not in quote
-            const seed = prev[t] || {};
-            next[t] = {
-              c: r.c, d: r.d ?? 0, dp: r.dp ?? 0,
-              h: r.h, l: r.l, o: r.o, pc: r.pc, v: r.v,
-              pe: seed.pe, eps: seed.eps, target: seed.target,
-            };
-          }
+      if (quotesMap && Object.keys(quotesMap).length) {
+        setQuotes(prev => {
+          const next = { ...prev };
+          tickers.forEach(t => {
+            const r = quotesMap[t];
+            if (r && r.c > 0) {
+              // Merge Finnhub data; preserve seed pe/eps/target if not in quote
+              const seed = prev[t] || {};
+              next[t] = {
+                c: r.c, d: r.d ?? 0, dp: r.dp ?? 0,
+                h: r.h, l: r.l, o: r.o, pc: r.pc, v: r.v,
+                pe: seed.pe, eps: seed.eps, target: seed.target,
+              };
+            }
+          });
+          return next;
         });
-        return next;
-      });
-
-      setLastRefresh(new Date());
-      setQuoteSrc("live");
+        setLastRefresh(new Date());
+        setQuoteSrc("live");
+      }
     } catch {
       setQuoteSrc("cached");
     }

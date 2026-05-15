@@ -38,12 +38,14 @@ const MY_POSITIONS = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
-// API Key — Finnhub (free, 60 calls/min, supports browser CORS)
-// Get your own free key at: https://finnhub.io/register
+// API Config
+// Quotes are now served via /api/quotes (server-side Finnhub proxy).
+// Set FINNHUB_API_KEY in Cloudflare Pages environment variables.
+// FINNHUB_API_KEY here is a local-dev fallback only — leave blank in production.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const CONFIG = {
-  FINNHUB_API_KEY: "d740g09r01qno4pvvc1gd740g09r01qno4pvvc20",
+  FINNHUB_API_KEY: "",         // set FINNHUB_API_KEY in CF Pages env instead
   REFRESH_INTERVAL_MS: 60000,  // auto-refresh every 60s
 };
 
