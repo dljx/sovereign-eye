@@ -56,10 +56,21 @@ export async function onRequestPost(context) {
     }
   }
 
-  // Write scouts list
-  if (Array.isArray(scouts)) {
+  // Merge new scouts into the existing accumulated list (never replace wholesale).
+  // Dedup by ticker — newest entry wins. Cap at 100 to bound KV value size.
+  if (Array.isArray(scouts) && scouts.length > 0) {
     try {
-      await context.env.DD_KV.put("dd:scouts", JSON.stringify(scouts));
+      let existing = [];
+      const raw = await context.env.DD_KV.get("dd:scouts");
+      if (raw) {
+        try { existing = JSON.parse(raw); } catch {}
+      }
+      // Build a map keyed by ticker; new entries overwrite older ones
+      const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
+      for (const s of scouts) map.set(s.ticker, s);
+      // Sort by score descending, cap at 100
+      const merged = [...map.values()].sort((a, b) => b.score - a.score).slice(0, 100);
+      await context.env.DD_KV.put("dd:scouts", JSON.stringify(merged));
       written.push("dd:scouts");
     } catch (e) {
       failed.push({ key: "dd:scouts", error: e.message });
