@@ -1,4 +1,4 @@
-// debate-room.jsx v4 — Pixel art debate room
+// debate-room.jsx v5 — Pixel art debate room + fetcher agent dossier phase
 // Uses actual assets from pablodelucca/pixel-agents (MIT licensed):
 //   • char_0–4.png  — 16×32 character sprite sheets
 //   • floor_0.png   — 16×16 floor tile (HSB-colorized per zone)
@@ -38,6 +38,8 @@ const DR_AGENTS = [
   { id: 'RiskSentinel', label: 'RISK',   charIdx: 3, accent: '#f87171' },
   { id: 'MacroLens',    label: 'MACRO',  charIdx: 4, accent: '#4ade80' },
 ];
+// Fetcher agent — appears only during dossier-building phase
+const FETCHER_AGENT = { id: 'Fetcher', label: 'FETCH', charIdx: 2, accent: '#e879f9' };
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
 function rgbToHsl(r, g, b) {
@@ -182,6 +184,7 @@ async function loadAllAssets() {
     loadImage(WALL_URL),
     loadImage(DESK_URL),
     ...DR_AGENTS.map(a => loadImage(`${CHAR_BASE}char_${a.charIdx}.png`)),
+    loadImage(`${CHAR_BASE}char_${FETCHER_AGENT.charIdx}.png`), // fetcher (same sheet, magenta tint)
   ]);
 
   // Colorized floor tiles per zone
@@ -193,9 +196,11 @@ async function loadAllAssets() {
 
   const wallTile = imgToOffscreen(wallImg);
   const deskSprite = imgToOffscreen(deskImg);
-  const charSprites = charImgs.map(img => extractCharFrames(img));
+  // charImgs: first 5 are DR_AGENTS, last one is fetcher
+  const charSprites = charImgs.slice(0, 5).map(img => extractCharFrames(img));
+  const fetcherSprite = extractCharFrames(charImgs[5] || charImgs[FETCHER_AGENT.charIdx]);
 
-  return { floorTiles, wallTile, deskSprite, charSprites };
+  return { floorTiles, wallTile, deskSprite, charSprites, fetcherSprite };
 }
 
 // ── Fallback solid-colour floor tile ─────────────────────────────────────────
@@ -432,7 +437,7 @@ function buildEventQueue(rawData) {
 }
 
 // ── DebateRoom component ──────────────────────────────────────────────────────
-function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null, width = 380, height = 280 }) {
+function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null, isRunning = false, width = 380, height = 280 }) {
   const canvasRef  = React.useRef(null);
   const wrapRef    = React.useRef(null);
   const rafRef     = React.useRef(null);
@@ -448,6 +453,8 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null
   // the animation loop always reads the latest slice without restarting.
   const liveRef = React.useRef(liveEvents || []);
   React.useEffect(() => { liveRef.current = liveEvents || []; }, [liveEvents]);
+  const isRunningRef = React.useRef(isRunning);
+  React.useEffect(() => { isRunningRef.current = isRunning; }, [isRunning]);
 
   // Fill container — resize observer reads both width and height
   React.useEffect(() => {
@@ -500,16 +507,70 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null
       bubble:null, delta:null,
     }));
 
+    // Station positions for fetcher — 5 spots around the room perimeter
+    const stationPos = [
+      { x: Math.round(W*0.15), y: Math.round(H*0.28) },
+      { x: Math.round(W*0.85), y: Math.round(H*0.28) },
+      { x: Math.round(W*0.15), y: Math.round(H*0.72) },
+      { x: Math.round(W*0.85), y: Math.round(H*0.72) },
+      { x: Math.round(W*0.50), y: Math.round(H*0.12) },
+    ];
+
+    // Fetcher agent — starts at center, visible only during dossier phase
+    const fetcher = {
+      x: Math.round(cx), y: Math.round(cy),
+      tx: Math.round(cx), ty: Math.round(cy),
+      hx: Math.round(cx), hy: Math.round(cy),
+      state: 'TYPING', dir: 'down',
+      animStep: 0, animTick: 0,
+      bubble: null, delta: null,
+      visible: false,
+    };
+
     stateRef.current = {
       t0:null, lastTs:null, prevSimT:0, fired:new Set(),
       noDataWalk:null, nextNoDataWalk:2500,
       // Live mode
       liveProcessed:0, lastLiveEventT:-999, pendingActions:[],
+      // Fetcher / dossier phase
+      fetchCount:0, fetcherRef: fetcher, stationPos,
     };
 
     // Process a single live pipeline event into immediate agent state changes
     function applyLiveEvent(ev, simT) {
       const st = stateRef.current;
+      const ft = st.fetcherRef;
+
+      if (ev.type === 'DOSSIER_START') {
+        ft.visible = true;
+        ft.x = Math.round(cx); ft.y = Math.round(cy);
+        ft.tx = Math.round(cx); ft.ty = Math.round(cy);
+        ft.bubble = { text: 'FETCHING', color: '#e879f9', t: simT };
+        return;
+      }
+      if (ev.type === 'FETCH_DONE') {
+        if (!ft.visible) { ft.visible = true; ft.x = Math.round(cx); ft.y = Math.round(cy); }
+        const sIdx = st.fetchCount % st.stationPos.length;
+        const sp = st.stationPos[sIdx];
+        ft.tx = sp.x; ft.ty = sp.y;
+        const src = (ev.source || 'DATA').toUpperCase().replace(/_/g, ' ');
+        const arriveT = simT + 0.7;
+        st.pendingActions.push(
+          { fireAt: arriveT, fn: () => { ft.bubble = { text: src, color: '#e879f9', t: arriveT }; } },
+          { fireAt: arriveT + 1.2, fn: () => { ft.bubble = null; ft.tx = Math.round(cx); ft.ty = Math.round(cy); } }
+        );
+        st.fetchCount++;
+        return;
+      }
+      if (ev.type === 'DOSSIER_DONE') {
+        ft.tx = Math.round(cx); ft.ty = Math.round(cy);
+        ft.bubble = { text: 'READY', color: '#4ade80', t: simT };
+        st.pendingActions.push(
+          { fireAt: simT + 2.0, fn: () => { ft.visible = false; ft.bubble = null; } }
+        );
+        return;
+      }
+
       if (ev.type === 'START') return;
       if (ev.type === 'DONE') return;
 
@@ -556,6 +617,7 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null
 
       // ── Live mode: process arriving pipeline events ────────────────────────
       const live = liveRef.current;
+      const isRun = isRunningRef.current;
       if (live && live.length > 0) {
         simT = (ts - st.t0) / 1000; // monotonic, no looping
 
@@ -571,6 +633,28 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null
           applyLiveEvent(live[st.liveProcessed], simT);
           st.lastLiveEventT = simT;
           st.liveProcessed++;
+        }
+
+      } else if (isRun) {
+        // ── Waiting mode: run triggered but no events yet (dossier compiling) ─
+        // Debate agents stay at desks. Fetcher wanders between stations.
+        simT = (ts - st.t0) / 1000;
+        const ms = ts - st.t0;
+        const ft2 = st.fetcherRef;
+        ft2.visible = true;
+        if (!st.noDataWalk && ms > st.nextNoDataWalk) {
+          const sIdx = Math.floor(Math.random() * st.stationPos.length);
+          ft2.tx = st.stationPos[sIdx].x;
+          ft2.ty = st.stationPos[sIdx].y;
+          st.noDataWalk = { returnAt: ms + 1800 };
+        }
+        if (st.noDataWalk) {
+          const atStn = Math.hypot(ft2.x-ft2.tx, ft2.y-ft2.ty) < P*2;
+          if (atStn && ms > st.noDataWalk.returnAt) {
+            ft2.tx = Math.round(cx); ft2.ty = Math.round(cy);
+            st.noDataWalk = null;
+            st.nextNoDataWalk = ms + 1000 + Math.random()*1500;
+          }
         }
 
       } else if (DURATION > 0) {
@@ -690,6 +774,41 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null
         ctx.fillText(ag.label, Math.round(a.x), Math.round(a.y+P));
       });
 
+      // Fetcher agent — drawn above desks but below overlays
+      const ft = stateRef.current?.fetcherRef;
+      if (ft && ft.visible) {
+        const fsp = assets?.fetcherSprite || null;
+        const ffr = getFrame(fsp, ft.dir, ft.state, ft.animStep);
+        if (ffr) {
+          drawSpriteFrame(ctx, ffr, Math.round(ft.x-(CHAR_W*P)/2), Math.round(ft.y-CHAR_H*P), P);
+        } else {
+          ctx.fillStyle = FETCHER_AGENT.accent + '99';
+          ctx.fillRect(Math.round(ft.x-P*4), Math.round(ft.y-P*14), P*8, P*14);
+          ctx.fillStyle = FETCHER_AGENT.accent + '44';
+          ctx.fillRect(Math.round(ft.x-P*3), Math.round(ft.y-P*20), P*6, P*6);
+        }
+        ctx.fillStyle = FETCHER_AGENT.accent;
+        ctx.font = `${Math.max(6,P*3)}px "JetBrains Mono", monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillText(FETCHER_AGENT.label, Math.round(ft.x), Math.round(ft.y+P));
+        // Animate fetcher movement
+        const fdx = ft.tx-ft.x, fdy = ft.ty-ft.y, fdist = Math.hypot(fdx,fdy);
+        if (fdist > P*0.5) {
+          const fstep = Math.min(P*80*dt, fdist);
+          ft.x += (fdx/fdist)*fstep; ft.y += (fdy/fdist)*fstep;
+          ft.state = 'WALKING';
+          ft.animTick += dt;
+          if (ft.animTick > 0.12) { ft.animStep++; ft.animTick=0; }
+          ft.dir = Math.abs(fdx)>Math.abs(fdy)?(fdx>0?'right':'left'):(fdy>0?'down':'up');
+        } else {
+          ft.x=ft.tx; ft.y=ft.ty;
+          if (ft.state==='WALKING') { ft.state='TYPING'; ft.dir='down'; }
+          ft.animTick += dt;
+          if (ft.animTick > 0.5) { ft.animStep++; ft.animTick=0; }
+        }
+      }
+
       // Overlays (bubbles, deltas) — always on top
       zOrder.forEach(({i}) => {
         const a = agents[i];
@@ -708,12 +827,29 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null
         }
       });
 
+      // Fetcher bubble overlay
+      if (ft && ft.visible && ft.bubble) {
+        const age = simT - ft.bubble.t;
+        const alpha = age<0.2?age/0.2:age<2.5?1:Math.max(0,1-(age-2.5)/0.8);
+        drawBubble(ctx, Math.round(ft.x), Math.round(ft.y), ft.bubble.text, ft.bubble.color, alpha, P);
+        if (alpha<=0) ft.bubble=null;
+      }
+
       // ── HUD overlay — bottom of canvas ──────────────────────────────────
       const el = elapsedRef.current, tk = tickerRef.current;
       const mins2 = Math.floor(el/60), secs2 = el%60;
       const elFmt2 = mins2>0 ? `${mins2}m ${secs2<10?'0':''}${secs2}s` : `${el}s`;
-      const line1 = tk ? `DEBATING ${tk.toUpperCase()} · ${elFmt2}` : `AGENTS IN SESSION · ${elFmt2}`;
-      const line2 = '5 AGENTS · SOVEREIGN DD';
+      const live2 = liveRef.current;
+      const isRun2 = isRunningRef.current;
+      const hasDossierEv = live2 && live2.some(e => e.type==='DOSSIER_START' || e.type==='FETCH_DONE');
+      const hasDebateEv  = live2 && live2.some(e => e.type==='R1_SCORE' || e.type==='START');
+      const line1 = tk
+        ? (hasDebateEv  ? `DEBATING ${tk.toUpperCase()} · ${elFmt2}`
+          : hasDossierEv ? `BUILDING DOSSIER · ${tk.toUpperCase()}`
+          : isRun2       ? `COMPILING DOSSIER · ${tk.toUpperCase()}`
+          : `AGENTS IN SESSION · ${elFmt2}`)
+        : `AGENTS IN SESSION · ${elFmt2}`;
+      const line2 = (isRun2 && !hasDebateEv) ? 'FETCHING DATA · SOVEREIGN DD' : '5 AGENTS · SOVEREIGN DD';
       const hudH = 26;
       ctx.fillStyle = 'rgba(9,9,11,0.72)';
       ctx.fillRect(0, H - hudH, W, hudH);

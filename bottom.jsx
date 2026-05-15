@@ -162,11 +162,11 @@ function SECTracker({ tickers }) {
 
 // ── Pixel Debate animation — delegates to shared DebateRoom ────────────────
 
-function PixelDebate({ elapsed, ticker, liveEvents }) {
+function PixelDebate({ elapsed, ticker, liveEvents, isRunning }) {
   // window.DebateRoom is loaded by debate-room.jsx (before this file)
   const DR = window.DebateRoom;
   if (!DR) return null;
-  return <DR elapsed={elapsed} ticker={ticker} liveEvents={liveEvents} width={320} height={230}/>;
+  return <DR elapsed={elapsed} ticker={ticker} liveEvents={liveEvents} isRunning={isRunning} width={320} height={230}/>;
 }
 
 // ── Sovereign DD ───────────────────────────────────────────────────────────
@@ -333,7 +333,7 @@ function SovereignDD({ ticker, onTickerChange }) {
 
           {phase === "running" && (
             <div className="dd-loading" style={{ flex:1, minHeight:0 }}>
-              <PixelDebate elapsed={elapsed} ticker={analyzedTk} liveEvents={liveEvents}/>
+              <PixelDebate elapsed={elapsed} ticker={analyzedTk} liveEvents={liveEvents} isRunning={true}/>
             </div>
           )}
 
