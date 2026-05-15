@@ -8,7 +8,7 @@
 const TICKER_RE = /^[A-Z]{1,10}$/;
 
 export async function onRequestGet(context) {
-  const key = context.env.FINNHUB_API_KEY;
+  const key = (context.env.FINNHUB_API_KEY || "").trim();
   if (!key) {
     return Response.json({ error: "FINNHUB_API_KEY not configured" }, { status: 500 });
   }
@@ -25,21 +25,24 @@ export async function onRequestGet(context) {
   }
 
   const results = await Promise.all(
-    tickers.map(t =>
-      fetch(`https://finnhub.io/api/v1/quote?symbol=${t}&token=${key}`, {
-        headers: { "User-Agent": "sovereign-eye" },
-      })
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null)
-    )
+    tickers.map(async t => {
+      try {
+        const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${t}&token=${key}`, {
+          headers: { "User-Agent": "sovereign-eye" },
+        });
+        if (!r.ok) return { _err: r.status };
+        return await r.json();
+      } catch (e) {
+        return { _err: String(e) };
+      }
+    })
   );
 
   const quotes = {};
   tickers.forEach((t, i) => {
-    if (results[i]?.c > 0) quotes[t] = results[i];
+    const r = results[i];
+    if (!r?._err && r?.c > 0) quotes[t] = r;
   });
 
-  return Response.json(quotes, {
-    headers: { "Cache-Control": "no-store" },
-  });
+  return Response.json(quotes, { headers: { "Cache-Control": "no-store" } });
 }
