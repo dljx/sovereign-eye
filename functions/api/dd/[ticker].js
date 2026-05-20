@@ -17,7 +17,7 @@ export async function onRequestGet(context) {
     return new Response(JSON.stringify(data), {
       headers: {
         "Content-Type": "application/json",
-        "Cache-Control": "no-store",
+        "Cache-Control": "public, s-maxage=3600",
       },
     });
   } catch {

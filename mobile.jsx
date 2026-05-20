@@ -1266,23 +1266,31 @@ function MobileApp() {
   // Fetch live data periodically
   const tickers = useMemo(() => positions?.map(p => p.ticker).filter(t => t !== 'USD') || [], [positions]);
 
-  const fetchLive = useCallback(async () => {
+  // Fast tick: quotes + news (direct Finnhub calls, no KV reads)
+  const fetchMarketData = useCallback(async () => {
     if (!tickers.length) return;
     const q = await fetchQuotes(tickers, M_CONFIG.FINNHUB_API_KEY);
     if (Object.keys(q).length) setQuotes(q);
     const n = await fetchFinnhubNews(tickers, M_CONFIG.FINNHUB_API_KEY);
     if (n.length) setLiveNews(n);
+  }, [tickers]);
+
+  // Slow tick: synthesis regenerates every 30 min, polling faster than 5 min wastes KV reads
+  const fetchSynthesisData = useCallback(async () => {
+    if (!tickers.length) return;
     const s = await fetchSynthesis(tickers);
     if (s) setSynthesis(s);
   }, [tickers]);
 
   useEffect(() => {
     if (!tickers.length) return;
-    fetchLive();
+    fetchMarketData();
+    fetchSynthesisData();
     const ms = M_CONFIG.REFRESH_INTERVAL_MS || 30000;
-    const t = setInterval(fetchLive, ms);
-    return () => clearInterval(t);
-  }, [fetchLive]);
+    const fastTick = setInterval(fetchMarketData, ms);
+    const slowTick = setInterval(fetchSynthesisData, 5 * 60 * 1000);
+    return () => { clearInterval(fastTick); clearInterval(slowTick); };
+  }, [fetchMarketData, fetchSynthesisData]);
 
   // Enrich positions for display
   const enriched = useMemo(() => positions ? enrichPositions(positions, quotes, sgdRate) : [], [positions, quotes, sgdRate]);

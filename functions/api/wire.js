@@ -189,7 +189,7 @@ export async function onRequestGet(context) {
         const age = Date.now() - new Date(cached.updatedAt).getTime();
         if (age < CACHE_TTL_MS) {
           return new Response(JSON.stringify(cached.items), {
-            headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+            headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=600, stale-while-revalidate=180" },
           });
         }
       }
@@ -238,6 +238,6 @@ export async function onRequestGet(context) {
   }
 
   return new Response(JSON.stringify(items), {
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=600, stale-while-revalidate=180" },
   });
 }

@@ -1,3 +1,16 @@
+async function purgeCdnCache(request, writtenKeys) {
+  const origin = new URL(request.url).origin;
+  const cache = caches.default;
+  const urls = writtenKeys
+    .filter(k => k === "dd:index" || k === "dd:scouts" || (k.startsWith("dd:") && !k.startsWith("dd:live:")))
+    .map(k => {
+      if (k === "dd:index") return `${origin}/api/dd/index`;
+      if (k === "dd:scouts") return `${origin}/api/dd/scouts`;
+      return `${origin}/api/dd/${k.slice(3).toLowerCase()}`;
+    });
+  await Promise.allSettled(urls.map(url => cache.delete(new Request(url))));
+}
+
 /**
  * POST /api/dd/upload
  * Called by GitHub Actions after analysis completes.
@@ -94,6 +107,8 @@ export async function onRequestPost(context) {
       }
     }
   }
+
+  await purgeCdnCache(context.request, written);
 
   return Response.json({
     ok: failed.length === 0,
