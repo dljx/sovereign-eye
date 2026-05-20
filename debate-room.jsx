@@ -32,11 +32,11 @@ const ZONE_SHIFTS = {
 
 // ── Agent definitions ─────────────────────────────────────────────────────────
 const DR_AGENTS = [
-  { id: 'ValueHunter',  label: 'VALUE',  charIdx: 0, accent: '#fbbf24' },
-  { id: 'GrowthAlpha',  label: 'GROWTH', charIdx: 1, accent: '#60a5fa' },
-  { id: 'QuantSignal',  label: 'QUANT',  charIdx: 2, accent: '#818cf8' },
-  { id: 'RiskSentinel', label: 'RISK',   charIdx: 3, accent: '#f87171' },
-  { id: 'MacroLens',    label: 'MACRO',  charIdx: 4, accent: '#4ade80' },
+  { id: 'StructuralEdge',       label: 'MOAT',  charIdx: 0, accent: '#fbbf24' },
+  { id: 'FundamentalForensics', label: 'FUND',  charIdx: 1, accent: '#60a5fa' },
+  { id: 'ValuationEngine',      label: 'VAL',   charIdx: 2, accent: '#818cf8' },
+  { id: 'CatalystHunter',       label: 'CATL',  charIdx: 3, accent: '#f87171' },
+  { id: 'MarketStructure',      label: 'MKT',   charIdx: 4, accent: '#4ade80' },
 ];
 // Fetcher agent — appears only during dossier-building phase
 const FETCHER_AGENT = { id: 'Fetcher', label: 'FETCH', charIdx: 2, accent: '#e879f9' };
@@ -370,11 +370,11 @@ function drawDelta(ctx, x, y, text, color, alpha, P) {
 function drIdx(name) {
   if (!name) return -1;
   const n = name.toLowerCase();
-  if (n.includes('value'))  return 0;
-  if (n.includes('growth')) return 1;
-  if (n.includes('quant'))  return 2;
-  if (n.includes('risk'))   return 3;
-  if (n.includes('macro'))  return 4;
+  if (n.includes('structural') || n.includes('moat'))          return 0;
+  if (n.includes('fundamental') || n.includes('forensic'))     return 1;
+  if (n.includes('valuation') || n.includes('engine'))        return 2;
+  if (n.includes('catalyst') || n.includes('hunter'))         return 3;
+  if (n.includes('marketstructure') || n.includes('market'))  return 4;
   return -1;
 }
 
