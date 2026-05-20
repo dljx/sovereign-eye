@@ -1,6 +1,6 @@
 // Paths where Bearer tokens are accepted — each handler re-validates the token itself.
 // All other paths require Basic Auth from the dashboard user.
-const BEARER_PATHS = ["/api/dd/upload", "/api/dd/live", "/api/dd/trigger"];
+const BEARER_PATHS = ["/api/dd/upload", "/api/dd/live", "/api/dd/trigger", "/api/dd/history"];
 
 async function handleRequest(context) {
   const auth = context.request.headers.get("Authorization");

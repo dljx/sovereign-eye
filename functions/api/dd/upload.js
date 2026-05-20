@@ -1,7 +1,7 @@
 /**
  * POST /api/dd/upload
  * Called by GitHub Actions after analysis completes.
- * Body: { results: [{ key, value }], index: {...}, scouts: [...] }
+ * Body: { results: [{ key, value }], index: {...}, scouts: [...], gems: [...], scout_history: {...}, scout_notified: {...} }
  * Auth: Authorization: Bearer <DD_UPLOAD_SECRET>
  *
  * Bypasses the Basic-Auth middleware using a dedicated upload secret so
@@ -74,6 +74,24 @@ export async function onRequestPost(context) {
       written.push("dd:scouts");
     } catch (e) {
       failed.push({ key: "dd:scouts", error: e.message });
+    }
+  }
+
+  // Persist scout history and notification history for cache-miss recovery in CI.
+  // Written as scout:history and scout:notified — fetched by download_history.py
+  // when the GitHub Actions cache is cold.
+  for (const [field, kvKey] of [
+    ["scout_history",  "scout:history"],
+    ["scout_notified", "scout:notified"],
+  ]) {
+    const data = body[field];
+    if (data && typeof data === "object" && Object.keys(data).length > 0) {
+      try {
+        await context.env.DD_KV.put(kvKey, JSON.stringify(data));
+        written.push(kvKey);
+      } catch (e) {
+        failed.push({ key: kvKey, error: e.message });
+      }
     }
   }
 
