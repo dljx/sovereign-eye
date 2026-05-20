@@ -113,6 +113,12 @@ export async function onRequestGet(context) {
     });
   }
 
+  // 0. Workers edge cache (URL-only key — auth already validated by middleware)
+  const cacheKey = new Request(url.toString());
+  const cache = caches.default;
+  const edgeCached = await cache.match(cacheKey);
+  if (edgeCached) return edgeCached;
+
   // 1. Try KV cache
   if (context.env.DD_KV) {
     try {
@@ -120,9 +126,11 @@ export async function onRequestGet(context) {
       if (cached && cached.updatedAt) {
         const age = Date.now() - new Date(cached.updatedAt).getTime();
         if (age < CACHE_TTL_MS) {
-          return new Response(JSON.stringify({ ...cached, cached: true }), {
+          const kvHit = new Response(JSON.stringify({ ...cached, cached: true }), {
             headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=1800, stale-while-revalidate=900" },
           });
+          context.waitUntil(cache.put(cacheKey, kvHit.clone()));
+          return kvHit;
         }
       }
     } catch { /* proceed to refresh */ }
@@ -155,7 +163,9 @@ export async function onRequestGet(context) {
     } catch { /* non-fatal */ }
   }
 
-  return new Response(JSON.stringify(result), {
+  const freshResponse = new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=1800, stale-while-revalidate=900" },
   });
+  context.waitUntil(cache.put(cacheKey, freshResponse.clone()));
+  return freshResponse;
 }

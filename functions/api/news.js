@@ -139,6 +139,12 @@ export async function onRequestGet(context) {
   const fhKey = context.env.FINNHUB_API_KEY;
   const gemKey = context.env.GEMINI_API_KEY;
 
+  // Workers edge cache (URL-only key — auth already validated by middleware)
+  const cacheKey = new Request(url.toString());
+  const cache = caches.default;
+  const edgeCached = await cache.match(cacheKey);
+  if (edgeCached) return edgeCached;
+
   // Check KV cache
   if (context.env.DD_KV) {
     try {
@@ -146,9 +152,11 @@ export async function onRequestGet(context) {
       if (cached?.items && cached.updatedAt) {
         const age = Date.now() - new Date(cached.updatedAt).getTime();
         if (age < CACHE_TTL_MS) {
-          return new Response(JSON.stringify(cached.items), {
+          const kvHit = new Response(JSON.stringify(cached.items), {
             headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=900, stale-while-revalidate=300" },
           });
+          context.waitUntil(cache.put(cacheKey, kvHit.clone()));
+          return kvHit;
         }
       }
     } catch {}
@@ -171,7 +179,9 @@ export async function onRequestGet(context) {
     } catch {}
   }
 
-  return new Response(JSON.stringify(items), {
+  const freshResponse = new Response(JSON.stringify(items), {
     headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=900, stale-while-revalidate=300" },
   });
+  context.waitUntil(cache.put(cacheKey, freshResponse.clone()));
+  return freshResponse;
 }
