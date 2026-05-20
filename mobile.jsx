@@ -76,10 +76,10 @@ function DDGradeBadge({ grade, large = false }) {
 
 // ── Pixel Debate animation — delegates to shared DebateRoom ───────────────────
 
-function MPixelDebate({ elapsed, ticker, ddRaw = null }) {
+function MPixelDebate({ elapsed, ticker, ddRaw = null, liveEvents = null, isRunning = false }) {
   const DR = window.DebateRoom;
   if (!DR) return null;
-  return <DR ddData={ddRaw} elapsed={elapsed} ticker={ticker} width={280} height={210}/>;
+  return <DR ddData={ddRaw} elapsed={elapsed} ticker={ticker} liveEvents={liveEvents} isRunning={isRunning} width={280} height={210}/>;
 }
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
@@ -875,22 +875,83 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
   const displayNews = relevantNews.length > 0 ? relevantNews : M_NEWS_SEED.slice(0, 3).map(n => ({ ...n, ticker: pos.t }));
   const displayFilings = relevantFilings.length > 0 ? relevantFilings : M_SEC_SEED.slice(0, 2).map(f => ({ ...f, ticker: pos.t }));
 
-  const [ddData, setDdData]       = useState(null);
-  const [ddRaw, setDdRaw]         = useState(null);
-  const [ddLoading, setDdLoading] = useState(true);
-  const [ddElapsed, setDdElapsed] = useState(0);
+  const [ddData, setDdData]           = useState(null);
+  const [ddRaw, setDdRaw]             = useState(null);
+  const [ddLoading, setDdLoading]     = useState(true);
+  const [ddElapsed, setDdElapsed]     = useState(0);
+  const [liveEvents, setLiveEvents]   = useState([]);
+  const [liveRunning, setLiveRunning] = useState(false);
   useEffect(() => {
+    let cursor = 0;
+    let liveActive = false; // true only if we caught a run actively in progress
+    let liveTimer = null;
+    let mounted = true;
+
     setDdData(null);
     setDdRaw(null);
     setDdLoading(true);
     setDdElapsed(0);
+    setLiveEvents([]);
+    setLiveRunning(false);
+
     const start = Date.now();
-    const timer = setInterval(() => setDdElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
-    fetch(`/api/dd/${pos.t.toLowerCase()}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(raw => { setDdRaw(raw); setDdData(extractDD(raw)); setDdLoading(false); clearInterval(timer); })
-      .catch(() => { setDdLoading(false); clearInterval(timer); });
-    return () => clearInterval(timer);
+    const elapsedTimer = setInterval(() => {
+      if (mounted) setDdElapsed(Math.floor((Date.now() - start) / 1000));
+    }, 1000);
+
+    const refreshStatic = () =>
+      fetch(`/api/dd/${pos.t.toLowerCase()}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(raw => {
+          if (!mounted) return;
+          setDdRaw(raw);
+          setDdData(extractDD(raw));
+          setDdLoading(false);
+          clearInterval(elapsedTimer);
+        });
+
+    // Initial static fetch
+    refreshStatic().catch(() => {
+      if (mounted) { setDdLoading(false); clearInterval(elapsedTimer); }
+    });
+
+    // Poll for live events — activates visual live mode only when a run is in progress
+    const pollLive = () => {
+      fetch(`/api/dd/live/${pos.t.toLowerCase()}?after=${cursor}`)
+        .then(r => r.ok ? r.json() : { events: [], done: false })
+        .then(data => {
+          if (!mounted) return;
+          const newEvts = data.events || [];
+          if (!data.done && newEvts.length > 0) {
+            liveActive = true;
+            cursor += newEvts.length;
+            setLiveEvents(prev => [...prev, ...newEvts]);
+            setLiveRunning(true);
+          }
+          if (data.done) {
+            clearInterval(liveTimer);
+            setLiveRunning(false);
+            if (liveActive) {
+              // We watched the run happen — append final events and re-fetch static
+              if (newEvts.length > 0) {
+                cursor += newEvts.length;
+                setLiveEvents(prev => [...prev, ...newEvts]);
+              }
+              refreshStatic().catch(() => {});
+            }
+          }
+        })
+        .catch(() => {});
+    };
+
+    pollLive();
+    liveTimer = setInterval(pollLive, 1500);
+
+    return () => {
+      mounted = false;
+      clearInterval(elapsedTimer);
+      clearInterval(liveTimer);
+    };
   }, [pos.t]);
 
   return (
@@ -989,8 +1050,8 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
         {/* Sovereign DD */}
         <SESectionHeader label="SOVEREIGN DD"/>
         <div style={{ margin: '0 16px 12px', border: `1px solid ${SE.b1}`, background: SE.bg1 }}>
-          {ddLoading ? (
-            <MPixelDebate elapsed={ddElapsed} ticker={pos.t}/>
+          {(ddLoading || liveRunning) ? (
+            <MPixelDebate elapsed={ddElapsed} ticker={pos.t} liveEvents={liveEvents} isRunning={true}/>
           ) : !ddData ? (
             <div style={{ padding: '14px 16px', fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1 }}>NO ANALYSIS AVAILABLE</div>
           ) : (
