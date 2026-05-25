@@ -645,6 +645,9 @@ input:focus { border-color: var(--acc); }
   margin-top: 3px; text-transform: uppercase;
 }
 .scout-mid .rationale { font-family: var(--sans); font-size: 11px; color: var(--fg-1); line-height: 1.4; }
+.scout-filters { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.filter-tag { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--bg-2); color: var(--fg-3); font-family: var(--mono); }
+.filter-path { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: #1e3a5f; color: #60a5fa; font-family: var(--mono); font-weight: 600; }
 .scout-mid .when { font-family: var(--mono); font-size: 9.5px; color: var(--fg-4); margin-top: 4px; letter-spacing: 0.06em; }
 .scout-right { text-align: right; font-family: var(--mono); }
 .scout-right .s { font-size: 14px; color: var(--fg-0); font-weight: 600; line-height: 1; }

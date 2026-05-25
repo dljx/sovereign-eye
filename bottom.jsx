@@ -402,6 +402,8 @@ function SovereignScout() {
     grade: (s.grade ?? s.consensus_grade ?? "HOLD").replace(/ /g, "-").toUpperCase(),
     lens: s.scout_lens || s.lens || "—",
     rationale: s.gemma_rationale || s.rationale || s.thesis || "—",
+    filters: s.matched_filters || [],
+    path: s.path || "",
     when: s.analyzed_at
       ? (() => {
           const diff = Date.now() - new Date(s.analyzed_at.replace(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/, "$1-$2-$3T$4:$5:$6Z")).getTime();
@@ -447,6 +449,12 @@ function SovereignScout() {
               </div>
               <div className="scout-mid">
                 <div className="rationale">{s.rationale}</div>
+                {s.filters.length > 0 && (
+                  <div className="scout-filters">
+                    {s.path && <span className="filter-path">PATH {s.path}</span>}
+                    {s.filters.map((f, fi) => <span key={fi} className="filter-tag">{f}</span>)}
+                  </div>
+                )}
                 <div className="when">{s.when}</div>
               </div>
               <div className="scout-right">

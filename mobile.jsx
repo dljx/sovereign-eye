@@ -811,6 +811,23 @@ function ScoutCard({ sig, expanded, onToggle }) {
             {sig.verdict && <DebateRow label="VERDICT" color={SE.indigo} text={sig.verdict} bold/>}
             {sig.key_swing_factor && <DebateRow label="SWING" color={SE.amber} text={sig.key_swing_factor}/>}
             {sig.gemma_rationale && <DebateRow label="TRIAGE" color={SE.fg2} text={sig.gemma_rationale}/>}
+            {sig.matched_filters && sig.matched_filters.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
+                <span style={{ fontSize: 11, color: SE.fg3, marginRight: 2, fontFamily: SE.mono }}>Filters: </span>
+                {sig.path && (
+                  <span style={{ fontSize: 10, background: '#1e3a5f', color: '#60a5fa',
+                                 padding: '2px 6px', borderRadius: 4, fontFamily: SE.mono, fontWeight: 600 }}>
+                    PATH {sig.path}
+                  </span>
+                )}
+                {sig.matched_filters.map((f, i) => (
+                  <span key={i} style={{ fontSize: 10, background: SE.b2, color: SE.fg3,
+                                        padding: '2px 6px', borderRadius: 4, fontFamily: SE.mono }}>
+                    {f}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
