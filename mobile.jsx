@@ -1170,11 +1170,96 @@ function SEScreenDetail({ position, onBack, onNavigate }) {
 
 // ── SCREEN 5: Settings ─────────────────────────────────────────────────────────
 
+function computeDiffMobile(current, incoming) {
+  const curMap = new Map(current.map(p => [p.ticker, p]));
+  const incMap = new Map(incoming.map(p => [p.ticker, p]));
+  return {
+    adds:     incoming.filter(p => !curMap.has(p.ticker)),
+    updates:  incoming.filter(p => {
+      const e = curMap.get(p.ticker);
+      return e && (Math.abs(e.qty - p.qty) > 0.001 || Math.abs((e.avg || 0) - p.avg) > 0.01);
+    }),
+    removals: current.filter(p => !incMap.has(p.ticker)),
+  };
+}
+
 function SEScreenSettings({ data, onNavigate, positions, onSavePositions }) {
   const { meta } = data;
   const [showKey, setShowKey] = useState({});
   const [schedule, setSchedule] = useState('daily');
   const [syncStatus, setSyncStatus] = useState('');
+
+  // Import state
+  const [importState, setImportState] = useState('idle'); // idle|loading|preview|saving|saved|error
+  const [importDiff, setImportDiff] = useState(null);
+  const [importPartial, setImportPartial] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [removalsChecked, setRemovalsChecked] = useState({});
+  const fileInputRef = useRef(null);
+
+  const handleImportFile = async (file) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    setImportState('loading');
+    setImportError('');
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(',')[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch('/api/portfolio/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData: base64, mimeType: file.type || 'image/jpeg' }),
+      });
+      const result = await r.json();
+      if (!r.ok || !result.ok) throw new Error(result.error || `HTTP ${r.status}`);
+      setImportDiff(computeDiffMobile(positions, result.positions));
+      setImportPartial(result.partial);
+      setRemovalsChecked({});
+      setImportState('preview');
+    } catch (e) {
+      setImportError(e.message);
+      setImportState('error');
+    }
+  };
+
+  const handleImportConfirm = async () => {
+    if (!importDiff) return;
+    setImportState('saving');
+    const curMap = new Map(positions.map(p => [p.ticker, p]));
+    for (const p of [...importDiff.adds, ...importDiff.updates]) {
+      const existing = curMap.get(p.ticker) || {};
+      curMap.set(p.ticker, {
+        ...existing, ...p,
+        sector:   p.sector   || existing.sector   || '',
+        industry: p.industry || existing.industry || '',
+      });
+    }
+    for (const p of importDiff.removals) {
+      if (removalsChecked[p.ticker]) curMap.delete(p.ticker);
+    }
+    const merged = [...curMap.values()];
+    try {
+      const r = await fetch('/api/positions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged),
+      });
+      if (!r.ok) throw new Error(`Save failed HTTP ${r.status}`);
+      onSavePositions(merged);
+      setImportState('saved');
+      setTimeout(() => setImportState('idle'), 2000);
+    } catch (e) {
+      setImportError(e.message);
+      setImportState('error');
+    }
+  };
+
+  const importChanges = importDiff
+    ? importDiff.adds.length + importDiff.updates.length + Object.values(removalsChecked).filter(Boolean).length
+    : 0;
 
   const tickers = positions.map(p => p.ticker).join(', ');
   const apiKey = M_CONFIG.FINNHUB_API_KEY || '';
@@ -1237,6 +1322,97 @@ function SEScreenSettings({ data, onNavigate, positions, onSavePositions }) {
           <div style={{ marginTop: 6, fontFamily: SE.mono, fontSize: 9.5, color: SE.fg3 }}>
             {positions.length} SYMBOLS · EDIT POSITIONS ON DESKTOP TO MODIFY
           </div>
+        </div>
+
+        {/* Import from screenshot */}
+        <SESectionHeader label="IMPORT FROM SCREENSHOT"/>
+        <div style={{ padding: '0 16px 16px' }}>
+          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }}
+            onChange={e => handleImportFile(e.target.files[0])} />
+
+          {importState === 'idle' && (
+            <button onClick={() => fileInputRef.current?.click()} style={{
+              width: '100%', padding: '12px', background: SE.bg2,
+              border: `1px dashed ${SE.b2}`, color: SE.fg2,
+              fontFamily: SE.mono, fontSize: 11, letterSpacing: '.08em', cursor: 'pointer',
+            }}>
+              ↑ UPLOAD IBKR OR TIGER SCREENSHOT
+            </button>
+          )}
+
+          {importState === 'loading' && (
+            <div style={{ padding: '14px 0', fontFamily: SE.mono, fontSize: 11, color: SE.fg3, letterSpacing: '.1em', textAlign: 'center' }}>
+              GEMINI PARSING…
+            </div>
+          )}
+
+          {importState === 'preview' && importDiff && (
+            <div style={{ fontSize: 11, fontFamily: SE.mono }}>
+              {importPartial && (
+                <div style={{ padding: '8px 10px', marginBottom: 10, background: 'rgba(251,191,36,.08)', border: `1px solid rgba(251,191,36,.3)`, color: SE.amber, fontSize: 9.5, lineHeight: 1.5, letterSpacing: '.04em' }}>
+                  ⚠ PARTIAL SCREENSHOT — uncheck any removals you haven't sold
+                </div>
+              )}
+              {importDiff.adds.map(p => (
+                <div key={p.ticker} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: `1px solid ${SE.b1}`, color: SE.green }}>
+                  <span style={{ fontWeight: 700, minWidth: 52 }}>{p.ticker}</span>
+                  <span style={{ flex: 1, color: SE.fg3, fontSize: 10 }}>{p.name}</span>
+                  <span>{p.qty}sh @${p.avg.toFixed(2)}</span>
+                </div>
+              ))}
+              {importDiff.updates.map(p => {
+                const old = positions.find(x => x.ticker === p.ticker) || {};
+                return (
+                  <div key={p.ticker} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: `1px solid ${SE.b1}`, color: SE.amber }}>
+                    <span style={{ fontWeight: 700, minWidth: 52 }}>{p.ticker}</span>
+                    <span style={{ flex: 1, color: SE.fg3, fontSize: 10 }}>{p.name}</span>
+                    <span><span style={{ textDecoration: 'line-through', color: SE.fg3, marginRight: 4 }}>{old.qty}sh</span>{p.qty}sh @${p.avg.toFixed(2)}</span>
+                  </div>
+                );
+              })}
+              {importDiff.removals.map(p => (
+                <div key={p.ticker} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: `1px solid ${SE.b1}`, color: SE.red }}>
+                  <input type="checkbox" checked={!!removalsChecked[p.ticker]}
+                    onChange={e => setRemovalsChecked(s => ({ ...s, [p.ticker]: e.target.checked }))} />
+                  <span style={{ fontWeight: 700, minWidth: 52 }}>{p.ticker}</span>
+                  <span style={{ flex: 1, color: SE.fg3, fontSize: 10 }}>{p.name}</span>
+                  <span>{p.qty}sh</span>
+                </div>
+              ))}
+              {importDiff.adds.length === 0 && importDiff.updates.length === 0 && importDiff.removals.length === 0 && (
+                <div style={{ padding: '10px 0', color: SE.fg3, letterSpacing: '.08em' }}>NO CHANGES DETECTED</div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button onClick={() => setImportState('idle')} style={{
+                  flex: 1, padding: '9px', background: SE.bg2, border: `1px solid ${SE.b2}`,
+                  color: SE.fg3, fontFamily: SE.mono, fontSize: 10, letterSpacing: '.08em', cursor: 'pointer',
+                }}>CANCEL</button>
+                <button onClick={handleImportConfirm} disabled={importChanges === 0} style={{
+                  flex: 1, padding: '9px', background: 'rgba(74,222,128,.1)', border: `1px solid ${SE.green}`,
+                  color: SE.green, fontFamily: SE.mono, fontSize: 10, letterSpacing: '.08em', cursor: 'pointer',
+                  opacity: importChanges === 0 ? 0.4 : 1,
+                }}>SAVE {importChanges}</button>
+              </div>
+            </div>
+          )}
+
+          {importState === 'saving' && (
+            <div style={{ padding: '14px 0', fontFamily: SE.mono, fontSize: 11, color: SE.fg3, letterSpacing: '.1em', textAlign: 'center' }}>SAVING…</div>
+          )}
+
+          {importState === 'saved' && (
+            <div style={{ padding: '14px 0', fontFamily: SE.mono, fontSize: 11, color: SE.green, letterSpacing: '.1em', textAlign: 'center' }}>✓ SAVED</div>
+          )}
+
+          {importState === 'error' && (
+            <div>
+              <div style={{ padding: '8px 0', fontFamily: SE.mono, fontSize: 10, color: SE.red, letterSpacing: '.06em' }}>ERROR: {importError}</div>
+              <button onClick={() => setImportState('idle')} style={{
+                padding: '8px 16px', background: SE.bg2, border: `1px solid ${SE.b2}`,
+                color: SE.fg3, fontFamily: SE.mono, fontSize: 10, cursor: 'pointer',
+              }}>RETRY</button>
+            </div>
+          )}
         </div>
 
         {/* Scout schedule */}

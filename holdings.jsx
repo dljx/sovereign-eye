@@ -45,7 +45,7 @@ function Panel({ idx, title, meta, headRight, children }) {
 
 // ── HoldingsInventory ──────────────────────────────────────────────────────
 
-function HoldingsInventory({ rows, totals, selectedTicker, onSelectTicker, hoveredTicker, onHoverTicker }) {
+function HoldingsInventory({ rows, totals, selectedTicker, onSelectTicker, hoveredTicker, onHoverTicker, onImport }) {
   const [sortKey, setSortKey] = useState("weight");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -73,7 +73,8 @@ function HoldingsInventory({ rows, totals, selectedTicker, onSelectTicker, hover
 
   return (
     <Panel idx="01" title="Holdings Inventory"
-      meta={<span>{rows.length} POS · {sorted.filter(r => r.broker === "Tiger").length} TIGER · {sorted.filter(r => r.broker === "IBKR").length} IBKR</span>}>
+      meta={<span>{rows.length} POS · {sorted.filter(r => r.broker === "Tiger").length} TIGER · {sorted.filter(r => r.broker === "IBKR").length} IBKR</span>}
+      headRight={onImport && <button className="import-trigger-btn" onClick={onImport}>↑ IMPORT</button>}>
       <table className="inventory">
         <thead>
           <tr>

@@ -204,16 +204,238 @@ function StatusBar({ lastRefresh, hovered, totals, session, quoteSrc, sgdRate })
   );
 }
 
+// ── Portfolio import helpers ───────────────────────────────────────────────
+
+function computeDiff(current, incoming) {
+  const curMap = new Map(current.map(p => [p.ticker, p]));
+  const incMap = new Map(incoming.map(p => [p.ticker, p]));
+  return {
+    adds:     incoming.filter(p => !curMap.has(p.ticker)),
+    updates:  incoming.filter(p => {
+      const e = curMap.get(p.ticker);
+      return e && (Math.abs(e.qty - p.qty) > 0.001 || Math.abs((e.avg || 0) - p.avg) > 0.01);
+    }),
+    removals: current.filter(p => !incMap.has(p.ticker)),
+  };
+}
+
+function ImportModal({ positions, onClose, onSave }) {
+  const [state, setState] = useSA("idle"); // idle|loading|preview|saving|saved|error
+  const [diff, setDiff] = useSA(null);
+  const [partial, setPartial] = useSA(false);
+  const [removalsChecked, setRemovalsChecked] = useSA({});
+  const [errMsg, setErrMsg] = useSA("");
+  const [incoming, setIncoming] = useSA(null);
+  const [dragOver, setDragOver] = useSA(false);
+  const fileRef = useRA(null);
+
+  const parse = useCA(async (file) => {
+    setState("loading");
+    setErrMsg("");
+    try {
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(",")[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
+      });
+      const mimeType = file.type || "image/jpeg";
+      const r = await fetch("/api/portfolio/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageData: base64, mimeType }),
+      });
+      const result = await r.json();
+      if (!r.ok || !result.ok) throw new Error(result.error || `HTTP ${r.status}`);
+      const d = computeDiff(positions, result.positions);
+      setIncoming(result.positions);
+      setDiff(d);
+      setPartial(result.partial);
+      setRemovalsChecked({});
+      setState("preview");
+    } catch (e) {
+      setErrMsg(e.message);
+      setState("error");
+    }
+  }, [positions]);
+
+  const handleFile = useCA((file) => {
+    if (file && file.type.startsWith("image/")) parse(file);
+  }, [parse]);
+
+  const confirm = useCA(async () => {
+    if (!diff) return;
+    setState("saving");
+    const curMap = new Map(positions.map(p => [p.ticker, p]));
+    for (const p of [...diff.adds, ...diff.updates]) {
+      const existing = curMap.get(p.ticker) || {};
+      curMap.set(p.ticker, {
+        ...existing, ...p,
+        sector:   p.sector   || existing.sector   || "",
+        industry: p.industry || existing.industry || "",
+      });
+    }
+    for (const p of diff.removals) {
+      if (removalsChecked[p.ticker]) curMap.delete(p.ticker);
+    }
+    const merged = [...curMap.values()];
+    try {
+      const r = await fetch("/api/positions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(merged),
+      });
+      if (!r.ok) throw new Error(`Save failed HTTP ${r.status}`);
+      onSave(merged.map(p => ({ ...p, avg: p.avg ?? p.avgCost ?? 0 })));
+      setState("saved");
+      setTimeout(onClose, 1800);
+    } catch (e) {
+      setErrMsg(e.message);
+      setState("error");
+    }
+  }, [diff, removalsChecked, positions, onSave, onClose]);
+
+  const totalChanges = diff
+    ? diff.adds.length + diff.updates.length + Object.values(removalsChecked).filter(Boolean).length
+    : 0;
+
+  return (
+    <div className="import-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="import-card">
+        <h2>Import from Screenshot</h2>
+
+        {state === "idle" && (
+          <div
+            className={"import-dropzone" + (dragOver ? " drag-over" : "")}
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }}
+          >
+            <div className="drop-icon">↑</div>
+            <div className="drop-hint">DROP SCREENSHOT OR CLICK TO UPLOAD</div>
+            <div className="drop-sub">IBKR · TIGER · JPEG / PNG / WEBP</div>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
+              onChange={(e) => handleFile(e.target.files[0])} />
+          </div>
+        )}
+
+        {state === "loading" && (
+          <div className="import-status">GEMINI PARSING…</div>
+        )}
+
+        {state === "preview" && diff && (
+          <>
+            {partial && (
+              <div className="diff-partial">
+                ⚠ PARTIAL SCREENSHOT — positions not visible in this screenshot are listed as
+                removals below but are unchecked by default. Only check removals you have confirmed as sold.
+              </div>
+            )}
+
+            {diff.adds.length > 0 && (
+              <div className="diff-section diff-add">
+                <div className="diff-section-label">+ ADDS ({diff.adds.length})</div>
+                {diff.adds.map(p => (
+                  <div className="diff-row" key={p.ticker}>
+                    <span className="d-tk">{p.ticker}</span>
+                    <span className="d-name">{p.name}</span>
+                    <span className="d-val">{p.qty} sh @ ${p.avg.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {diff.updates.length > 0 && (
+              <div className="diff-section diff-upd">
+                <div className="diff-section-label">~ UPDATES ({diff.updates.length})</div>
+                {diff.updates.map(p => {
+                  const old = positions.find(x => x.ticker === p.ticker) || {};
+                  return (
+                    <div className="diff-row" key={p.ticker}>
+                      <span className="d-tk">{p.ticker}</span>
+                      <span className="d-name">{p.name}</span>
+                      <span className="d-val">
+                        <span className="d-old">{old.qty}sh @${(old.avg||0).toFixed(2)}</span>
+                        {p.qty}sh @${p.avg.toFixed(2)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {diff.removals.length > 0 && (
+              <div className="diff-section diff-rem">
+                <div className="diff-section-label">− REMOVALS (check to confirm sold)</div>
+                {diff.removals.map(p => (
+                  <div className="diff-row" key={p.ticker}>
+                    <input type="checkbox" checked={!!removalsChecked[p.ticker]}
+                      onChange={(e) => setRemovalsChecked(s => ({ ...s, [p.ticker]: e.target.checked }))} />
+                    <span className="d-tk">{p.ticker}</span>
+                    <span className="d-name">{p.name}</span>
+                    <span className="d-val">{p.qty} sh</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {diff.adds.length === 0 && diff.updates.length === 0 && diff.removals.length === 0 && (
+              <div className="import-status">No changes detected — portfolio is already in sync.</div>
+            )}
+
+            <div className="import-actions">
+              <button className="import-actions button import-btn-cancel" onClick={onClose}>CANCEL</button>
+              <button className="import-actions button import-btn-save"
+                onClick={confirm} disabled={totalChanges === 0}>
+                SAVE {totalChanges} CHANGE{totalChanges !== 1 ? "S" : ""}
+              </button>
+            </div>
+          </>
+        )}
+
+        {state === "saving" && <div className="import-status">SAVING…</div>}
+
+        {state === "saved" && <div className="import-status ok">✓ SAVED</div>}
+
+        {state === "error" && (
+          <div>
+            <div className="import-status err">ERROR: {errMsg}</div>
+            <div className="import-actions">
+              <button className="import-actions button import-btn-cancel" onClick={onClose}>CLOSE</button>
+              <button className="import-actions button import-btn-save"
+                onClick={() => setState("idle")}>RETRY</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── App ────────────────────────────────────────────────────────────────────
 
 function App() {
-  // Normalise positions: accept both `avg` and `avgCost` field names
-  const positions = useMA(() =>
+  // Normalise positions: accept both `avg` and `avgCost` field names.
+  // Initialise from static positions.js, then overwrite with KV on mount.
+  const [positions, setPositions] = useSA(() =>
     (window.SE_CONFIG?.MY_POSITIONS || []).map(p => ({
       ...p,
       avg: p.avg ?? p.avgCost ?? 0,
     }))
-  , []);
+  );
+
+  useEA(() => {
+    fetch("/api/positions")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (Array.isArray(data) && data.length)
+          setPositions(data.map(p => ({ ...p, avg: p.avg ?? p.avgCost ?? 0 })));
+      })
+      .catch(() => {});
+  }, []);
+
+  const [importOpen, setImportOpen] = useSA(false);
 
   const tickers = useMA(() => positions.map(p => p.ticker).filter(t => t && t !== "USD"), [positions]);
 
@@ -261,6 +483,14 @@ function App() {
 
   return (
     <div className="app">
+      {importOpen && (
+        <ImportModal
+          positions={positions}
+          onClose={() => setImportOpen(false)}
+          onSave={setPositions}
+        />
+      )}
+
       <Topbar totals={totals} session={session} lastRefresh={lastRefresh} sgdRate={sgdRate} />
 
       <div className="grid">
@@ -270,6 +500,7 @@ function App() {
             rows={rows} totals={totals}
             selectedTicker={selectedTicker} onSelectTicker={setSelectedTicker}
             hoveredTicker={hoveredTicker} onHoverTicker={setHoveredTicker}
+            onImport={() => setImportOpen(true)}
           />
           <HoldingsHeatmap
             rows={rows}

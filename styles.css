@@ -697,3 +697,74 @@ input:focus { border-color: var(--acc); }
 
 /* Selection */
 ::selection { background: rgba(167,139,250,0.3); color: var(--fg-0); }
+
+/* ---------- Portfolio import modal ---------- */
+.import-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,.85);
+  display: flex; align-items: center; justify-content: center;
+}
+.import-card {
+  background: var(--bg-1); border: 1px solid var(--border-2);
+  padding: 24px; width: 540px; max-height: 82vh; overflow-y: auto;
+  font-family: var(--mono); font-size: 11px;
+}
+.import-card h2 {
+  font-size: 11px; letter-spacing: .14em; color: var(--fg-2);
+  margin: 0 0 16px; text-transform: uppercase;
+}
+.import-dropzone {
+  border: 1px dashed var(--border-3); padding: 36px 24px;
+  text-align: center; cursor: pointer; color: var(--fg-3);
+  transition: border-color .15s, color .15s;
+}
+.import-dropzone:hover, .import-dropzone.drag-over {
+  border-color: var(--acc); color: var(--acc);
+}
+.import-dropzone .drop-icon { font-size: 22px; margin-bottom: 10px; }
+.import-dropzone .drop-hint { font-size: 10px; letter-spacing: .1em; }
+.import-dropzone .drop-sub  { font-size: 9px; color: var(--fg-4); margin-top: 6px; letter-spacing: .08em; }
+.diff-section { margin-top: 14px; }
+.diff-section-label {
+  font-size: 9px; letter-spacing: .14em; padding: 2px 0 6px;
+  border-bottom: 1px solid var(--border-1); margin-bottom: 6px;
+}
+.diff-add .diff-section-label { color: var(--pos); }
+.diff-upd .diff-section-label { color: var(--warn); }
+.diff-rem .diff-section-label { color: var(--neg); }
+.diff-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 0; border-bottom: 1px solid var(--border-1); font-size: 10.5px;
+}
+.diff-row .d-tk { color: var(--fg-0); font-weight: 600; min-width: 52px; }
+.diff-row .d-name { color: var(--fg-3); flex: 1; font-size: 9.5px; }
+.diff-row .d-val { color: var(--fg-2); text-align: right; white-space: nowrap; }
+.diff-row .d-old { color: var(--fg-4); text-decoration: line-through; margin-right: 4px; }
+.diff-partial {
+  background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.3);
+  color: var(--warn); padding: 7px 10px; margin-bottom: 12px;
+  font-size: 9.5px; letter-spacing: .06em; line-height: 1.5;
+}
+.import-actions {
+  display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end;
+}
+.import-actions button {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  padding: 6px 16px; cursor: pointer; border: 1px solid;
+}
+.import-btn-save {
+  background: rgba(74,222,128,.1); border-color: var(--pos) !important; color: var(--pos);
+}
+.import-btn-save:disabled { opacity: .4; cursor: default; }
+.import-btn-cancel {
+  background: none; border-color: var(--border-3) !important; color: var(--fg-3);
+}
+.import-status { text-align: center; padding: 24px 0; color: var(--fg-3); letter-spacing: .1em; }
+.import-status.ok { color: var(--pos); }
+.import-status.err { color: var(--neg); }
+.import-trigger-btn {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .1em;
+  background: none; border: 1px solid var(--border-2); color: var(--fg-3);
+  padding: 2px 8px; cursor: pointer; white-space: nowrap;
+}
+.import-trigger-btn:hover { border-color: var(--acc); color: var(--acc); }
