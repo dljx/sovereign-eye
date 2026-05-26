@@ -25,17 +25,21 @@ function IntelligenceFeed({ tickers }) {
   useE2(() => {
     if (!tickers || !tickers.length) { setStatus("seed"); return; }
     const qs = tickers.join(",");
-    fetch(`/api/synthesis?tickers=${qs}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (d && (d.catalysts || d.risks || d.macro)) {
-          setData(d);
-          setStatus(d.cached ? "cached" : "live");
-        } else {
-          setStatus("seed");
-        }
-      })
-      .catch(() => setStatus("seed"));
+    const fetchSynthesis = () =>
+      fetch(`/api/synthesis?tickers=${qs}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d && (d.catalysts || d.risks || d.macro)) {
+            setData(d);
+            setStatus(d.cached ? "cached" : "live");
+          } else {
+            setStatus("seed");
+          }
+        })
+        .catch(() => setStatus("seed"));
+    fetchSynthesis();
+    const id = setInterval(fetchSynthesis, 5 * 60 * 1000);
+    return () => clearInterval(id);
   }, [tickers?.join(",")]);
 
   // Normalise API or seed bullets to display objects
