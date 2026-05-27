@@ -405,7 +405,9 @@ function App() {
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (Array.isArray(data) && data.length) {
-          setPositions(data.map(p => ({ ...p, avg: p.avg ?? p.avgCost ?? 0 })));
+          const mapped = data.map(p => ({ ...p, avg: p.avg ?? p.avgCost ?? 0 }));
+          window.POSITIONS = mapped; // set global before event so panels can read it immediately
+          setPositions(mapped);
           window.dispatchEvent(new Event('se:positions'));
         }
       })
