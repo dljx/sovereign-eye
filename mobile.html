@@ -13,18 +13,17 @@
 <link rel="apple-touch-icon" href="/icon-192.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css?v=20260528a" />
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #09090b; overflow: hidden; height: 100%; width: 100%; }
   body { font-family: Inter, -apple-system, system-ui, sans-serif; -webkit-text-size-adjust: 100%; }
-  #root { width: 100vw; height: 100vh; height: 100dvh; display: flex; justify-content: center; }
+  #root { width: 100vw; height: 100vh; height: 100dvh; }
   *::-webkit-scrollbar { display: none; }
   * { scrollbar-width: none; }
   button { -webkit-tap-highlight-color: transparent; }
   *::selection { background: #818cf855; }
-  @keyframes sePulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.3 } }
-  @keyframes seSpin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
 </style>
 </head>
 <body>
@@ -34,10 +33,13 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 
-<script src="positions.js?v=20260514m"></script>
-<script src="seed.js?v=20260514m"></script>
+<script src="positions.js?v=20260514c"></script>
+<script src="seed.js?v=20260514c"></script>
 
+<script type="text/babel" src="tweaks-panel.jsx?v=20260528a"></script>
+<script type="text/babel" src="components.jsx?v=20260528a"></script>
+<script type="text/babel" src="data.jsx?v=20260528a"></script>
 <script type="text/babel" src="debate-room.jsx?v=20260515g"></script>
-<script type="text/babel" src="mobile.jsx?v=20260526a"></script>
+<script type="text/babel" src="mobile.jsx?v=20260528a"></script>
 </body>
 </html>

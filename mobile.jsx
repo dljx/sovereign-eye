@@ -1,1212 +1,641 @@
-// Sovereign Eye — Mobile v2
-// 5-screen mobile portfolio terminal — designed by Claude Design, implemented in code.
-// Entry: mobile.html → loads positions.js + seed.js → this file → ReactDOM.createRoot
-
+/* global React, ReactDOM, window, Icon, SrcPill, Sparkline, AgentPixel, MacroChart,
+   fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
+   POSITIONS, QUOTES, SYNTHESIS, NEWS_PORTFOLIO, NEWS_WIRE,
+   SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals */
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-// Rename everything to avoid clashing with const declarations in positions.js
-const M_POSITIONS  = window.SE_CONFIG.MY_POSITIONS;
-const M_CONFIG     = window.SE_CONFIG.CONFIG;
-const M_SYNTHESIS  = window.SE_CONFIG.SYNTHESIS;
-const M_SEC_SEED   = window.SE_CONFIG.SEC_SEED;
-const M_NEWS_SEED  = window.SE_CONFIG.NEWS_SEED;
-
-// ── Design tokens ──────────────────────────────────────────────────────────────
-const SE = {
-  bg0: '#09090b', bg1: '#0d0d10', bg2: '#111114', bg3: '#17171b',
-  b1: '#1f1f25', b2: '#27272e',
-  fg0: '#f4f4f5', fg1: '#d4d4d8', fg2: '#a1a1aa', fg3: '#71717a',
-  green: '#4ade80', red: '#f87171', amber: '#fbbf24', blue: '#60a5fa', indigo: '#818cf8',
-  mono: '"JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace',
-  sans: 'Inter, -apple-system, system-ui, sans-serif',
-};
-
-// ── DD helpers ─────────────────────────────────────────────────────────────────
-function extractDD(raw) {
-  if (!raw) return null;
-  const r = raw.result || raw;
-  if (r.consensus_score == null && r.score == null) return null;
-  return {
-    score:      +(r.consensus_score ?? r.score ?? 0).toFixed(2),
-    grade:      (r.consensus_grade ?? r.grade ?? 'HOLD').trim().toUpperCase(),
-    confidence: r.confidence ?? 'MEDIUM',
-    thesis:     r.majority_thesis ?? r.thesis ?? '',
-    swing:      r.key_swing_factor ?? '',
-    dissent:    r.dissent ?? '',
-    agentScores: r.agent_final_scores ?? {},
-    loops:      r.loops_run ?? 0,
-    converged:  r.converged ?? false,
-  };
-}
-
-function ddGradeColor(grade) {
-  if (!grade) return SE.fg3;
-  const g = grade.toUpperCase();
-  if (g === 'STRONG BUY' || g === 'BUY')   return SE.green;
-  if (g === 'STRONG SELL' || g === 'SELL') return SE.red;
-  return SE.fg3;
-}
-
-function ddGradeAbbr(grade) {
-  if (!grade) return '?';
-  switch (grade.toUpperCase()) {
-    case 'STRONG BUY':  return 'SB';
-    case 'BUY':         return 'B';
-    case 'HOLD':        return 'H';
-    case 'SELL':        return 'S';
-    case 'STRONG SELL': return 'SS';
-    default:            return grade.charAt(0);
-  }
-}
-
-function DDGradeBadge({ grade, large = false }) {
-  const color = ddGradeColor(grade);
-  const bg    = color === SE.fg3 ? SE.bg3 : color + '22';
-  return (
-    <span style={{
-      fontFamily: SE.mono, fontSize: large ? 9 : 7, fontWeight: 700,
-      letterSpacing: large ? 1 : 0.8, color,
-      background: bg, padding: large ? '2px 6px' : '1px 4px',
-      lineHeight: 1, flexShrink: 0,
-    }}>
-      {large ? grade : ddGradeAbbr(grade)}
-    </span>
+// =============================================================
+// LIVE DATA HOOK — fetches KV positions + Finnhub quotes
+// =============================================================
+function useLiveData() {
+  const [positions, setPositions] = useState(() =>
+    (window.SE_CONFIG?.MY_POSITIONS || []).map(p => ({ ...p, avg: p.avg ?? p.avgCost ?? 0 }))
   );
+  const [quotes, setQuotes] = useState(() => window.QUOTES || {});
+  const [dataV, setDataV] = useState(0); // bump to force re-renders
+
+  // Load positions from KV
+  useEffect(() => {
+    fetch('/api/positions')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (Array.isArray(data) && data.length) {
+          const pos = data.map(p => ({ ...p, avg: p.avg ?? p.avgCost ?? 0 }));
+          setPositions(pos);
+          window.POSITIONS = pos;
+          setDataV(v => v + 1);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Fetch quotes
+  useEffect(() => {
+    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(t => t && t !== 'USD');
+    if (!tickers.length) return;
+
+    const load = async () => {
+      try {
+        const r = await fetch(`/api/quotes?tickers=${tickers.join(',')}`).catch(() => null);
+        if (r?.ok) {
+          const data = await r.json();
+          const next = { ...(window.QUOTES || {}) };
+          Object.entries(data).forEach(([tk, q]) => {
+            if (q) {
+              const prev = next[tk] || {};
+              next[tk] = { ...normQ(q), pe: q.pe ?? prev.pe, eps: q.eps ?? prev.eps, tgt: q.target ?? prev.tgt };
+            }
+          });
+          window.QUOTES = next;
+          setQuotes({ ...next });
+          setDataV(v => v + 1);
+        }
+      } catch {}
+    };
+
+    load();
+    const id = setInterval(load, 30_000);
+    return () => clearInterval(id);
+  }, [positions]);
+
+  return { positions, setPositions, quotes, dataV };
 }
 
-// ── Pixel Debate animation — delegates to shared DebateRoom ───────────────────
-
-function MPixelDebate({ elapsed, ticker, ddRaw = null, liveEvents = null, isRunning = false }) {
-  const DR = window.DebateRoom;
-  if (!DR) return null;
-  return <DR ddData={ddRaw} elapsed={elapsed} ticker={ticker} liveEvents={liveEvents} isRunning={isRunning} width={280} height={210}/>;
-}
-
-// ── Formatters ─────────────────────────────────────────────────────────────────
-const money = (n, dp = 2) => (+n || 0).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
-const pct   = (n, dp = 2) => (+n || 0).toFixed(dp) + '%';
-const fmt = { money, pct, shares: n => (+n || 0).toLocaleString('en-US') };
-
-// ── Time / session helpers ─────────────────────────────────────────────────────
-function getSession() {
-  const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const d = et.getDay(), m = et.getHours() * 60 + et.getMinutes();
-  if (d === 0 || d === 6) return 'CLOSED';
-  if (m < 240) return 'CLOSED';
-  if (m < 570) return 'PRE-MKT';
-  if (m < 960) return 'OPEN';
-  if (m < 1200) return 'AFTER-HRS';
-  return 'CLOSED';
-}
-
-function sgtNow() {
-  const d = new Date();
-  return {
-    time: d.toLocaleTimeString('en-US', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: false }),
-    date: d.toLocaleDateString('en-US', { timeZone: 'Asia/Singapore', weekday: 'short', day: 'numeric', month: 'short' }).toUpperCase(),
-  };
-}
-
-function timeAgo(ts) {
-  const diff = Date.now() - (ts > 1e12 ? ts : ts * 1000);
-  const m = Math.floor(diff / 60000);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h`;
-  return `${Math.floor(h / 24)}d`;
-}
-
-// ── Network helpers ────────────────────────────────────────────────────────────
-const delay = ms => new Promise(r => setTimeout(r, ms));
-
-async function fetchQuotes(tickers, key) {
-  const filtered = tickers.filter(t => t !== 'USD');
-  if (!filtered.length) return {};
-  // Try server-side proxy first; fall back to direct Finnhub only in local dev
-  try {
-    const r = await fetch(`/api/quotes?tickers=${filtered.join(',')}`);
-    if (r.ok) {
-      const data = await r.json();
-      const map = {};
-      for (const [t, q] of Object.entries(data)) {
-        if (q?.c > 0) map[t] = { price: q.c, dPct: q.dp || 0 };
-      }
-      if (Object.keys(map).length) return map;
-    }
-  } catch {}
-  // Fallback: direct Finnhub with client-side key (local dev only)
-  if (!key) return {};
-  const results = await Promise.all(
-    filtered.map(t =>
-      fetch(`https://finnhub.io/api/v1/quote?symbol=${t}&token=${key}`)
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null)
-    )
-  );
-  const map = {};
-  filtered.forEach((t, i) => {
-    const q = results[i];
-    if (q?.c > 0) map[t] = { price: q.c, dPct: q.dp || 0 };
-  });
-  return map;
-}
-
-async function fetchSGD() {
-  try {
-    const r = await fetch('https://api.frankfurter.app/latest?from=USD&to=SGD');
-    if (r.ok) { const d = await r.json(); if (d?.rates?.SGD) return d.rates.SGD; }
-  } catch (e) {}
-  return 1.35;
-}
-
-async function fetchFinnhubNews(tickers, key) {
-  if (!key) return [];
-  const today = new Date().toISOString().slice(0, 10);
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-  const out = [];
-  for (const sym of tickers.slice(0, 5)) {
-    try {
-      const r = await fetch(`https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${weekAgo}&to=${today}&token=${key}`);
-      if (r.ok) { const d = await r.json(); if (Array.isArray(d)) d.slice(0, 3).forEach(n => out.push({ ...n, sym })); }
-    } catch (e) {}
-    await delay(120);
-  }
-  return out.sort((a, b) => (b.datetime || 0) - (a.datetime || 0)).slice(0, 15);
-}
-
-async function fetchSynthesis(tickers) {
-  try {
-    const r = await fetch(`/api/synthesis?tickers=${tickers.join(',')}`);
-    if (r.ok) return await r.json();
-  } catch (e) {}
-  return null;
-}
-
-async function fetchScoutResults() {
-  try {
-    const r = await fetch('/api/scout-results');
-    if (r.ok) return await r.json();
-  } catch (e) {}
-  return null;
-}
-
-// ── KV position sync ───────────────────────────────────────────────────────────
-const STORAGE_KEY = 'se-positions-v1';
-
-async function kvLoad() {
-  try { const r = await fetch('/api/positions'); if (r.ok) { const d = await r.json(); if (Array.isArray(d) && d.length) return d; } } catch (e) {}
-  return null;
-}
-
-async function kvSave(positions) {
-  try { await fetch('/api/positions', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(positions) }); } catch (e) {}
-}
-
-async function loadPositions() {
-  const kv = await kvLoad();
-  if (kv) return kv;
-  try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) { const p = JSON.parse(raw); if (Array.isArray(p) && p.length) return p; } } catch (e) {}
-  return M_POSITIONS;
-}
-
-// ── Data enrichment ────────────────────────────────────────────────────────────
-function enrichPositions(positions, quotes, sgd) {
-  return positions
-    .filter(p => p.ticker !== 'USD')
-    .map(p => {
-      const q = quotes[p.ticker] || {};
-      const px = q.price || p.avg;
-      const dPct = q.dPct || 0;
-      const sh = +p.qty;
-      const cost = +p.avg;
-      const value = sh * px;
-      const costBasis = sh * cost;
-      const trend = dPct > 0.1 ? 'up' : dPct < -0.1 ? 'down' : 'flat';
-      return { t: p.ticker, name: p.name || p.ticker, sh, px, dPct, cost, value, costBasis, trend, sector: p.sector, beta: p.beta || 1 };
-    })
-    .sort((a, b) => b.value - a.value);
-}
-
-function buildPortfolioSummary(enriched, sgd) {
-  const totalUSD = enriched.reduce((s, p) => s + p.value, 0);
-  const costBasis = enriched.reduce((s, p) => s + p.costBasis, 0);
-  const dayPnlUSD = enriched.reduce((s, p) => s + p.sh * p.px * (p.dPct / 100), 0);
-  return {
-    totalUSD, totalSGD: totalUSD * sgd,
-    dayPnlUSD, dayPnlPct: totalUSD > 0 ? (dayPnlUSD / (totalUSD - dayPnlUSD)) * 100 : 0,
-    totalPnlUSD: totalUSD - costBasis,
-    totalPnlPct: costBasis > 0 ? ((totalUSD - costBasis) / costBasis) * 100 : 0,
-    costBasisUSD: costBasis,
-  };
-}
-
-// ── Shared atoms ───────────────────────────────────────────────────────────────
-
-function SEPhone({ children }) {
+// =============================================================
+// MOBILE FRAME — 390 × 844
+// =============================================================
+function MobileFrame({ children, label }) {
   return (
-    <div style={{
-      width: '100%', height: '100%', maxWidth: 430, background: SE.bg0,
-      display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      fontFamily: SE.sans, color: SE.fg0, WebkitFontSmoothing: 'antialiased',
-    }}>{children}</div>
-  );
-}
-
-function SEAppHeader({ session, sgt, sub }) {
-  const sc = { OPEN: SE.green, 'PRE-MKT': SE.amber, 'AFTER-HRS': SE.amber, CLOSED: SE.red }[session] || SE.fg2;
-  return (
-    <div style={{
-      padding: '12px 16px', borderBottom: `1px solid ${SE.b1}`,
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      background: SE.bg0, flexShrink: 0,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M0.8 8 C 3 3.2, 13 3.2, 15.2 8 C 13 12.8, 3 12.8, 0.8 8 Z" stroke={SE.indigo} strokeWidth="1.2" strokeLinejoin="round"/>
-          <circle cx="8" cy="8" r="2.1" fill={SE.indigo}/>
-        </svg>
-        <span style={{ fontFamily: SE.mono, fontSize: 11, fontWeight: 700, color: SE.fg0, letterSpacing: 1.8 }}>SOVEREIGN EYE</span>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 5,
-          padding: '3px 7px 3px 6px', background: `${sc}1a`,
-          border: `1px solid ${sc}33`, borderRadius: 3,
-          fontFamily: SE.mono, fontSize: 9, fontWeight: 700, letterSpacing: 1, color: sc,
-        }}>
-          <span style={{ width: 5, height: 5, borderRadius: '50%', background: sc,
-            boxShadow: session === 'OPEN' ? `0 0 6px ${sc}` : 'none' }}/>
-          {session}
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+      {label && (
+        <div className="mono uppercase" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.16em' }}>
+          {label}
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: SE.mono, fontSize: 11, color: SE.fg1, fontVariantNumeric: 'tabular-nums' }}>{sgt} SGT</div>
-          <div style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 0.6, marginTop: 1 }}>{sub}</div>
+      )}
+      <div className="mobile-frame" style={{ borderRadius: 36, border: '6px solid #0a0a0d', boxShadow: '0 0 0 1px var(--border-2), 0 24px 60px rgba(0,0,0,0.5)' }}>
+        <div className="mobile-shell" style={{ borderRadius: 30, overflow: 'hidden', background: 'var(--bg-0)' }}>
+          {children}
         </div>
       </div>
     </div>
   );
 }
 
-function SEBottomNav({ active, onNavigate }) {
-  const c = k => k === active ? SE.fg0 : SE.fg3;
-  const items = [
-    { k: 'portfolio', label: 'PORTFOLIO', icon: k => (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <rect x="1.5" y="3" width="15" height="11" rx="0.5" stroke={c(k)} strokeWidth="1.4"/>
-        <path d="M5.5 11 L8 8 L10.5 10 L13.5 6" stroke={c(k)} strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-      </svg>
-    )},
-    { k: 'intel', label: 'INTEL', icon: k => (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M2 4h14M2 8h10M2 12h12" stroke={c(k)} strokeWidth="1.4" strokeLinecap="round"/>
-        <circle cx="15" cy="8" r="1.5" fill={c(k)}/>
-      </svg>
-    )},
-    { k: 'scout', label: 'SCOUT', icon: k => (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <circle cx="8" cy="8" r="5.5" stroke={c(k)} strokeWidth="1.4"/>
-        <path d="M12 12 L16 16" stroke={c(k)} strokeWidth="1.4" strokeLinecap="round"/>
-        <circle cx="8" cy="8" r="1.3" fill={c(k)}/>
-      </svg>
-    )},
-    { k: 'settings', label: 'CONFIG', icon: k => (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M3 5h12M3 9h12M3 13h12" stroke={c(k)} strokeWidth="1.4" strokeLinecap="round"/>
-        <circle cx="6" cy="5" r="1.6" fill={SE.bg0} stroke={c(k)} strokeWidth="1.4"/>
-        <circle cx="11" cy="9" r="1.6" fill={SE.bg0} stroke={c(k)} strokeWidth="1.4"/>
-        <circle cx="7" cy="13" r="1.6" fill={SE.bg0} stroke={c(k)} strokeWidth="1.4"/>
-      </svg>
-    )},
+function MobileStatusbar() {
+  const [time, setTime] = useState('');
+  useEffect(() => {
+    const upd = () => setTime(new Date().toLocaleTimeString('en-SG', { hour12: false, hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Singapore' }));
+    upd();
+    const id = setInterval(upd, 10000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="mobile-statusbar" style={{ paddingTop: 12 }}>
+      <div className="si">{time || '9:41'}</div>
+      <div className="si" style={{ gap: 6 }}>
+        <svg width="16" height="10" viewBox="0 0 16 10" fill="currentColor">
+          <rect x="0" y="6" width="3" height="4"/><rect x="4" y="4" width="3" height="6"/>
+          <rect x="8" y="2" width="3" height="8"/><rect x="12" y="0" width="3" height="10"/>
+        </svg>
+        <svg width="22" height="11" viewBox="0 0 22 11" fill="none" stroke="currentColor">
+          <rect x="0.5" y="0.5" width="18" height="10" rx="2"/>
+          <rect x="2" y="2" width="14" height="7" fill="currentColor"/>
+          <rect x="19.5" y="3.5" width="1.5" height="4" fill="currentColor"/>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function MobileTabbar({ active, onChange }) {
+  const tabs = [
+    { id: 'portfolio', label: 'Portfolio', icon: 'holdings' },
+    { id: 'intel',     label: 'Intel',     icon: 'intel' },
+    { id: 'scout',     label: 'Scout',     icon: 'scout' },
+    { id: 'detail',    label: 'DD',        icon: 'eye' },
+    { id: 'settings',  label: 'Settings',  icon: 'settings' },
   ];
   return (
-    <div style={{
-      borderTop: `1px solid ${SE.b1}`, background: SE.bg1,
-      padding: '8px 0 20px', display: 'flex', justifyContent: 'space-around', flexShrink: 0,
-    }}>
-      {items.map(it => {
-        const on = it.k === active;
-        return (
-          <button key={it.k} onClick={() => onNavigate(it.k)} style={{
-            background: 'none', border: 'none', cursor: 'pointer',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-            padding: '6px 8px', minWidth: 60, color: on ? SE.fg0 : SE.fg3,
-          }}>
-            {it.icon(it.k)}
-            <span style={{ fontFamily: SE.mono, fontSize: 9, fontWeight: 600, letterSpacing: 1.2 }}>{it.label}</span>
-            <span style={{ width: 16, height: 1.5, background: on ? SE.indigo : 'transparent', marginTop: -1 }}/>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function SEPill({ kind, size = 'sm' }) {
-  const map = {
-    BULL: { fg: SE.green, bg: `${SE.green}1a`, bd: `${SE.green}33` },
-    BEAR: { fg: SE.red, bg: `${SE.red}1a`, bd: `${SE.red}33` },
-    NEUT: { fg: SE.fg2, bg: `${SE.fg2}1a`, bd: `${SE.fg2}33` },
-    BUY: { fg: SE.green, bg: `${SE.green}1a`, bd: `${SE.green}33` },
-    'STRONG BUY': { fg: SE.bg0, bg: SE.green, bd: SE.green },
-    HOLD: { fg: SE.amber, bg: `${SE.amber}1a`, bd: `${SE.amber}33` },
-    SELL: { fg: SE.red, bg: `${SE.red}1a`, bd: `${SE.red}33` },
-  };
-  const cl = map[kind] || map.NEUT;
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      padding: size === 'lg' ? '4px 8px' : '2px 6px', borderRadius: 2,
-      background: cl.bg, border: `1px solid ${cl.bd}`, color: cl.fg,
-      fontFamily: SE.mono, fontSize: size === 'lg' ? 10.5 : 9,
-      fontWeight: 700, letterSpacing: 1, lineHeight: 1, whiteSpace: 'nowrap',
-    }}>{kind}</span>
-  );
-}
-
-function SENum({ value, fmt: fmtFn = v => String(v), signed = false, glow = true, weight = 600, size = 13 }) {
-  const num = typeof value === 'number' ? value : parseFloat(value) || 0;
-  const pos = num > 0, neg = num < 0;
-  const col = pos ? SE.green : neg ? SE.red : SE.fg1;
-  const txt = signed ? (pos ? '+' : '') + fmtFn(value) : fmtFn(value);
-  return (
-    <span style={{
-      fontFamily: SE.mono, fontWeight: weight, fontSize: size, color: col,
-      fontVariantNumeric: 'tabular-nums',
-      textShadow: glow && pos ? `0 0 8px ${SE.green}55` : 'none',
-    }}>{txt}</span>
-  );
-}
-
-function SETrend({ dir = 'flat', value, width = 42, height = 14 }) {
-  const seed = String(value || dir).split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  const slope = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
-  const col = dir === 'up' ? SE.green : dir === 'down' ? SE.red : SE.fg3;
-  const points = [];
-  for (let i = 0; i < 7; i++) {
-    const noise = ((seed >> i) & 7) - 3.5;
-    const y = Math.max(2, Math.min(height - 2, (height - 3) - i * slope * 1.4 - (height / 2 - 4) + noise * 0.6));
-    points.push([i * (width / 6), y]);
-  }
-  const d = points.map((p, i) => (i === 0 ? 'M' : 'L') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
-  return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
-      <path d={d} stroke={col} strokeWidth="1.3" fill="none" strokeLinejoin="round" strokeLinecap="round"/>
-    </svg>
-  );
-}
-
-function SESectionHeader({ label, right }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px 7px', flexShrink: 0 }}>
-      <div style={{ fontFamily: SE.mono, fontSize: 10, fontWeight: 700, letterSpacing: 1.4, color: SE.fg3 }}>{label}</div>
-      {right}
-    </div>
-  );
-}
-
-function SEPriceSpark({ dir, ticker }) {
-  const w = 354, h = 80;
-  const seed = ticker.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  const slope = dir === 'up' ? 1 : dir === 'down' ? -1 : 0;
-  const pts = [];
-  for (let i = 0; i < 60; i++) {
-    const x = i * (w / 59);
-    const y = Math.max(4, Math.min(h - 4,
-      h * 0.5 - slope * (i / 59) * h * 0.5
-      + Math.sin(i * 0.25 + seed) * 6 + Math.sin(i * 0.13 + seed * 2) * 4
-      + (((seed * (i + 1)) % 13) - 6) * 1.1
-    ));
-    pts.push([x, y]);
-  }
-  const p = pts.map((pt, i) => (i === 0 ? 'M' : 'L') + pt[0].toFixed(1) + ' ' + pt[1].toFixed(1)).join(' ');
-  const col = dir === 'up' ? SE.green : dir === 'down' ? SE.red : SE.fg2;
-  const last = pts[pts.length - 1];
-  return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
-      <defs>
-        <linearGradient id={`sg-${ticker}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={col} stopOpacity="0.18"/>
-          <stop offset="100%" stopColor={col} stopOpacity="0"/>
-        </linearGradient>
-      </defs>
-      {[0.25, 0.5, 0.75].map(r => (
-        <line key={r} x1="0" y1={h * r} x2={w} y2={h * r} stroke={SE.b1} strokeDasharray="2 4"/>
+    <div className="mobile-tabbar">
+      {tabs.map(t => (
+        <div key={t.id} className={`mobile-tab ${active === t.id ? 'active' : ''}`} onClick={() => onChange(t.id)}>
+          <Icon name={t.icon} size={18} />
+          <span>{t.label}</span>
+        </div>
       ))}
-      <path d={p + ` L ${w} ${h} L 0 ${h} Z`} fill={`url(#sg-${ticker})`}/>
-      <path d={p} stroke={col} strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
-      <circle cx={last[0] - 2} cy={last[1]} r="3" fill={col} style={{ filter: `drop-shadow(0 0 4px ${col})` }}/>
-    </svg>
+    </div>
   );
 }
 
-// ── SCREEN 1: Portfolio ────────────────────────────────────────────────────────
+// =============================================================
+// PORTFOLIO SCREEN
+// =============================================================
+function MobilePortfolio({ positions, quotes }) {
+  const totals = useMemo(() => {
+    let nlv = 0, cost = 0, dayPnl = 0;
+    positions.forEach(p => {
+      const q = quotes[p.ticker] || {};
+      nlv += (q.px || 0) * p.qty;
+      cost += p.avg * p.qty;
+      dayPnl += (q.dAbs || 0) * p.qty;
+    });
+    const unreal = nlv - cost;
+    return { nlv, unreal, unrealPct: cost ? (unreal / cost) * 100 : 0, dayPnl, count: positions.length };
+  }, [positions, quotes]);
 
-function SEScreenHome({ data, onNavigate, onTapPosition }) {
-  const { portfolio: p, positions, meta, ddIndex = {} } = data;
+  const enriched = useMemo(() => positions.map(p => {
+    const q = quotes[p.ticker] || {};
+    const mv = (q.px || 0) * p.qty;
+    const upnl = ((q.px || 0) - p.avg) * p.qty;
+    const upnlPct = p.avg > 0 ? ((q.px || 0) / p.avg - 1) * 100 : 0;
+    return { ...p, ...q, mv, upnl, upnlPct };
+  }).sort((a, b) => b.mv - a.mv), [positions, quotes]);
+
+  const dayPnlPct = (totals.nlv - totals.dayPnl) > 0 ? (totals.dayPnl / (totals.nlv - totals.dayPnl)) * 100 : 0;
+
   return (
-    <SEPhone>
-      <SEAppHeader session={meta.session} sgt={meta.sgt} sub={meta.date}/>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {/* Net worth hero */}
-        <div style={{
-          padding: '18px 16px 16px',
-          background: `linear-gradient(180deg, ${SE.bg1} 0%, ${SE.bg0} 100%)`,
-          borderBottom: `1px solid ${SE.b1}`,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontFamily: SE.mono, fontSize: 10, fontWeight: 600, letterSpacing: 1.5, color: SE.fg3 }}>NET PORTFOLIO · SGD</span>
-            <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3 }}>FX {meta.fxUsdSgd.toFixed(4)}</span>
+    <div className="mobile-screen">
+      <div className="mscreen-header" style={{ paddingBottom: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="mscreen-title">Portfolio NLV</div>
+          <SrcPill src="live" age="now" />
+        </div>
+        <div className="mscreen-bignum tabular">{fmtMoney(totals.nlv)}</div>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', marginTop: 4 }}>
+          <div className={`mscreen-sub ${sign(totals.dayPnl)}`}>
+            {totals.dayPnl >= 0 ? '+' : ''}{fmtUSDC(totals.dayPnl)} ({fmtPct(dayPnlPct)})
           </div>
-          <div style={{ fontFamily: SE.mono, fontSize: 34, fontWeight: 700, letterSpacing: -0.5, color: SE.fg0, fontVariantNumeric: 'tabular-nums', lineHeight: 1.05 }}>
-            S$ {money(p.totalSGD)}
-          </div>
-          <div style={{ fontFamily: SE.mono, fontSize: 13, color: SE.fg2, fontVariantNumeric: 'tabular-nums', marginTop: 4 }}>
-            US$ {money(p.totalUSD)}
-          </div>
-          <div style={{ display: 'flex', marginTop: 16, borderTop: `1px solid ${SE.b1}`, paddingTop: 14 }}>
-            <div style={{ flex: 1, borderRight: `1px solid ${SE.b1}`, paddingRight: 14 }}>
-              <div style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1.2, fontWeight: 600 }}>DAY P&L (USD)</div>
-              <div style={{ marginTop: 4, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <SENum value={p.dayPnlUSD} fmt={v => (v >= 0 ? '+' : '') + '$' + money(Math.abs(v))} size={16} weight={700}/>
-                <SENum value={p.dayPnlPct} fmt={v => (v >= 0 ? '+' : '') + pct(Math.abs(v))} size={11} weight={600}/>
-              </div>
+          <div className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Today</div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <div style={{ flex: 1, padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-1)' }}>
+            <div className="mono" style={{ fontSize: 9, color: 'var(--fg-3)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Unreal P&L</div>
+            <div className={`mono ${sign(totals.unreal)}`} style={{ fontSize: 13, fontWeight: 600, marginTop: 2 }}>
+              {totals.unreal >= 0 ? '+' : ''}{fmtUSDC(totals.unreal)}
             </div>
-            <div style={{ flex: 1, paddingLeft: 14 }}>
-              <div style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1.2, fontWeight: 600 }}>TOTAL P&L</div>
-              <div style={{ marginTop: 4, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                <SENum value={p.totalPnlUSD} fmt={v => (v >= 0 ? '+' : '') + '$' + money(Math.abs(v), 0)} size={16} weight={700}/>
-                <SENum value={p.totalPnlPct} fmt={v => (v >= 0 ? '+' : '') + pct(Math.abs(v))} size={11} weight={600}/>
-              </div>
-            </div>
+          </div>
+          <div style={{ flex: 1, padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-1)' }}>
+            <div className="mono" style={{ fontSize: 9, color: 'var(--fg-3)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Positions</div>
+            <div className="mono" style={{ fontSize: 13, fontWeight: 600, marginTop: 2, color: 'var(--fg-0)' }}>{positions.length}</div>
           </div>
         </div>
+      </div>
 
-        {/* Position list */}
-        <SESectionHeader label={`POSITIONS · ${positions.length}`} right={
-          <span style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1 }}>VALUE ▾</span>
-        }/>
-        <div style={{ display: 'grid', gridTemplateColumns: '68px 1fr 62px 52px', padding: '0 16px 6px', gap: 6, fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1 }}>
-          <span>TICKER</span><span>QTY · PX</span>
-          <span style={{ textAlign: 'right' }}>VALUE</span>
-          <span style={{ textAlign: 'right' }}>DAY%</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 20px', borderBottom: '1px solid var(--border-1)' }}>
+        <div className="mono uppercase" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.16em' }}>
+          Holdings · {positions.length}
         </div>
-        <div style={{ borderTop: `1px solid ${SE.b1}` }}>
-          {positions.map((pos, i) => (
-            <button key={pos.t + i} onClick={() => onTapPosition(pos)} style={{
-              width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-              borderBottom: i < positions.length - 1 ? `1px solid ${SE.b1}` : 'none',
-              padding: '10px 16px', display: 'block', textAlign: 'left',
-            }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '68px 1fr 62px 52px', gap: 6, alignItems: 'center' }}>
+        <div className="mono uppercase" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.16em' }}>By value ▾</div>
+      </div>
+
+      <div>
+        {enriched.map(p => (
+          <div key={p.ticker} className="m-position">
+            <div className="m-pos-left">
+              <div className="m-pos-tk">
+                <span className={`broker-dot ${(p.broker || '') === 'Tiger' ? 'tiger' : ''}`} />
+                {p.ticker}
+              </div>
+              <div className="m-pos-nm">{p.name}</div>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
+                <Sparkline data={window.SPARKS?.[p.ticker]} w={64} h={14} />
+                <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.06em' }}>{p.qty}@{fmtUSD(p.avg)}</span>
+              </div>
+            </div>
+            <div className="m-pos-right">
+              <div className="m-pos-px tabular">{fmtMoney(p.px || 0, 2)}</div>
+              <div className={`m-pos-pnl ${sign(p.dPct || 0)}`}>{fmtPct(p.dPct || 0)}</div>
+              <div className={`mono ${sign(p.upnl)}`} style={{ fontSize: 10, marginTop: 2, fontWeight: 500 }}>
+                {p.upnl >= 0 ? '+' : ''}{fmtUSDC(p.upnl)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
+// INTEL SCREEN
+// =============================================================
+function MobileIntel() {
+  const [tab, setTab] = useState('synthesis');
+  const [synthTab, setSynthTab] = useState('catalysts');
+  const tabs = ['synthesis','news','filings','macro'];
+  const synthesis = window.SYNTHESIS || { catalysts: [], risks: [], macro: [] };
+  const ms = window.MACRO_SERIES || { nav: [], spx: [] };
+
+  return (
+    <div className="mobile-screen">
+      <div className="mscreen-header">
+        <div className="mscreen-title">Intelligence</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="mscreen-bignum" style={{ fontSize: 22 }}>
+            {tab === 'synthesis' ? 'Synthesis' : tab === 'news' ? 'News' : tab === 'filings' ? 'Filings' : 'Macro'}
+          </div>
+          <SrcPill src="seed" age="seed" />
+        </div>
+      </div>
+      <div className="m-tabs">
+        {tabs.map(t => (
+          <div key={t} className={`m-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>{t}</div>
+        ))}
+      </div>
+
+      {tab === 'synthesis' && (
+        <>
+          <div style={{ display: 'flex', gap: 6, padding: '14px 20px 0' }}>
+            {['catalysts','risks','macro'].map(k => (
+              <button key={k} className="mono"
+                style={{
+                  padding: '6px 12px', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+                  border: '1px solid var(--border-2)', cursor: 'pointer',
+                  background: synthTab === k ? 'var(--bg-3)' : 'transparent',
+                  color: synthTab === k ? 'var(--fg-0)' : 'var(--fg-3)',
+                }}
+                onClick={() => setSynthTab(k)}>{k}
+              </button>
+            ))}
+          </div>
+          <div style={{ padding: 16 }}>
+            {(synthesis[synthTab] || []).map((it, i) => (
+              <div key={i} className="intel-item">
+                <div className="intel-num">0{i + 1}</div>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <span style={{ fontFamily: SE.mono, fontSize: 13, fontWeight: 700, color: SE.fg0, letterSpacing: 0.4 }}>{pos.t}</span>
-                    {ddIndex[pos.t] && <DDGradeBadge grade={ddIndex[pos.t].grade}/>}
-                  </div>
-                  <SETrend dir={pos.trend} value={pos.t} width={42} height={13}/>
-                </div>
-                <div>
-                  <div style={{ fontFamily: SE.sans, fontSize: 11, color: SE.fg2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pos.name}</div>
-                  <div style={{ marginTop: 2, fontFamily: SE.mono, fontSize: 10, color: SE.fg3, fontVariantNumeric: 'tabular-nums' }}>
-                    {pos.sh} sh · ${money(pos.px)}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontFamily: SE.mono, fontSize: 12, fontWeight: 600, color: SE.fg0, fontVariantNumeric: 'tabular-nums' }}>
-                    ${money(pos.value, 0)}
-                  </div>
-                  <SENum value={((pos.px - pos.cost) / pos.cost) * 100} fmt={v => (v >= 0 ? '+' : '') + pct(Math.abs(v))} size={10} weight={500}/>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <SENum value={pos.dPct} fmt={v => (v >= 0 ? '+' : '') + pct(Math.abs(v))} size={12} weight={700} glow={false}/>
+                  <div className="intel-body"><span className="tag">{it.tag}</span>{it.body}</div>
+                  {it.meta && <div className="intel-meta">{it.meta}</div>}
                 </div>
               </div>
-            </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === 'news' && (
+        <div style={{ padding: '0 20px' }}>
+          {(window.NEWS_PORTFOLIO || []).map((n, i) => (
+            <div className="news-item" key={i} style={{ padding: '12px 0' }}>
+              <div><div className="news-tk">{n.tk}</div></div>
+              <div>
+                <div className="news-headline">{n.headline}</div>
+                <div className="news-meta">{n.src}</div>
+              </div>
+              <div className="news-time">{n.t}</div>
+            </div>
           ))}
         </div>
-        <div style={{ height: 16 }}/>
-      </div>
-      <SEBottomNav active="portfolio" onNavigate={onNavigate}/>
-    </SEPhone>
-  );
-}
+      )}
 
-// ── SCREEN 2: Intel ────────────────────────────────────────────────────────────
-
-function SEScreenIntel({ data, onNavigate, initialTab = 'SYNTHESIS' }) {
-  const [tab, setTab] = useState(initialTab);
-  const tabs = ['SYNTHESIS', 'NEWS', 'SEC', 'MACRO'];
-  const { meta, synthesis, news, filings } = data;
-
-  return (
-    <SEPhone>
-      <SEAppHeader session={meta.session} sgt={meta.sgt} sub={meta.date}/>
-      <div style={{ display: 'flex', borderBottom: `1px solid ${SE.b1}`, background: SE.bg0, flexShrink: 0 }}>
-        {tabs.map(t => {
-          const on = t === tab;
-          return (
-            <button key={t} onClick={() => setTab(t)} style={{
-              flex: 1, padding: '11px 0', background: 'none', border: 'none', cursor: 'pointer',
-              fontFamily: SE.mono, fontSize: 9.5, fontWeight: 700, letterSpacing: 1.2,
-              color: on ? SE.fg0 : SE.fg3,
-              borderBottom: on ? `2px solid ${SE.indigo}` : '2px solid transparent',
-              marginBottom: -1,
-            }}>{t}</button>
-          );
-        })}
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {tab === 'SYNTHESIS' && <IntelSynthesis synthesis={synthesis}/>}
-        {tab === 'NEWS' && <IntelNews news={news}/>}
-        {tab === 'SEC' && <IntelSEC filings={filings}/>}
-        {tab === 'MACRO' && <IntelMacro/>}
-      </div>
-      <SEBottomNav active="intel" onNavigate={onNavigate}/>
-    </SEPhone>
-  );
-}
-
-function IntelSynthesis({ synthesis }) {
-  const s = synthesis || M_SYNTHESIS;
-  return (
-    <div>
-      <div style={{
-        padding: '11px 16px', background: SE.bg1, borderBottom: `1px solid ${SE.b1}`,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: SE.indigo, boxShadow: `0 0 6px ${SE.indigo}` }}/>
-          <span style={{ fontFamily: SE.mono, fontSize: 10, fontWeight: 700, color: SE.fg1, letterSpacing: 1.2 }}>GEMINI · DAILY SYNTHESIS</span>
-        </div>
-        <span style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{s.runAt || 'SEED DATA'}</span>
-      </div>
-      <BulletBlock label="CATALYSTS" color={SE.green} items={s.catalysts || []}/>
-      <BulletBlock label="RISKS" color={SE.red} items={s.risks || []}/>
-      <BulletBlock label="MACRO ALIGN" color={SE.blue} items={s.macro || []}/>
-      <div style={{ height: 16 }}/>
-    </div>
-  );
-}
-
-function BulletBlock({ label, color, items }) {
-  return (
-    <div style={{ borderBottom: `1px solid ${SE.b1}` }}>
-      <div style={{
-        padding: '11px 16px 5px', fontFamily: SE.mono, fontSize: 10, fontWeight: 700,
-        letterSpacing: 1.4, color, display: 'flex', alignItems: 'center', gap: 8,
-      }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, boxShadow: `0 0 5px ${color}88` }}/>
-        {label}
-        <span style={{ marginLeft: 'auto', color: SE.fg3, fontWeight: 500 }}>{items.length}</span>
-      </div>
-      {items.map((it, i) => (
-        <div key={i} style={{
-          padding: '8px 16px 10px', display: 'flex', gap: 10,
-          borderTop: i > 0 ? `1px solid ${SE.b1}` : 'none',
-        }}>
-          <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0, marginTop: 6, boxShadow: `0 0 6px ${color}` }}/>
-          <div style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.5, flex: 1 }}>{it}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function IntelNews({ news }) {
-  if (!news || !news.length) {
-    return <div style={{ padding: '32px 16px', fontFamily: SE.mono, fontSize: 11, color: SE.fg3, textAlign: 'center' }}>No live news — check back soon.</div>;
-  }
-  return (
-    <div>
-      {news.map((n, i) => {
-        const sent = n.sent || (n.severity === 'warn' ? 'BEAR' : 'BULL');
-        const ticker = n.ticker || n.sym || n.related || '—';
-        const headline = n.headline || n.title || '';
-        const ago = n.datetime ? timeAgo(n.datetime) : (n.ago || '—');
-        const src = n.src || n.source || '—';
-        return (
-          <div key={i} style={{ padding: '11px 16px', borderBottom: `1px solid ${SE.b1}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-              <SEPill kind={sent}/>
-              <span style={{ fontFamily: SE.mono, fontSize: 10, fontWeight: 700, color: SE.fg0, letterSpacing: 0.8 }}>{ticker}</span>
-              <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3 }}>·</span>
-              <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3 }}>{src}</span>
-              <span style={{ marginLeft: 'auto', fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{ago}</span>
-            </div>
-            {n.url
-              ? <a href={n.url} target="_blank" rel="noreferrer" style={{ fontFamily: SE.sans, fontSize: 12.5, color: SE.fg1, lineHeight: 1.4, textDecoration: 'none' }}>{headline}</a>
-              : <div style={{ fontFamily: SE.sans, fontSize: 12.5, color: SE.fg1, lineHeight: 1.4 }}>{headline}</div>
-            }
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function IntelSEC({ filings }) {
-  const items = (filings && filings.length) ? filings : M_SEC_SEED;
-  return (
-    <div>
-      {items.map((f, i) => {
-        const ticker = f.ticker || f.t;
-        const sent = f.sentiment || f.sent || 'BULL';
-        const desc = f.tldr || f.desc || '';
-        const form = f.form;
-        const ago = f.date ? timeAgo(new Date(f.date).getTime()) : (f.ago || '—');
-        return (
-          <div key={i} style={{ padding: '11px 16px', borderBottom: `1px solid ${SE.b1}` }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 6 }}>
-              <span style={{
-                padding: '2px 6px', background: SE.bg3, fontFamily: SE.mono, fontSize: 9,
-                fontWeight: 700, color: SE.fg1, letterSpacing: 1, borderRadius: 2,
-                border: `1px solid ${SE.b2}`,
-              }}>{form}</span>
-              <span style={{ fontFamily: SE.mono, fontSize: 10, fontWeight: 700, color: SE.fg0, letterSpacing: 0.8 }}>{ticker}</span>
-              <SEPill kind={sent === 'bull' ? 'BULL' : sent === 'bear' ? 'BEAR' : sent.toUpperCase()}/>
-              <span style={{ marginLeft: 'auto', fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{ago}</span>
-            </div>
-            {f.url
-              ? <a href={f.url} target="_blank" rel="noreferrer" style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.5, textDecoration: 'none' }}>{desc}</a>
-              : <div style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.5 }}>{desc}</div>
-            }
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-const MACRO_CARDS = [
-  { k: 'VIX',       v: '14.32', d: '-3.18%', dir: 'down', note: 'Risk-on regime' },
-  { k: '10Y-2Y',    v: '+0.38%', d: '+2bps', dir: 'up',  note: 'Curve steepening' },
-  { k: 'DXY',       v: '103.84', d: '-0.41%', dir: 'down', note: 'USD softening' },
-  { k: 'CPI CORE',  v: '3.10%',  d: '+0.1pp', dir: 'up',  note: 'Above exp.' },
-  { k: 'FED FUNDS', v: '4.25%',  d: '—',     dir: 'flat', note: 'Cut priced JUL' },
-  { k: 'HY OAS',    v: '298bps', d: '-12bps', dir: 'down', note: 'Credit tightening' },
-  { k: 'BTC',       v: '$97.4K', d: '+2.18%', dir: 'up',  note: 'ETF inflows +$1.2B' },
-  { k: 'WTI',       v: '$71.04', d: '-1.84%', dir: 'down', note: 'OPEC+ stable' },
-];
-
-function IntelMacro() {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: SE.b1 }}>
-      {MACRO_CARDS.map(m => {
-        const dc = m.dir === 'up' ? SE.green : m.dir === 'down' ? SE.red : SE.fg2;
-        return (
-          <div key={m.k} style={{ padding: '12px 14px', background: SE.bg0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ fontFamily: SE.mono, fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color: SE.fg3 }}>{m.k}</div>
-            <div style={{ fontFamily: SE.mono, fontSize: 17, fontWeight: 700, color: SE.fg0, fontVariantNumeric: 'tabular-nums' }}>{m.v}</div>
-            <div style={{ fontFamily: SE.mono, fontSize: 10, color: dc, fontWeight: 600 }}>{m.d}</div>
-            <div style={{ fontFamily: SE.sans, fontSize: 10, color: SE.fg3 }}>{m.note}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── SCREEN 3: Scout ────────────────────────────────────────────────────────────
-
-function SEScreenScout({ data, onNavigate }) {
-  const { scout, meta } = data;
-  const signals = scout?.signals || [];
-  const runAt = scout?.runAt || '—';
-  const [expanded, setExpanded] = useState(signals[0]?.t || null);
-
-  return (
-    <SEPhone>
-      <SEAppHeader session={meta.session} sgt={meta.sgt} sub={meta.date}/>
-
-      <div style={{ padding: '16px 16px 14px', borderBottom: `1px solid ${SE.b1}`, background: SE.bg1, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: SE.indigo, boxShadow: `0 0 8px ${SE.indigo}`, animation: 'sePulse 1.8s ease-in-out infinite' }}/>
-          <div style={{ fontFamily: SE.mono, fontSize: 13, fontWeight: 700, color: SE.fg0, letterSpacing: 2 }}>SOVEREIGN SCOUT</div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-          <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3 }}>LAST RUN · {runAt}</span>
-          <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.green, fontWeight: 600 }}>
-            {signals.length > 0 ? `${signals.length} SIGNAL${signals.length !== 1 ? 'S' : ''}` : 'HUNTING…'}
-          </span>
-        </div>
-      </div>
-
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {signals.length === 0 ? (
-          <div style={{ padding: '48px 24px', textAlign: 'center' }}>
-            <div style={{ fontFamily: SE.mono, fontSize: 11, color: SE.fg3, letterSpacing: 1.4, marginBottom: 16 }}>SCOUT IS HUNTING…</div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 6 }}>
-              {[0, 1, 2].map(i => (
-                <span key={i} style={{
-                  width: 6, height: 6, borderRadius: '50%', background: SE.indigo, opacity: 0.6,
-                  animation: `sePulse 1.4s ease-in-out ${i * 0.2}s infinite`,
-                }}/>
-              ))}
-            </div>
-            <div style={{ marginTop: 20, fontFamily: SE.sans, fontSize: 12, color: SE.fg3, lineHeight: 1.6, maxWidth: 260, margin: '20px auto 0' }}>
-              Scout runs daily at 06:00 SGT. BUY signals (≥7.0/10) appear here after each run.
-            </div>
-          </div>
-        ) : (
-          signals.map(sig => (
-            <ScoutCard key={sig.t || sig.ticker} sig={sig}
-              expanded={expanded === (sig.t || sig.ticker)}
-              onToggle={() => setExpanded(expanded === (sig.t || sig.ticker) ? null : (sig.t || sig.ticker))}
-            />
-          ))
-        )}
-        <div style={{ height: 16 }}/>
-      </div>
-
-      <SEBottomNav active="scout" onNavigate={onNavigate}/>
-    </SEPhone>
-  );
-}
-
-function ScoutCard({ sig, expanded, onToggle }) {
-  const ticker = sig.t || sig.ticker;
-  const score = sig.score || 0;
-  const grade = sig.grade || (score >= 8.5 ? 'STRONG BUY' : 'BUY');
-  const lens = sig.lens || sig.scout_lens || '';
-  const thesis = sig.thesis || sig.majority_thesis || '';
-  const scoreColor = score >= 8.5 ? SE.green : score >= 7.5 ? SE.indigo : SE.amber;
-  return (
-    <div style={{ borderBottom: `1px solid ${SE.b1}` }}>
-      <button onClick={onToggle} style={{
-        width: '100%', background: 'none', border: 'none', cursor: 'pointer',
-        padding: '14px 16px', textAlign: 'left', display: 'block',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-          <div style={{
-            width: 44, height: 36, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            background: `${scoreColor}14`, border: `1px solid ${scoreColor}44`, borderRadius: 2, flexShrink: 0,
-          }}>
-            <div style={{ fontFamily: SE.mono, fontSize: 14, fontWeight: 700, color: scoreColor, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{score.toFixed(1)}</div>
-            <div style={{ fontFamily: SE.mono, fontSize: 7, color: scoreColor, letterSpacing: 0.6, marginTop: 1 }}>/10</div>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-              <span style={{ fontFamily: SE.mono, fontSize: 14, fontWeight: 700, color: SE.fg0, letterSpacing: 0.6 }}>{ticker}</span>
-              <SEPill kind={grade}/>
-              {lens && (
-                <span style={{
-                  fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1, textTransform: 'uppercase',
-                  padding: '2px 5px', border: `1px solid ${SE.b2}`, borderRadius: 2,
-                }}>{lens}</span>
-              )}
-            </div>
-            <div style={{ fontFamily: SE.sans, fontSize: 11.5, color: SE.fg2, lineHeight: 1.4 }}>{thesis.slice(0, 120)}{thesis.length > 120 ? '…' : ''}</div>
-          </div>
-          <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.18s', flexShrink: 0 }}>
-            <path d="M2 3.5L5 6.5L8 3.5" stroke={SE.fg3} strokeWidth="1.4" fill="none" strokeLinecap="round"/>
-          </svg>
-        </div>
-      </button>
-      {expanded && (
-        <div style={{ padding: '0 16px 14px', background: SE.bg1, borderTop: `1px solid ${SE.b1}` }}>
-          <div style={{ paddingTop: 10 }}>
-            {sig.bull && <DebateRow label="BULL" color={SE.green} text={sig.bull}/>}
-            {sig.bear && <DebateRow label="BEAR" color={SE.red} text={sig.bear}/>}
-            {sig.verdict && <DebateRow label="VERDICT" color={SE.indigo} text={sig.verdict} bold/>}
-            {sig.key_swing_factor && <DebateRow label="SWING" color={SE.amber} text={sig.key_swing_factor}/>}
-            {sig.gemma_rationale && <DebateRow label="TRIAGE" color={SE.fg2} text={sig.gemma_rationale}/>}
-            {sig.matched_filters && sig.matched_filters.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 8 }}>
-                <span style={{ fontSize: 11, color: SE.fg3, marginRight: 2, fontFamily: SE.mono }}>Filters: </span>
-                {sig.path && (
-                  <span style={{ fontSize: 10, background: '#1e3a5f', color: '#60a5fa',
-                                 padding: '2px 6px', borderRadius: 4, fontFamily: SE.mono, fontWeight: 600 }}>
-                    PATH {sig.path}
-                  </span>
-                )}
-                {sig.matched_filters.map((f, i) => (
-                  <span key={i} style={{ fontSize: 10, background: SE.b2, color: SE.fg3,
-                                        padding: '2px 6px', borderRadius: 4, fontFamily: SE.mono }}>
-                    {f}
-                  </span>
-                ))}
+      {tab === 'filings' && (
+        <div style={{ padding: '0 20px' }}>
+          {(window.SEC_FILINGS || []).map((f, i) => (
+            <div key={i} style={{ padding: '14px 0', borderBottom: '1px solid var(--border-1)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <span className="filing-form">{f.form}</span>
+                <span className="filing-tk">{f.tk}</span>
+                <span className={`sent ${f.sent}`} style={{ marginLeft: 'auto' }}>{f.sent}</span>
               </div>
-            )}
+              <div className="filing-tldr">{f.tldr}</div>
+              {f.when && <div className="mono dim" style={{ fontSize: 10, marginTop: 6, letterSpacing: '0.08em' }}>{f.when} ago</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'macro' && (
+        <div style={{ padding: 16 }}>
+          <div className="chart-legend">
+            <span><span className="dot" style={{ background: 'var(--acc)' }} /> NAV</span>
+            <span><span className="dot" style={{ background: 'var(--fg-3)' }} /> SPX</span>
           </div>
+          <MacroChart nav={ms.nav} spx={ms.spx} w={350} h={200} />
         </div>
       )}
     </div>
   );
 }
 
-function DebateRow({ label, color, text, bold }) {
+// =============================================================
+// SCOUT SCREEN — live from /api/dd/scouts
+// =============================================================
+function MobileScout() {
+  const [scouts, setScouts] = useState(window.SCOUTS || []);
+  const [src, setSrc] = useState((window.SCOUTS || []).length ? 'seed' : 'loading');
+
+  useEffect(() => {
+    fetch('/api/dd/scouts')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (Array.isArray(d) && d.length) {
+          setScouts(d.map(s => ({
+            tk: s.ticker || s.tk || '—',
+            score: s.score ?? 0,
+            grade: (s.grade ?? 'HOLD').replace(/ /g, '-').toUpperCase(),
+            sector: s.sector || '—',
+            valPath: s.path || '—',
+            rationale: s.gemma_rationale || s.rationale || s.thesis || '—',
+            filters: s.matched_filters || [],
+          })));
+          setSrc('live');
+        } else if (src === 'loading') {
+          setSrc('seed');
+        }
+      })
+      .catch(() => { if (src === 'loading') setSrc('seed'); });
+  }, []);
+
+  const display = scouts.length ? scouts : (window.SCOUTS || []);
+  const nextRun = (() => {
+    const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    return et.getHours() < 6 ? '06:00 ET today' : '06:00 ET tomorrow';
+  })();
+
   return (
-    <div style={{ display: 'flex', gap: 10, padding: '5px 0' }}>
-      <div style={{ flexShrink: 0, width: 56 }}>
-        <span style={{
-          fontFamily: SE.mono, fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color,
-          padding: '2px 5px', border: `1px solid ${color}44`, borderRadius: 2, background: `${color}11`,
-        }}>{label}</span>
+    <div className="mobile-screen">
+      <div className="mscreen-header">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="mscreen-title">Scout</div>
+          <SrcPill src={src === 'loading' ? 'cached' : src} age={src === 'loading' ? '…' : 'now'} />
+        </div>
+        <div className="mscreen-bignum" style={{ fontSize: 22 }}>BUY Signals</div>
+        <div className="mono dim" style={{ fontSize: 11, marginTop: 4, letterSpacing: '0.06em' }}>
+          {display.length} tickers · screened nightly
+        </div>
       </div>
-      <div style={{ fontFamily: SE.sans, fontSize: 11.5, color: bold ? SE.fg0 : SE.fg1, lineHeight: 1.5, fontWeight: bold ? 600 : 400, flex: 1 }}>{text}</div>
+
+      {!display.length ? (
+        <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-3)' }}>
+          <div className="mono uppercase" style={{ fontSize: 11, marginBottom: 8 }}>Scout is hunting</div>
+          <div style={{ fontSize: 12 }}>Next run {nextRun}</div>
+        </div>
+      ) : (
+        <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {display.map((s, i) => (
+            <div key={s.tk} className={`scout-card ${(s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}>
+              <div className="scout-card-top">
+                <span className="scout-tk">{s.tk}</span>
+                <span className="scout-score">{(+s.score).toFixed(1)}<span className="denom"> /10</span></span>
+              </div>
+              <div className="scout-grade">{s.grade}</div>
+              <div className="scout-rationale">{s.rationale}</div>
+              <div className="scout-chips">
+                {(s.filters || []).map((f, j) => (
+                  <span className={`chip ${j === (s.filters.length - 1) ? 'acc' : ''}`} key={f}>{f}</span>
+                ))}
+              </div>
+              <div className="scout-meta"><span>{s.sector}</span><span>Path {s.valPath}</span></div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-// ── SCREEN 4: Position Detail ──────────────────────────────────────────────────
+// =============================================================
+// DETAIL / DD SCREEN — loads from KV, triggers real analysis
+// =============================================================
+function MobileDetail() {
+  const [input, setInput] = useState('AVGO');
+  const [phase, setPhase] = useState('result'); // idle | running | result | error
+  const [result, setResult] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [ticker, setTicker] = useState('AVGO');
+  const pollRef = useRef(null);
+  const elapsedRef = useRef(null);
 
-const EXCHANGE_MAP = {
-  // NASDAQ
-  AMZN: 'NASDAQ', MRVL: 'NASDAQ', PENG: 'NASDAQ',
-  AVGO: 'NASDAQ', GOOG: 'NASDAQ', GOOGL: 'NASDAQ',
-  MSFT: 'NASDAQ', MU: 'NASDAQ', NVDA: 'NASDAQ',
-  AAPL: 'NASDAQ', META: 'NASDAQ', TSLA: 'NASDAQ',
-  // NYSE
-  ANET: 'NYSE', EME: 'NYSE', MTZ: 'NYSE', VST: 'NYSE', NOW: 'NYSE',
-  JPM: 'NYSE', BAC: 'NYSE', XOM: 'NYSE', GE: 'NYSE', UNH: 'NYSE',
-};
+  function mapResult(data) {
+    if (!data) return null;
+    const d = data.result || data;
+    const score = d.consensus_score ?? d.score ?? 0;
+    const grade = (d.consensus_grade ?? d.grade ?? 'HOLD').toUpperCase();
+    return {
+      ticker: d.ticker || ticker,
+      score, grade,
+      confidence: d.confidence ?? 'MEDIUM',
+      asOf: d.asOf || 'now',
+      thesis: d.majority_thesis ?? d.thesis ?? '',
+      swing: d.key_swing_factor ?? d.swing ?? '',
+      dissent: d.dissent ?? '',
+      agents: (d.agents || []).map(a => ({
+        name: a.role ?? a.agent ?? a.name ?? 'Agent',
+        vote: ['BUY','BULL','STRONG BUY'].includes((a.signal ?? a.vote ?? '').toUpperCase()) ? 'BULL'
+          : ['SELL','BEAR'].includes((a.signal ?? a.vote ?? '').toUpperCase()) ? 'BEAR' : 'NEUTRAL',
+        rationale: a.rationale ?? a.text ?? '',
+      })),
+    };
+  }
 
-const METRICS_MAP = {
-  NVDA: { pe: 48.2, eps: 23.31, tgt: 1280, beta: 1.74 },
-  AMZN: { pe: 41.6, eps:  5.74, tgt:  260, beta: 1.18 },
-  MSFT: { pe: 36.4, eps: 13.14, tgt:  520, beta: 0.92 },
-  GOOGL: { pe: 26.1, eps: 7.61, tgt:  225, beta: 1.04 },
-  GOOG: { pe: 25.9, eps: 7.58, tgt:  225, beta: 1.03 },
-  META: { pe: 28.8, eps: 24.45, tgt:  760, beta: 1.32 },
-  TSLA: { pe: 64.2, eps:  4.38, tgt:  295, beta: 2.04 },
-  AMD:  { pe: 42.1, eps:  4.00, tgt:  190, beta: 1.66 },
-  PLTR: { pe: 184., eps:  0.26, tgt:   58, beta: 2.21 },
-  ASML: { pe: 38.6, eps: 25.44, tgt: 1080, beta: 1.08 },
-  TSM:  { pe: 28.1, eps:  7.28, tgt:  230, beta: 1.04 },
-  JPM:  { pe: 13.2, eps: 20.11, tgt:  260, beta: 0.96 },
-  LLY:  { pe: 42.8, eps: 20.22, tgt:  990, beta: 0.46 },
-  XOM:  { pe: 14.1, eps:  9.18, tgt:  120, beta: 0.78 },
-  COST: { pe: 54.6, eps: 17.46, tgt:  980, beta: 0.72 },
-  GE:   { pe: 32.4, eps:  5.01, tgt:  200, beta: 1.18 },
-  UNH:  { pe: 22.1, eps: 26.44, tgt:  590, beta: 0.64 },
-};
-
-function SEScreenDetail({ position, onBack, onNavigate }) {
-  const pos = position;
-  if (!pos) return null;
-  const ext = pos.px * (1 + (pos.dPct >= 0 ? 0.0018 : -0.0022));
-  const metrics = METRICS_MAP[pos.t] || { pe: 30, eps: 5, tgt: pos.px * 1.1, beta: pos.beta || 1 };
-  const relevantNews = M_NEWS_SEED.filter(n => n.ticker === pos.t);
-  const relevantFilings = M_SEC_SEED.filter(f => f.ticker === pos.t);
-  const displayNews = relevantNews.length > 0 ? relevantNews : M_NEWS_SEED.slice(0, 3).map(n => ({ ...n, ticker: pos.t }));
-  const displayFilings = relevantFilings.length > 0 ? relevantFilings : M_SEC_SEED.slice(0, 2).map(f => ({ ...f, ticker: pos.t }));
-
-  const [ddData, setDdData]           = useState(null);
-  const [ddRaw, setDdRaw]             = useState(null);
-  const [ddLoading, setDdLoading]     = useState(true);
-  const [ddElapsed, setDdElapsed]     = useState(0);
-  const [liveEvents, setLiveEvents]   = useState([]);
-  const [liveRunning, setLiveRunning] = useState(false);
+  // Load KV result for initial ticker
   useEffect(() => {
-    let cursor = 0;
-    let liveActive = false; // true only if we caught a run actively in progress
-    let liveTimer = null;
-    let mounted = true;
+    fetch('/api/dd/avgo')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const mapped = mapResult(d);
+        if (mapped) { setResult(mapped); setPhase('result'); }
+        else if (!window.DD_RESULT) { setPhase('idle'); }
+        else { setResult(mapResult(window.DD_RESULT)); setPhase('result'); }
+      })
+      .catch(() => {
+        if (window.DD_RESULT) { setResult(mapResult(window.DD_RESULT)); setPhase('result'); }
+        else setPhase('idle');
+      });
+  }, []);
 
-    setDdData(null);
-    setDdRaw(null);
-    setDdLoading(true);
-    setDdElapsed(0);
-    setLiveEvents([]);
-    setLiveRunning(false);
+  useEffect(() => () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (elapsedRef.current) clearInterval(elapsedRef.current);
+  }, []);
+
+  async function analyze() {
+    const tk = input.trim().toUpperCase();
+    if (!tk) return;
+    setTicker(tk);
+    setPhase('running');
+    setElapsed(0);
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (elapsedRef.current) clearInterval(elapsedRef.current);
 
     const start = Date.now();
-    const elapsedTimer = setInterval(() => {
-      if (mounted) setDdElapsed(Math.floor((Date.now() - start) / 1000));
-    }, 1000);
+    elapsedRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
 
-    const refreshStatic = () =>
-      fetch(`/api/dd/${pos.t.toLowerCase()}`)
-        .then(r => r.ok ? r.json() : null)
-        .then(raw => {
-          if (!mounted) return;
-          setDdRaw(raw);
-          setDdData(extractDD(raw));
-          setDdLoading(false);
-          clearInterval(elapsedTimer);
-        });
+    try { await fetch('/api/dd/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: tk }) }); } catch {}
 
-    // Initial static fetch
-    refreshStatic().catch(() => {
-      if (mounted) { setDdLoading(false); clearInterval(elapsedTimer); }
-    });
-
-    // Poll for live events — activates visual live mode only when a run is in progress
-    const pollLive = () => {
-      fetch(`/api/dd/live/${pos.t.toLowerCase()}?after=${cursor}`)
-        .then(r => r.ok ? r.json() : { events: [], done: false })
-        .then(data => {
-          if (!mounted) return;
-          const newEvts = data.events || [];
-          if (!data.done && newEvts.length > 0) {
-            liveActive = true;
-            cursor += newEvts.length;
-            setLiveEvents(prev => [...prev, ...newEvts]);
-            setLiveRunning(true);
+    const poll = async () => {
+      try {
+        const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
+        if (r.ok) {
+          const data = await r.json();
+          const d = data?.result || data;
+          if (data && (d.consensus_score != null || d.score != null)) {
+            clearInterval(pollRef.current); clearInterval(elapsedRef.current);
+            const mapped = mapResult(data);
+            if (mapped) { setResult(mapped); setPhase('result'); }
           }
-          if (data.done) {
-            clearInterval(liveTimer);
-            setLiveRunning(false);
-            if (liveActive) {
-              // We watched the run happen — append final events and re-fetch static
-              if (newEvts.length > 0) {
-                cursor += newEvts.length;
-                setLiveEvents(prev => [...prev, ...newEvts]);
-              }
-              refreshStatic().catch(() => {});
-            }
-          }
-        })
-        .catch(() => {});
+        }
+      } catch {}
     };
+    setTimeout(() => { poll(); pollRef.current = setInterval(poll, 15_000); }, 5_000);
+  }
 
-    pollLive();
-    liveTimer = setInterval(pollLive, 1500);
-
-    return () => {
-      mounted = false;
-      clearInterval(elapsedTimer);
-      clearInterval(liveTimer);
-    };
-  }, [pos.t]);
+  const display = result || (window.DD_RESULT ? mapResult(window.DD_RESULT) : null);
+  const agentKinds = ['valuation','macro','techanalysis','fundforensics','marketstructure'];
 
   return (
-    <SEPhone>
-      {/* Custom header */}
-      <div style={{
-        padding: '12px 12px', display: 'flex', alignItems: 'center', gap: 8,
-        borderBottom: `1px solid ${SE.b1}`, background: SE.bg0, flexShrink: 0,
-      }}>
-        <button onClick={onBack} style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: SE.fg1,
-        }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M10 2L4 8L10 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: SE.mono, fontSize: 17, fontWeight: 700, color: SE.fg0, letterSpacing: 0.6 }}>{pos.t}</div>
-          <div style={{ fontFamily: SE.sans, fontSize: 11, color: SE.fg3, marginTop: 1 }}>{pos.name}</div>
+    <div className="mobile-screen">
+      <div className="mscreen-header">
+        <div className="mscreen-title">Sovereign DD</div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && analyze()}
+            placeholder="TICKER"
+            disabled={phase === 'running'}
+            style={{ flex: 1, padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--fg-0)', fontFamily: 'var(--mono)', fontSize: 13, letterSpacing: '0.1em' }}
+          />
+          <button className="btn btn-primary" onClick={analyze} disabled={phase === 'running' || !input.trim()} style={{ padding: '8px 16px' }}>
+            {phase === 'running' ? `${elapsed}s…` : 'Analyze'}
+          </button>
         </div>
-        <div style={{
-          padding: '4px 8px', border: `1px solid ${SE.b2}`,
-          fontFamily: SE.mono, fontSize: 9, color: SE.fg2, letterSpacing: 1.2, fontWeight: 700,
-        }}>{EXCHANGE_MAP[pos.t] || 'US EQUITY'}</div>
+        {display && phase !== 'running' && (
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 12 }}>
+            <div className="mscreen-bignum">{display.ticker}</div>
+            <div style={{ textAlign: 'right' }}>
+              <div className="mono" style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-0)', lineHeight: 1 }}>
+                {(+display.score).toFixed(1)}<span style={{ fontSize: 14, color: 'var(--fg-3)' }}> /10</span>
+              </div>
+              <div className={`dd-grade ${display.grade.toLowerCase().replace(/\s+/g,'-')}`} style={{ marginTop: 6 }}>{display.grade}</div>
+            </div>
+          </div>
+        )}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {/* Price block */}
-        <div style={{
-          padding: '16px 16px 14px',
-          background: `linear-gradient(180deg, ${SE.bg1} 0%, ${SE.bg0} 100%)`,
-          borderBottom: `1px solid ${SE.b1}`,
-        }}>
-          <div style={{ fontFamily: SE.mono, fontSize: 30, fontWeight: 700, color: SE.fg0, fontVariantNumeric: 'tabular-nums', letterSpacing: -0.3, lineHeight: 1.05 }}>
-            ${money(pos.px)}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 5 }}>
-            <SENum value={pos.dPct} fmt={v => (v >= 0 ? '+' : '') + pct(Math.abs(v))} size={13} weight={600}/>
-            <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 0.6 }}>TODAY</span>
-          </div>
-          <div style={{ marginTop: 12, height: 80 }}>
-            <SEPriceSpark dir={pos.trend} ticker={pos.t}/>
-          </div>
-          {/* Ext hours */}
-          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', background: SE.bg2, border: `1px solid ${SE.b1}` }}>
-            <span style={{ fontFamily: SE.mono, fontSize: 9, fontWeight: 700, letterSpacing: 1.2, color: SE.amber, padding: '2px 5px', background: `${SE.amber}1a`, border: `1px solid ${SE.amber}33` }}>EXT</span>
-            <span style={{ fontFamily: SE.mono, fontSize: 12, color: SE.fg1, fontVariantNumeric: 'tabular-nums' }}>${money(ext)}</span>
-            <SENum value={ext - pos.px} fmt={v => (v >= 0 ? '+$' : '-$') + money(Math.abs(v), 2)} size={11} weight={600} glow={false}/>
-            <span style={{ marginLeft: 'auto', fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>AFTER-HRS</span>
-          </div>
-        </div>
-
-        {/* Your position */}
-        <SESectionHeader label="YOUR POSITION"/>
-        <div style={{ margin: '0 16px', border: `1px solid ${SE.b1}`, background: SE.bg1 }}>
-          {[
-            ['SHARES', fmt.shares(pos.sh)],
-            ['AVG COST', '$' + money(pos.cost)],
-            ['COST BASIS', '$' + money(pos.costBasis, 0)],
-            ['MKT VALUE', '$' + money(pos.value, 0), true],
-          ].map(([label, val, bold], i, arr) => (
-            <div key={label} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '10px 14px', borderBottom: i < arr.length - 1 ? `1px solid ${SE.b1}` : 'none',
-            }}>
-              <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1.2, fontWeight: 600 }}>{label}</span>
-              <span style={{ fontFamily: SE.mono, fontSize: bold ? 14 : 13, color: SE.fg0, fontVariantNumeric: 'tabular-nums', fontWeight: bold ? 700 : 600 }}>{val}</span>
+      {phase === 'running' && (
+        <div style={{ padding: 16 }}>
+          <div className="debate-room">
+            <div className="mono uppercase" style={{ fontSize: 10, color: 'var(--acc)', letterSpacing: '0.14em', marginBottom: 8 }}>
+              ▶ debate · {ticker}
             </div>
-          ))}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px' }}>
-            <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1.2, fontWeight: 600 }}>UNREALIZED</span>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
-              <SENum value={pos.value - pos.costBasis} fmt={v => (v >= 0 ? '+$' : '-$') + money(Math.abs(v), 0)} size={13} weight={700}/>
-              <SENum value={((pos.px - pos.cost) / pos.cost) * 100} fmt={v => (v >= 0 ? '+' : '') + pct(Math.abs(v))} size={11} weight={600}/>
-            </div>
-          </div>
-        </div>
-
-        {/* Key metrics */}
-        <SESectionHeader label="KEY METRICS"/>
-        <div style={{ margin: '0 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, background: SE.b1, border: `1px solid ${SE.b1}` }}>
-          {[
-            ['P/E', metrics.pe.toFixed(1)],
-            ['EPS (TTM)', '$' + metrics.eps.toFixed(2)],
-            ['ANALYST TGT', '$' + money(metrics.tgt, 0)],
-            ['BETA', metrics.beta.toFixed(2)],
-          ].map(([k, v]) => (
-            <div key={k} style={{ padding: '10px 12px', background: SE.bg1 }}>
-              <div style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1.2, fontWeight: 600 }}>{k}</div>
-              <div style={{ fontFamily: SE.mono, fontSize: 15, color: SE.fg0, fontVariantNumeric: 'tabular-nums', marginTop: 3, fontWeight: 600 }}>{v}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Sovereign DD */}
-        <SESectionHeader label="SOVEREIGN DD"/>
-        <div style={{ margin: '0 16px 12px', border: `1px solid ${SE.b1}`, background: SE.bg1 }}>
-          {(ddLoading || liveRunning) ? (
-            <MPixelDebate elapsed={ddElapsed} ticker={pos.t} liveEvents={liveEvents} isRunning={true}/>
-          ) : !ddData ? (
-            <div style={{ padding: '14px 16px', fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1 }}>NO ANALYSIS AVAILABLE</div>
-          ) : (
-            <div>
-              {/* Score + grade row */}
-              <div style={{ padding: '12px 14px 10px', borderBottom: `1px solid ${SE.b1}`, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontFamily: SE.mono, fontSize: 26, fontWeight: 700, color: SE.fg0, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-                  {ddData.score.toFixed(2)}
-                </span>
-                <span style={{ fontFamily: SE.mono, fontSize: 11, color: SE.fg3, marginTop: 2 }}>/ 10</span>
-                <DDGradeBadge grade={ddData.grade} large={true}/>
-                <span style={{ marginLeft: 'auto', fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1 }}>
-                  {ddData.confidence}
-                </span>
-              </div>
-              {/* Thesis */}
-              {ddData.thesis ? (
-                <div style={{ padding: '10px 14px', borderBottom: `1px solid ${SE.b1}`, fontFamily: SE.sans, fontSize: 11.5, color: SE.fg1, lineHeight: 1.55 }}>
-                  {ddData.thesis}
+            <div className="debate-grid" style={{ gap: 6 }}>
+              {agentKinds.map((k, i) => (
+                <div key={k} className={`agent ${i < Math.floor(elapsed * 0.3) ? 'thinking' : ''}`}>
+                  <AgentPixel kind={k} talking={i < Math.floor(elapsed * 0.3)} />
+                  <div className="agent-name">{k}</div>
                 </div>
-              ) : null}
-              {/* Key swing factor */}
-              {ddData.swing ? (
-                <div style={{ padding: '8px 14px', borderBottom: `1px solid ${SE.b1}`, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                  <span style={{ fontFamily: SE.mono, fontSize: 8, fontWeight: 700, letterSpacing: 1, color: SE.amber, flexShrink: 0, marginTop: 1 }}>SWING</span>
-                  <span style={{ fontFamily: SE.sans, fontSize: 11, color: SE.fg2, lineHeight: 1.4 }}>{ddData.swing}</span>
-                </div>
-              ) : null}
-              {/* Agent scores */}
-              {Object.keys(ddData.agentScores).length > 0 ? (
-                <div style={{ padding: '8px 14px', borderBottom: `1px solid ${SE.b1}` }}>
-                  <div style={{ fontFamily: SE.mono, fontSize: 8, color: SE.fg3, letterSpacing: 1.2, fontWeight: 600, marginBottom: 6 }}>AGENT SCORES</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px' }}>
-                    {Object.entries(ddData.agentScores).map(([agent, score]) => {
-                      const s = +score;
-                      const color = s >= 6.5 ? SE.green : s <= 4.5 ? SE.red : SE.fg3;
-                      const arrow = s >= 6.5 ? '▲' : s <= 4.5 ? '▼' : '→';
-                      return (
-                        <div key={agent} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                          <span style={{ fontFamily: SE.mono, fontSize: 8, color: SE.fg3, letterSpacing: 0.5, minWidth: 70 }}>{agent.toUpperCase().slice(0, 10)}</span>
-                          <span style={{ fontFamily: SE.mono, fontSize: 10, fontWeight: 600, color, fontVariantNumeric: 'tabular-nums' }}>{s.toFixed(1)}</span>
-                          <span style={{ fontFamily: SE.mono, fontSize: 8, color }}>{arrow}</span>
-                        </div>
-                      );
-                    })}
+              ))}
+            </div>
+            <div className="debate-progress" style={{ marginTop: 12 }}>
+              <i style={{ width: `${Math.min(100, (elapsed / 600) * 100)}%` }} />
+            </div>
+            <div className="mono dim" style={{ fontSize: 10, textAlign: 'center', marginTop: 8 }}>
+              Running via GitHub Actions · 5–10 min
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(phase === 'result' || (phase === 'idle' && display)) && display && (
+        <div style={{ padding: 16 }}>
+          <div className="dd-section">
+            <div className="dd-section-label">Thesis</div>
+            <div className="dd-thesis">{display.thesis}</div>
+          </div>
+          {display.swing && (
+            <div className="dd-section">
+              <div className="dd-section-label">Key Swing Factor</div>
+              <div className="dd-swing">{display.swing}</div>
+            </div>
+          )}
+          {display.dissent && (
+            <div className="dd-section">
+              <div className="dd-section-label">Dissent</div>
+              <div className="dd-dissent">{display.dissent}</div>
+            </div>
+          )}
+          {display.agents?.length > 0 && (
+            <div className="dd-section">
+              <div className="dd-section-label">Agent Votes</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {display.agents.map((a, i) => (
+                  <div key={i} className="dd-agent" style={{ display: 'grid', gridTemplateColumns: 'auto 60px 1fr', gap: 10, alignItems: 'start' }}>
+                    <div style={{ width: 28, height: 28 }}><AgentPixel kind={agentKinds[i % agentKinds.length]} /></div>
+                    <div>
+                      <div className="ag-name">{a.name}</div>
+                      <div className={`ag-vote ${(a.vote || '').toLowerCase()}`}>{a.vote}</div>
+                    </div>
+                    <div className="ag-rationale">{a.rationale}</div>
                   </div>
-                </div>
-              ) : null}
-              {/* Debate replay */}
-              <div style={{ borderTop: `1px solid ${SE.b1}` }}>
-                <MPixelDebate elapsed={0} ticker={pos.t} ddRaw={ddRaw}/>
+                ))}
               </div>
             </div>
           )}
         </div>
+      )}
 
-        {/* Recent news */}
-        <SESectionHeader label={`RECENT NEWS · ${pos.t}`}/>
-        <div style={{ borderTop: `1px solid ${SE.b1}` }}>
-          {displayNews.slice(0, 3).map((n, i) => (
-            <div key={i} style={{ padding: '10px 16px', borderBottom: `1px solid ${SE.b1}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                <SEPill kind={n.sentiment === 'bear' ? 'BEAR' : 'BULL'}/>
-                <span style={{ fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{n.src || n.source}</span>
-                <span style={{ marginLeft: 'auto', fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{n.ago || '—'}</span>
-              </div>
-              {n.url
-                ? <a href={n.url} target="_blank" rel="noreferrer" style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.4, textDecoration: 'none' }}>{n.title || n.headline}</a>
-                : <div style={{ fontFamily: SE.sans, fontSize: 12, color: SE.fg1, lineHeight: 1.4 }}>{n.title || n.headline}</div>
-              }
-            </div>
-          ))}
+      {phase === 'idle' && !display && (
+        <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 12 }}>
+          Enter a ticker above and press Analyze.
         </div>
-
-        {/* SEC filings */}
-        <SESectionHeader label="SEC FILINGS"/>
-        <div style={{ borderTop: `1px solid ${SE.b1}` }}>
-          {displayFilings.slice(0, 2).map((f, i) => (
-            <div key={i} style={{ padding: '10px 16px', borderBottom: `1px solid ${SE.b1}`, display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-              <span style={{ padding: '2px 6px', background: SE.bg3, border: `1px solid ${SE.b2}`, fontFamily: SE.mono, fontSize: 9, fontWeight: 700, color: SE.fg1, letterSpacing: 1, borderRadius: 2, flexShrink: 0, marginTop: 2 }}>{f.form}</span>
-              <div style={{ flex: 1 }}>
-                {f.url
-                  ? <a href={f.url} target="_blank" rel="noreferrer" style={{ fontFamily: SE.sans, fontSize: 11.5, color: SE.fg1, lineHeight: 1.4, textDecoration: 'none' }}>{f.tldr || f.desc}</a>
-                  : <div style={{ fontFamily: SE.sans, fontSize: 11.5, color: SE.fg1, lineHeight: 1.4 }}>{f.tldr || f.desc}</div>
-                }
-                <div style={{ marginTop: 4, fontFamily: SE.mono, fontSize: 9, color: SE.fg3 }}>{f.date || f.ago}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{ height: 16 }}/>
-      </div>
-
-      <SEBottomNav active="portfolio" onNavigate={onNavigate}/>
-    </SEPhone>
+      )}
+    </div>
   );
 }
 
-// ── SCREEN 5: Settings ─────────────────────────────────────────────────────────
-
-function computeDiffMobile(current, incoming) {
-  const curMap = new Map(current.map(p => [p.ticker, p]));
-  const incMap = new Map(incoming.map(p => [p.ticker, p]));
-  return {
-    adds:     incoming.filter(p => !curMap.has(p.ticker)),
-    updates:  incoming.filter(p => {
-      const e = curMap.get(p.ticker);
-      return e && (Math.abs(e.qty - p.qty) > 0.001 || Math.abs((e.avg || 0) - p.avg) > 0.01);
-    }),
-    removals: current.filter(p => !incMap.has(p.ticker)),
-  };
+// =============================================================
+// SETTINGS SCREEN — real import + system health
+// =============================================================
+function SettingsGroup({ title, children }) {
+  return (
+    <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border-1)' }}>
+      <div className="mono uppercase" style={{ fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.16em', marginBottom: 10 }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
 }
 
-function SEScreenSettings({ data, onNavigate, positions, onSavePositions }) {
-  const { meta } = data;
-  const [showKey, setShowKey] = useState({});
-  const [schedule, setSchedule] = useState('daily');
-  const [syncStatus, setSyncStatus] = useState('');
+function MobileSettings({ positions, setPositions }) {
+  const [step, setStep] = useState('idle'); // idle | parse | diff | saving | saved | error
+  const [progress, setProgress] = useState(0);
+  const [diff, setDiff] = useState(null);
+  const [incoming, setIncoming] = useState(null);
+  const [broker, setBroker] = useState('');
+  const [partial, setPartial] = useState(false);
+  const [errMsg, setErrMsg] = useState('');
+  const [checked, setChecked] = useState({});
+  const fileRef = useRef(null);
 
-  // Import state
-  const [importState, setImportState] = useState('idle'); // idle|loading|preview|saving|saved|error
-  const [importDiff, setImportDiff] = useState(null);
-  const [importPartial, setImportPartial] = useState(false);
-  const [importError, setImportError] = useState('');
-  const [removalsChecked, setRemovalsChecked] = useState({});
-  const fileInputRef = useRef(null);
+  function computeDiff(current, inc) {
+    const curMap = new Map((current || []).map(p => [p.ticker, p]));
+    const incMap = new Map((inc || []).map(p => [p.ticker, p]));
+    const adds = [], upds = [], rems = [];
+    inc.forEach(p => {
+      if (!curMap.has(p.ticker)) adds.push({ kind: 'add', ...p });
+      else {
+        const e = curMap.get(p.ticker);
+        if (Math.abs(e.qty - p.qty) > 0.001 || Math.abs((e.avg||0) - p.avg) > 0.01)
+          upds.push({ kind: 'upd', ...p, oldQty: e.qty, oldAvg: e.avg || 0 });
+      }
+    });
+    current.forEach(p => { if (!incMap.has(p.ticker)) rems.push({ kind: 'rem', ...p }); });
+    return { adds, upds, rems };
+  }
 
-  const handleImportFile = async (file) => {
-    if (!file || !file.type.startsWith('image/')) return;
-    setImportState('loading');
-    setImportError('');
+  async function parseFile(file) {
+    if (!file?.type?.startsWith('image/')) return;
+    setStep('parse');
+    setProgress(0);
+    let prog = 0;
+    const pt = setInterval(() => { prog = Math.min(prog + 5 + Math.random() * 6, 88); setProgress(prog); }, 180);
     try {
       const base64 = await new Promise((res, rej) => {
-        const reader = new FileReader();
-        reader.onload = () => res(reader.result.split(',')[1]);
-        reader.onerror = rej;
-        reader.readAsDataURL(file);
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result.split(',')[1]);
+        fr.onerror = rej;
+        fr.readAsDataURL(file);
       });
       const r = await fetch('/api/portfolio/parse', {
         method: 'POST',
@@ -1215,31 +644,38 @@ function SEScreenSettings({ data, onNavigate, positions, onSavePositions }) {
       });
       const result = await r.json();
       if (!r.ok || !result.ok) throw new Error(result.error || `HTTP ${r.status}`);
-      setImportDiff(computeDiffMobile(positions, result.positions));
-      setImportPartial(result.partial);
-      setRemovalsChecked({});
-      setImportState('preview');
+      clearInterval(pt);
+      setProgress(100);
+      const d = computeDiff(positions, result.positions || []);
+      setIncoming(result.positions || []);
+      setDiff(d);
+      setBroker(result.broker || 'Unknown');
+      setPartial(result.partial || false);
+      const sel = {};
+      d.adds.forEach(p => { sel[p.ticker] = true; });
+      d.upds.forEach(p => { sel[p.ticker] = true; });
+      d.rems.forEach(p => { sel[p.ticker] = false; });
+      setChecked(sel);
+      setTimeout(() => setStep('diff'), 300);
     } catch (e) {
-      setImportError(e.message);
-      setImportState('error');
+      clearInterval(pt);
+      setErrMsg(e.message || 'Parse failed');
+      setStep('error');
     }
-  };
+  }
 
-  const handleImportConfirm = async () => {
-    if (!importDiff) return;
-    setImportState('saving');
+  async function save() {
+    if (!diff || !incoming) return;
+    setStep('saving');
     const curMap = new Map(positions.map(p => [p.ticker, p]));
-    for (const p of [...importDiff.adds, ...importDiff.updates]) {
-      const existing = curMap.get(p.ticker) || {};
-      curMap.set(p.ticker, {
-        ...existing, ...p,
-        sector:   p.sector   || existing.sector   || '',
-        industry: p.industry || existing.industry || '',
-      });
-    }
-    for (const p of importDiff.removals) {
-      if (removalsChecked[p.ticker]) curMap.delete(p.ticker);
-    }
+    diff.adds.forEach(p => { if (checked[p.ticker]) curMap.set(p.ticker, p); });
+    diff.upds.forEach(p => {
+      if (checked[p.ticker]) {
+        const ex = curMap.get(p.ticker) || {};
+        curMap.set(p.ticker, { ...ex, ...p, sector: p.sector || ex.sector || '', industry: p.industry || ex.industry || '' });
+      }
+    });
+    diff.rems.forEach(p => { if (checked[p.ticker]) curMap.delete(p.ticker); });
     const merged = [...curMap.values()];
     try {
       const r = await fetch('/api/positions', {
@@ -1248,364 +684,196 @@ function SEScreenSettings({ data, onNavigate, positions, onSavePositions }) {
         body: JSON.stringify(merged),
       });
       if (!r.ok) throw new Error(`Save failed HTTP ${r.status}`);
-      onSavePositions(merged);
-      setImportState('saved');
-      setTimeout(() => setImportState('idle'), 2000);
+      setPositions(merged.map(p => ({ ...p, avg: p.avg ?? 0 })));
+      setStep('saved');
     } catch (e) {
-      setImportError(e.message);
-      setImportState('error');
+      setErrMsg(e.message); setStep('error');
     }
-  };
+  }
 
-  const importChanges = importDiff
-    ? importDiff.adds.length + importDiff.updates.length + Object.values(removalsChecked).filter(Boolean).length
-    : 0;
-
-  const tickers = positions.map(p => p.ticker).join(', ');
-  const apiKey = M_CONFIG.FINNHUB_API_KEY || '';
-  const maskedKey = apiKey ? apiKey.slice(0, 4) + '••••••••' + apiKey.slice(-4) : '(not configured)';
-
-  const handleSync = async () => {
-    setSyncStatus('syncing');
-    try {
-      await kvSave(positions);
-      setSyncStatus('synced');
-      setTimeout(() => setSyncStatus(''), 2500);
-    } catch (e) {
-      setSyncStatus('error');
-      setTimeout(() => setSyncStatus(''), 2000);
-    }
-  };
+  const allRows = diff ? [...diff.adds, ...diff.upds, ...diff.rems] : [];
+  const checkedCount = Object.values(checked).filter(Boolean).length;
 
   return (
-    <SEPhone>
-      <SEAppHeader session={meta.session} sgt={meta.sgt} sub={meta.date}/>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+    <div className="mobile-screen">
+      <div className="mscreen-header">
+        <div className="mscreen-title">Settings</div>
+      </div>
 
-        {/* API Keys */}
-        <SESectionHeader label="API KEYS"/>
-        <div style={{ borderTop: `1px solid ${SE.b1}` }}>
-          {[
-            { k: 'finnhub', label: 'FINNHUB', val: maskedKey, real: apiKey },
-            { k: 'gemini', label: 'GEMINI AI', val: '(server-side)', real: '' },
-            { k: 'fred', label: 'FRED', val: '(server-side)', real: '' },
-          ].map(api => (
-            <div key={api.k} style={{ padding: '12px 16px', borderBottom: `1px solid ${SE.b1}` }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1.4, fontWeight: 700 }}>{api.label}</span>
-                <span style={{ fontFamily: SE.mono, fontSize: 9, color: api.real ? SE.green : SE.fg3, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {api.real && <span style={{ width: 4, height: 4, borderRadius: '50%', background: SE.green, boxShadow: `0 0 4px ${SE.green}` }}/>}
-                  {api.real ? 'CONFIGURED' : 'SERVER-SIDE'}
-                </span>
+      {/* Import from screenshot */}
+      <div className="m-import-hero">
+        <div className="m-import-hero-icon"><Icon name="image" size={22} /></div>
+        <h3>Import from Screenshot</h3>
+        <p>Take a screenshot of your broker app and let Gemini extract your positions.</p>
+
+        {step === 'idle' && (
+          <>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
+              onChange={e => parseFile(e.target.files[0])} />
+            <button className="btn btn-primary btn-lg" style={{ width: '100%', marginTop: 6 }}
+              onClick={() => fileRef.current?.click()}>
+              <Icon name="upload" size={14} /> Choose screenshot
+            </button>
+          </>
+        )}
+
+        {step === 'parse' && (
+          <div style={{ width: '100%', marginTop: 6 }}>
+            <div className="parse-status" style={{ justifyContent: 'center', padding: '6px 0' }}>
+              <div className="parse-spinner" /><div>Parsing positions…</div>
+            </div>
+            <div style={{ height: 3, background: 'var(--bg-3)' }}>
+              <div style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, var(--acc), var(--acc-2))', transition: 'width 180ms' }} />
+            </div>
+          </div>
+        )}
+
+        {step === 'diff' && diff && (
+          <div style={{ width: '100%', textAlign: 'left', marginTop: 6 }}>
+            {partial && (
+              <div style={{ fontSize: 11, color: 'var(--warn,#f59e0b)', marginBottom: 8 }}>
+                ⚠ Partial screenshot — uncheck removals you haven't sold.
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: SE.bg2, border: `1px solid ${SE.b1}` }}>
-                <span style={{ fontFamily: SE.mono, fontSize: 11, color: SE.fg1, flex: 1 }}>
-                  {api.real && showKey[api.k] ? api.real : api.val}
-                </span>
-                {api.real && (
-                  <button onClick={() => setShowKey(s => ({ ...s, [api.k]: !s[api.k] }))} style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    fontFamily: SE.mono, fontSize: 9, color: SE.indigo, letterSpacing: 1, fontWeight: 700,
-                  }}>{showKey[api.k] ? 'HIDE' : 'SHOW'}</button>
+            )}
+            <div className="diff-summary" style={{ justifyContent: 'center' }}>
+              <div className="adds">+ {diff.adds.length}</div>
+              <div className="upds">~ {diff.upds.length}</div>
+              <div className="rems">− {diff.rems.length}</div>
+            </div>
+            <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--border-1)', background: 'var(--bg-2)', marginBottom: 10 }}>
+              {allRows.map((r, i) => (
+                <label key={i} className={`diff-row ${r.kind}`} style={{ gridTemplateColumns: '18px 60px 1fr', padding: '8px 10px', display: 'grid', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!checked[r.ticker]}
+                    onChange={e => setChecked(s => ({ ...s, [r.ticker]: e.target.checked }))} />
+                  <span className="diff-tk">{r.ticker}</span>
+                  <span style={{ fontSize: 11 }}>
+                    {r.kind === 'add' && 'new'}
+                    {r.kind === 'upd' && `qty ${r.oldQty}→${r.qty}`}
+                    {r.kind === 'rem' && 'remove'}
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn" style={{ flex: 1 }} onClick={() => setStep('idle')}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex: 2 }} onClick={save} disabled={checkedCount === 0}>
+                Save {checkedCount} change{checkedCount !== 1 ? 's' : ''}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'saving' && (
+          <div className="parse-status" style={{ justifyContent: 'center', marginTop: 10 }}>
+            <div className="parse-spinner" /><div>Saving…</div>
+          </div>
+        )}
+
+        {step === 'saved' && (
+          <div style={{ width: '100%', textAlign: 'center', marginTop: 6 }}>
+            <div className="mono pos" style={{ fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+              ✓ Imported · KV synced
+            </div>
+            <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setStep('idle')}>Done</button>
+          </div>
+        )}
+
+        {step === 'error' && (
+          <div style={{ width: '100%', marginTop: 6 }}>
+            <div className="mono" style={{ color: 'var(--neg)', fontSize: 11, marginBottom: 8 }}>ERROR: {errMsg}</div>
+            <button className="btn" style={{ width: '100%' }} onClick={() => setStep('idle')}>Retry</button>
+          </div>
+        )}
+      </div>
+
+      {/* System health */}
+      <SettingsGroup title="System Health">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {(window.API_HEALTH || []).map(api => {
+            const pct = api.quota ? Math.min(100, (api.used / api.quota) * 100) : 0;
+            return (
+              <div key={api.id} className={`api-card ${api.status}`} style={{ padding: '10px 12px' }}>
+                <div className="api-card-top">
+                  <span className="api-card-name">{api.name}</span>
+                  <span className={`api-card-status ${api.status}`}>
+                    {api.status === 'ok' ? '● OK' : api.status === 'degraded' ? '◐ DEGR' : '✕ DOWN'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
+                  <span>{api.scope}</span>
+                  <span className="mono" style={{ fontSize: 10 }}>{api.latency > 0 ? api.latency + 'ms' : ''}</span>
+                </div>
+                {api.quota > 0 && (
+                  <div className={`api-quota-bar ${pct > 75 ? 'warn' : ''}`} style={{ marginTop: 6 }}>
+                    <i style={{ width: pct + '%' }} />
+                  </div>
                 )}
               </div>
-            </div>
+            );
+          })}
+        </div>
+      </SettingsGroup>
+
+      <SettingsGroup title="Portfolio Tickers">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {positions.map(p => (
+            <span key={p.ticker} className="mono" style={{
+              fontSize: 11, padding: '4px 7px', border: '1px solid var(--border-2)', color: 'var(--fg-1)',
+            }}>{p.ticker}</span>
           ))}
         </div>
+      </SettingsGroup>
 
-        {/* Portfolio tickers */}
-        <SESectionHeader label="PORTFOLIO TICKERS"/>
-        <div style={{ padding: '0 16px 14px' }}>
-          <div style={{ padding: '10px 12px', background: SE.bg2, border: `1px solid ${SE.b1}`, fontFamily: SE.mono, fontSize: 11, color: SE.fg1, lineHeight: 1.6, wordSpacing: 2 }}>
-            {tickers || '(no positions)'}
-          </div>
-          <div style={{ marginTop: 6, fontFamily: SE.mono, fontSize: 9.5, color: SE.fg3 }}>
-            {positions.length} SYMBOLS · EDIT POSITIONS ON DESKTOP TO MODIFY
-          </div>
+      <SettingsGroup title="KV Sync">
+        <button className="btn" style={{ width: '100%' }}
+          onClick={() => {
+            fetch('/api/positions')
+              .then(r => r.ok ? r.json() : null)
+              .then(data => {
+                if (Array.isArray(data) && data.length)
+                  setPositions(data.map(p => ({ ...p, avg: p.avg ?? 0 })));
+              }).catch(() => {});
+          }}>
+          <Icon name="refresh" size={12} /> Force sync now
+        </button>
+        <div className="mono dim" style={{ fontSize: 10, marginTop: 8, letterSpacing: '0.06em' }}>
+          {positions.length} positions in portfolio
         </div>
+      </SettingsGroup>
 
-        {/* Import from screenshot */}
-        <SESectionHeader label="IMPORT FROM SCREENSHOT"/>
-        <div style={{ padding: '0 16px 16px' }}>
-          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }}
-            onChange={e => handleImportFile(e.target.files[0])} />
-
-          {importState === 'idle' && (
-            <button onClick={() => fileInputRef.current?.click()} style={{
-              width: '100%', padding: '12px', background: SE.bg2,
-              border: `1px dashed ${SE.b2}`, color: SE.fg2,
-              fontFamily: SE.mono, fontSize: 11, letterSpacing: '.08em', cursor: 'pointer',
-            }}>
-              ↑ UPLOAD IBKR OR TIGER SCREENSHOT
-            </button>
-          )}
-
-          {importState === 'loading' && (
-            <div style={{ padding: '14px 0', fontFamily: SE.mono, fontSize: 11, color: SE.fg3, letterSpacing: '.1em', textAlign: 'center' }}>
-              GEMINI PARSING…
-            </div>
-          )}
-
-          {importState === 'preview' && importDiff && (
-            <div style={{ fontSize: 11, fontFamily: SE.mono }}>
-              {importPartial && (
-                <div style={{ padding: '8px 10px', marginBottom: 10, background: 'rgba(251,191,36,.08)', border: `1px solid rgba(251,191,36,.3)`, color: SE.amber, fontSize: 9.5, lineHeight: 1.5, letterSpacing: '.04em' }}>
-                  ⚠ PARTIAL SCREENSHOT — uncheck any removals you haven't sold
-                </div>
-              )}
-              {importDiff.adds.map(p => (
-                <div key={p.ticker} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: `1px solid ${SE.b1}`, color: SE.green }}>
-                  <span style={{ fontWeight: 700, minWidth: 52 }}>{p.ticker}</span>
-                  <span style={{ flex: 1, color: SE.fg3, fontSize: 10 }}>{p.name}</span>
-                  <span>{p.qty}sh @${p.avg.toFixed(2)}</span>
-                </div>
-              ))}
-              {importDiff.updates.map(p => {
-                const old = positions.find(x => x.ticker === p.ticker) || {};
-                return (
-                  <div key={p.ticker} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: `1px solid ${SE.b1}`, color: SE.amber }}>
-                    <span style={{ fontWeight: 700, minWidth: 52 }}>{p.ticker}</span>
-                    <span style={{ flex: 1, color: SE.fg3, fontSize: 10 }}>{p.name}</span>
-                    <span><span style={{ textDecoration: 'line-through', color: SE.fg3, marginRight: 4 }}>{old.qty}sh</span>{p.qty}sh @${p.avg.toFixed(2)}</span>
-                  </div>
-                );
-              })}
-              {importDiff.removals.map(p => (
-                <div key={p.ticker} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: `1px solid ${SE.b1}`, color: SE.red }}>
-                  <input type="checkbox" checked={!!removalsChecked[p.ticker]}
-                    onChange={e => setRemovalsChecked(s => ({ ...s, [p.ticker]: e.target.checked }))} />
-                  <span style={{ fontWeight: 700, minWidth: 52 }}>{p.ticker}</span>
-                  <span style={{ flex: 1, color: SE.fg3, fontSize: 10 }}>{p.name}</span>
-                  <span>{p.qty}sh</span>
-                </div>
-              ))}
-              {importDiff.adds.length === 0 && importDiff.updates.length === 0 && importDiff.removals.length === 0 && (
-                <div style={{ padding: '10px 0', color: SE.fg3, letterSpacing: '.08em' }}>NO CHANGES DETECTED</div>
-              )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-                <button onClick={() => setImportState('idle')} style={{
-                  flex: 1, padding: '9px', background: SE.bg2, border: `1px solid ${SE.b2}`,
-                  color: SE.fg3, fontFamily: SE.mono, fontSize: 10, letterSpacing: '.08em', cursor: 'pointer',
-                }}>CANCEL</button>
-                <button onClick={handleImportConfirm} disabled={importChanges === 0} style={{
-                  flex: 1, padding: '9px', background: 'rgba(74,222,128,.1)', border: `1px solid ${SE.green}`,
-                  color: SE.green, fontFamily: SE.mono, fontSize: 10, letterSpacing: '.08em', cursor: 'pointer',
-                  opacity: importChanges === 0 ? 0.4 : 1,
-                }}>SAVE {importChanges}</button>
-              </div>
-            </div>
-          )}
-
-          {importState === 'saving' && (
-            <div style={{ padding: '14px 0', fontFamily: SE.mono, fontSize: 11, color: SE.fg3, letterSpacing: '.1em', textAlign: 'center' }}>SAVING…</div>
-          )}
-
-          {importState === 'saved' && (
-            <div style={{ padding: '14px 0', fontFamily: SE.mono, fontSize: 11, color: SE.green, letterSpacing: '.1em', textAlign: 'center' }}>✓ SAVED</div>
-          )}
-
-          {importState === 'error' && (
-            <div>
-              <div style={{ padding: '8px 0', fontFamily: SE.mono, fontSize: 10, color: SE.red, letterSpacing: '.06em' }}>ERROR: {importError}</div>
-              <button onClick={() => setImportState('idle')} style={{
-                padding: '8px 16px', background: SE.bg2, border: `1px solid ${SE.b2}`,
-                color: SE.fg3, fontFamily: SE.mono, fontSize: 10, cursor: 'pointer',
-              }}>RETRY</button>
-            </div>
-          )}
-        </div>
-
-        {/* Scout schedule */}
-        <SESectionHeader label="SCOUT SCHEDULE"/>
-        <div style={{ display: 'flex', padding: '0 16px' }}>
-          {[
-            { k: 'daily', label: 'DAILY' },
-            { k: 'weekly', label: 'WEEKLY' },
-            { k: 'manual', label: 'MANUAL' },
-          ].map((opt, i) => (
-            <button key={opt.k} onClick={() => setSchedule(opt.k)} style={{
-              flex: 1, padding: '9px 0', cursor: 'pointer',
-              background: schedule === opt.k ? `${SE.indigo}1a` : SE.bg1,
-              border: `1px solid ${schedule === opt.k ? SE.indigo : SE.b1}`,
-              borderLeftWidth: i === 0 ? 1 : 0,
-              color: schedule === opt.k ? SE.indigo : SE.fg2,
-              fontFamily: SE.mono, fontSize: 10, fontWeight: 700, letterSpacing: 1.2,
-            }}>{opt.label}</button>
-          ))}
-        </div>
-        <div style={{ padding: '7px 16px 0', fontFamily: SE.mono, fontSize: 9.5, color: SE.fg3 }}>
-          {schedule === 'daily' ? '↳ runs 06:00 SGT each weekday' :
-           schedule === 'weekly' ? '↳ runs 06:00 SGT every Monday' :
-           '↳ runs only when manually triggered'}
-        </div>
-
-        {/* Theme */}
-        <SESectionHeader label="DISPLAY"/>
-        <div style={{ margin: '0 16px', padding: '12px 14px', background: SE.bg1, border: `1px solid ${SE.b1}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontFamily: SE.mono, fontSize: 11, color: SE.fg1, fontWeight: 600, letterSpacing: 0.5 }}>THEME</div>
-            <div style={{ fontFamily: SE.sans, fontSize: 10.5, color: SE.fg3, marginTop: 3 }}>Dark only. Always.</div>
-          </div>
-          <span style={{ padding: '4px 8px', border: `1px solid ${SE.b2}`, fontFamily: SE.mono, fontSize: 9, color: SE.fg2, letterSpacing: 1.2, fontWeight: 700 }}>LOCKED</span>
-        </div>
-
-        {/* Sync */}
-        <SESectionHeader label="SYNC"/>
-        <div style={{ margin: '0 16px 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: SE.bg1, border: `1px solid ${SE.b1}` }}>
-            <div>
-              <div style={{ fontFamily: SE.mono, fontSize: 9.5, color: SE.fg3, letterSpacing: 1.2, fontWeight: 600 }}>LAST SYNC</div>
-              <div style={{ fontFamily: SE.mono, fontSize: 12, color: SE.fg1, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>{meta.lastSync}</div>
-            </div>
-            <button onClick={handleSync} style={{
-              padding: '8px 14px', background: syncStatus === 'synced' ? SE.green : syncStatus === 'error' ? SE.red : SE.indigo,
-              border: 'none', cursor: 'pointer', color: SE.bg0,
-              fontFamily: SE.mono, fontSize: 10, fontWeight: 700, letterSpacing: 1.2, borderRadius: 2,
-              transition: 'background 0.2s',
-            }}>
-              {syncStatus === 'syncing' ? '…SYNCING' : syncStatus === 'synced' ? '✓ SYNCED' : syncStatus === 'error' ? 'ERROR' : 'SYNC NOW'}
-            </button>
-          </div>
-        </div>
-
-        <div style={{ padding: '8px 16px 20px', fontFamily: SE.mono, fontSize: 9, color: SE.fg3, letterSpacing: 1, textAlign: 'center' }}>
-          SOVEREIGN EYE · v2.0 · BUILD 2026.05.14
-        </div>
-      </div>
-      <SEBottomNav active="settings" onNavigate={onNavigate}/>
-    </SEPhone>
+      <div style={{ height: 16 }} />
+    </div>
   );
 }
 
-// ── Root App ───────────────────────────────────────────────────────────────────
-
+// =============================================================
+// MOBILE APP — entry point for mobile.html
+// =============================================================
 function MobileApp() {
-  const [positions, setPositions] = useState(null);
-  const prevPositions = useRef(null); // dirty-tracking: skip kvSave on initial load
-  const [quotes, setQuotes] = useState({});
-  const [sgdRate, setSgdRate] = useState(1.35);
-  const [liveNews, setLiveNews] = useState([]);
-  const [synthesis, setSynthesis] = useState(null);
-  const [scout, setScout] = useState(null);
-  const [ddIndex, setDdIndex] = useState({});
   const [screen, setScreen] = useState('portfolio');
-  const [detailPos, setDetailPos] = useState(null);
-  const [tick, setTick] = useState(0);
+  const { positions, setPositions, quotes } = useLiveData();
 
-  // Load positions on mount
-  useEffect(() => {
-    loadPositions().then(p => setPositions(p));
-    fetchSGD().then(r => setSgdRate(r));
-    fetchScoutResults().then(r => { if (r) setScout(r); });
-    fetch('/api/dd/').then(r => r.ok ? r.json() : {}).then(idx => { if (idx) setDdIndex(idx); }).catch(() => {});
-  }, []);
-
-  // Save to localStorage + KV when positions change.
-  // Skip kvSave on the initial load (prevPositions is null) — only save user edits.
-  useEffect(() => {
-    if (!positions) return;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(positions)); } catch (e) {}
-    if (prevPositions.current !== null) {
-      kvSave(positions);
-    }
-    prevPositions.current = positions;
-  }, [positions]);
-
-  // Clock tick (every 30s)
-  useEffect(() => {
-    const t = setInterval(() => setTick(n => n + 1), 30000);
-    return () => clearInterval(t);
-  }, []);
-
-  // Fetch live data periodically
-  const tickers = useMemo(() => positions?.map(p => p.ticker).filter(t => t !== 'USD') || [], [positions]);
-
-  // Fast tick: quotes + news (direct Finnhub calls, no KV reads)
-  const fetchMarketData = useCallback(async () => {
-    if (!tickers.length) return;
-    const q = await fetchQuotes(tickers, M_CONFIG.FINNHUB_API_KEY);
-    if (Object.keys(q).length) setQuotes(q);
-    const n = await fetchFinnhubNews(tickers, M_CONFIG.FINNHUB_API_KEY);
-    if (n.length) setLiveNews(n);
-  }, [tickers]);
-
-  // Slow tick: synthesis regenerates every 30 min, polling faster than 5 min wastes KV reads
-  const fetchSynthesisData = useCallback(async () => {
-    if (!tickers.length) return;
-    const s = await fetchSynthesis(tickers);
-    if (s) setSynthesis(s);
-  }, [tickers]);
-
-  useEffect(() => {
-    if (!tickers.length) return;
-    fetchMarketData();
-    fetchSynthesisData();
-    const ms = M_CONFIG.REFRESH_INTERVAL_MS || 30000;
-    const fastTick = setInterval(fetchMarketData, ms);
-    const slowTick = setInterval(fetchSynthesisData, 5 * 60 * 1000);
-    return () => { clearInterval(fastTick); clearInterval(slowTick); };
-  }, [fetchMarketData, fetchSynthesisData]);
-
-  // Enrich positions for display
-  const enriched = useMemo(() => positions ? enrichPositions(positions, quotes, sgdRate) : [], [positions, quotes, sgdRate]);
-  const portfolio = useMemo(() => buildPortfolioSummary(enriched, sgdRate), [enriched, sgdRate]);
-
-  // Build live meta
-  const { time: sgt, date } = sgtNow();
-  const meta = useMemo(() => ({
-    session: getSession(),
-    sgt, date,
-    fxUsdSgd: sgdRate,
-    lastSync: new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) + ' SGT',
-  }), [tick, sgdRate]);
-
-  // Build news for Intel screen
-  const intelNews = useMemo(() => {
-    if (liveNews.length) {
-      return liveNews.map(n => ({
-        ticker: n.sym || n.related || '—',
-        src: n.source || '—',
-        datetime: n.datetime,
-        headline: n.headline || n.title,
-        url: n.url,
-        sent: 'BULL', // Finnhub doesn't provide sentiment — defaulting
-      }));
-    }
-    return M_NEWS_SEED.map(n => ({ ticker: n.ticker, src: n.src, ago: n.ago, headline: n.title, sent: 'BULL' }));
-  }, [liveNews]);
-
-  const data = { portfolio, positions: enriched, meta, synthesis, news: intelNews, filings: null, scout, ddIndex };
-
-  const navigate = (s) => { setScreen(s); setDetailPos(null); };
-  const tapPosition = (pos) => { setDetailPos(pos); setScreen('detail'); };
-  const goBack = () => { setScreen('portfolio'); setDetailPos(null); };
-
-  if (!positions) {
-    return (
-      <div style={{
-        width: '100%', height: '100%', maxWidth: 430, margin: '0 auto',
-        background: SE.bg0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        flexDirection: 'column', gap: 16,
-      }}>
-        <svg width="24" height="24" viewBox="0 0 16 16" fill="none" style={{ animation: 'seSpin 1.2s linear infinite' }}>
-          <path d="M0.8 8 C 3 3.2, 13 3.2, 15.2 8 C 13 12.8, 3 12.8, 0.8 8 Z" stroke={SE.indigo} strokeWidth="1.2"/>
-          <circle cx="8" cy="8" r="2.1" fill={SE.indigo}/>
-        </svg>
-        <div style={{ fontFamily: SE.mono, fontSize: 10, color: SE.fg3, letterSpacing: 1.8 }}>SOVEREIGN EYE · LOADING</div>
-      </div>
-    );
-  }
-
-  switch (screen) {
-    case 'portfolio': return <SEScreenHome data={data} onNavigate={navigate} onTapPosition={tapPosition}/>;
-    case 'intel':     return <SEScreenIntel data={data} onNavigate={navigate}/>;
-    case 'scout':     return <SEScreenScout data={data} onNavigate={navigate}/>;
-    case 'detail':    return <SEScreenDetail position={detailPos} onBack={goBack} onNavigate={navigate}/>;
-    case 'settings':  return <SEScreenSettings data={data} onNavigate={navigate} positions={positions} onSavePositions={setPositions}/>;
-    default:          return <SEScreenHome data={data} onNavigate={navigate} onTapPosition={tapPosition}/>;
-  }
+  return (
+    <>
+      <MobileStatusbar />
+      {screen === 'portfolio' && <MobilePortfolio positions={positions} quotes={quotes} />}
+      {screen === 'intel'     && <MobileIntel />}
+      {screen === 'scout'     && <MobileScout />}
+      {screen === 'detail'    && <MobileDetail />}
+      {screen === 'settings'  && <MobileSettings positions={positions} setPositions={setPositions} />}
+      <MobileTabbar active={screen} onChange={setScreen} />
+    </>
+  );
 }
 
+window.MobileFrame = MobileFrame;
 window.MobileApp = MobileApp;
 
-ReactDOM.createRoot(document.getElementById('root')).render(<MobileApp/>);
+// mobile.html renders standalone
+if (document.getElementById('root') && !window.__DESKTOP_BOOT__) {
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    <div style={{ display: 'flex', justifyContent: 'center', padding: 0 }}>
+      <MobileApp />
+    </div>
+  );
+}
