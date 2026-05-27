@@ -2,6 +2,7 @@
    fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
    POSITIONS, QUOTES, SYNTHESIS, NEWS_PORTFOLIO, NEWS_WIRE,
    SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals */
+(function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // =============================================================
@@ -877,3 +878,4 @@ if (document.getElementById('root') && !window.__DESKTOP_BOOT__) {
     </div>
   );
 }
+})();

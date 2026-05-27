@@ -1,6 +1,8 @@
 /* global window */
 // data.jsx — transforms SE_SEED + SE_CONFIG into design globals
 // Loads after: positions.js, seed.js, components.jsx (normQ)
+// IIFE: prevents top-level const collision when Babel evals this twice in shared scope
+(function () {
 
 const _stripHtml = s => (s || '').replace(/<[^>]+>/g, '').trim();
 
@@ -172,8 +174,9 @@ function ddForTicker(tk) {
 
 const PARSED_IMPORT = { broker: 'IBKR', positions: [] };
 
-Object.assign(window, {
-  POSITIONS, QUOTES, SYNTHESIS, NEWS_PORTFOLIO, NEWS_WIRE,
-  SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS,
-  computeTotals, PARSED_IMPORT, ddForTicker, API_HEALTH,
-});
+  Object.assign(window, {
+    POSITIONS, QUOTES, SYNTHESIS, NEWS_PORTFOLIO, NEWS_WIRE,
+    SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS,
+    computeTotals, PARSED_IMPORT, ddForTicker, API_HEALTH,
+  });
+})();

@@ -1,4 +1,5 @@
 /* global React, window, Icon, SrcPill, fmtUSD */
+(function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // =============================================================
@@ -377,3 +378,4 @@ function ImportModal({ open, positions, onClose, onSave }) {
 }
 
 window.ImportModal = ImportModal;
+})();

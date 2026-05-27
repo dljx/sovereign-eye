@@ -1,5 +1,6 @@
 
 // tweaks-panel.jsx — reusable Tweaks shell + form-control helpers.
+(function () {
 
 const __TWEAKS_STYLE = `
   .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
@@ -428,3 +429,4 @@ Object.assign(window, {
   TweakSlider, TweakToggle, TweakRadio, TweakSelect,
   TweakText, TweakNumber, TweakColor, TweakButton,
 });
+})();

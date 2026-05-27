@@ -4,6 +4,7 @@
    ImportModal, MobileFrame, MobileApp,
    computeTotals, fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
    TweaksPanel, useTweaks, TweakSection, TweakRadio, TweakColor, TweakToggle */
+(function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // =============================================================
@@ -418,7 +419,7 @@ function App() {
     window.POSITIONS = positions;
   }, [quotes, positions]);
 
-  const totals = useMemo(() => computeTotals(positions, quotes), [positions, quotes]);
+  const totals = useMemo(() => window.computeTotals(positions, quotes), [positions, quotes]);
 
   // Currency → global CCY context for formatters
   useEffect(() => {
@@ -521,3 +522,4 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();

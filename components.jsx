@@ -1,4 +1,5 @@
 /* global React, window */
+(function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 window.__CCY = window.__CCY || { ccy: 'USD', rate: 1, sym: '$' };
@@ -303,3 +304,4 @@ Object.assign(window, {
   CCY_RATES, CCY_SYMS,
   Icon, SrcPill, Sparkline, heatColor, AgentPixel, MacroChart, Treemap,
 });
+})();

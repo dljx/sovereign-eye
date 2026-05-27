@@ -2,6 +2,7 @@
    fmtUSD, fmtUSDC, fmtMoney, fmtPct, fmtAbs, fmtVol, sign, normQ,
    POSITIONS, QUOTES, SYNTHESIS, NEWS_PORTFOLIO, NEWS_WIRE, SEC_FILINGS,
    DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals, ddForTicker, API_HEALTH */
+(function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // =============================================================
@@ -921,3 +922,4 @@ Object.assign(window, {
   HoldingsPanel, HeatmapPanel, IntelPanel, NewsPanel, MacroPanel,
   FilingsPanel, DDPanel, ScoutPanel, ApiHealthPanel, ScoutDDModal,
 });
+})();
