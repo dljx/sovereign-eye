@@ -28,9 +28,15 @@ async function generateTldrs(gemKey, filings) {
     `${i + 1}. ${f.tk} — ${f.form} filed ${f.filedDate || f.when}`
   ).join('\n');
 
-  const prompt = `You are a financial analyst. For each SEC filing below, write a concise 1-sentence TLDR (under 18 words) summarising what the filing likely disclosed, based on your knowledge of the company's business and recent performance. If you're uncertain, describe what the form type typically covers for this company.
+  const prompt = `You are a financial analyst. For each SEC filing below, write a concise 1-sentence TLDR (under 18 words) and assign a sentiment.
 
-Return ONLY a JSON array of strings in the same order as the input. No markdown, no preamble.
+sentiment rules:
+- "bull": filing discloses beat, raised guidance, strong revenue/earnings, positive catalyst, accretive deal
+- "bear": filing discloses miss, lowered guidance, loss, lawsuit, dilutive offering, leadership departure, material weakness
+- "neutral": proxy, routine annual report, in-line results, administrative filing with no clear directional signal
+
+Return ONLY a JSON array of objects in the same order as the input. No markdown, no preamble.
+[{ "tldr": "...", "sent": "bull" | "neutral" | "bear" }, ...]
 
 Filings:
 ${list}`;
@@ -76,7 +82,7 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v3:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v4:${[...tickers].sort().join(',')}`;
 
   // Serve cache
   if (kv) {
@@ -117,11 +123,13 @@ export async function onRequestGet(context) {
   filings.sort((a, b) => (b.filedDate || '').localeCompare(a.filedDate || ''));
   const top = filings.slice(0, 12);
 
-  // Generate Gemini TLDRs for all filings in one batch call
+  // Generate Gemini TLDRs + sentiment for all filings in one batch call
   const tldrs = await generateTldrs(gemKey, top);
   top.forEach((f, i) => {
-    if (tldrs[i]) f.tldr = tldrs[i];
-    delete f.filedDate; // don't expose raw date to client — `when` is enough
+    const r = tldrs[i];
+    if (r?.tldr) f.tldr = r.tldr;
+    if (r?.sent && ['bull','neutral','bear'].includes(r.sent)) f.sent = r.sent;
+    delete f.filedDate;
   });
 
   if (kv && top.length && top.some(f => f.tldr)) {
