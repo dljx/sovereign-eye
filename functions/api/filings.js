@@ -45,11 +45,11 @@ ${list}`;
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.2,
-            maxOutputTokens: 2048,
-            thinkingConfig: { thinkingBudget: 0 },
+            maxOutputTokens: 16384,
+            thinkingConfig: { thinkingBudget: 8192 },
           },
         }),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(45000),
       }
     );
     if (!res.ok) return [];
