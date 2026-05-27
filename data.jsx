@@ -102,27 +102,31 @@ const DD_RESULT = _ddKeys.length ? _ddCache[_ddKeys[0]] : {
 };
 
 // ── SPARKS (synthetic sparklines per ticker) ────────────────────
-const SPARKS = window.SE_CONFIG?.SPARKS || {};
-POSITIONS.forEach(p => {
-  if (!SPARKS[p.ticker]) {
-    const arr = [];
-    let v = 100;
-    // Hash all chars so each ticker gets a genuinely distinct seed
-    let seed = 0;
-    for (let c = 0; c < p.ticker.length; c++)
-      seed = ((seed * 31) + p.ticker.charCodeAt(c)) & 0xffff;
-    // Different frequency + phase per ticker → visually distinct curves
-    const freq  = 0.18 + (seed % 60) / 250;
-    const freq2 = 0.11 + ((seed >> 4) % 40) / 400;
-    const phase = (seed % 628) / 100;
-    const vol   = 0.9 + (seed % 40) / 100;
-    for (let i = 0; i < 24; i++) {
-      v += Math.sin(i * freq + phase) * vol
-         + Math.sin(i * freq2 + phase * 0.7) * vol * 0.5;
-      arr.push(v);
-    }
-    SPARKS[p.ticker] = arr;
+// Proxy generates on demand so it works even when positions load async from KV
+function _genSpark(ticker) {
+  const arr = [];
+  let v = 100;
+  let seed = 0;
+  for (let c = 0; c < ticker.length; c++)
+    seed = ((seed * 31) + ticker.charCodeAt(c)) & 0xffff;
+  const freq  = 0.18 + (seed % 60) / 250;
+  const freq2 = 0.11 + ((seed >> 4) % 40) / 400;
+  const phase = (seed % 628) / 100;
+  const vol   = 0.9 + (seed % 40) / 100;
+  for (let i = 0; i < 24; i++) {
+    v += Math.sin(i * freq + phase) * vol
+       + Math.sin(i * freq2 + phase * 0.7) * vol * 0.5;
+    arr.push(v);
   }
+  return arr;
+}
+const _sparksCache = window.SE_CONFIG?.SPARKS || {};
+const SPARKS = new Proxy(_sparksCache, {
+  get(target, tk) {
+    if (typeof tk !== 'string' || tk.startsWith('__')) return target[tk];
+    if (!target[tk]) target[tk] = _genSpark(tk);
+    return target[tk];
+  },
 });
 
 // ── API HEALTH ──────────────────────────────────────────────────
