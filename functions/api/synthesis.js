@@ -72,13 +72,16 @@ Recent headlines:
 ${headlineBlock}`;
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 1024 },
+        generationConfig: {
+          temperature: 0.3,
+          thinkingConfig: { thinkingLevel: "high" },
+        },
       }),
     }
   );

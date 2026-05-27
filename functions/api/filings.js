@@ -45,8 +45,7 @@ ${list}`;
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.2,
-            maxOutputTokens: 16384,
-            thinkingConfig: { thinkingBudget: 8192 },
+            thinkingConfig: { thinkingLevel: "high" },
           },
         }),
         signal: AbortSignal.timeout(45000),
