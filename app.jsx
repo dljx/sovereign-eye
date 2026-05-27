@@ -406,9 +406,23 @@ function App() {
       .then(data => {
         if (Array.isArray(data) && data.length) {
           const mapped = data.map(p => ({ ...p, avg: p.avg ?? p.avgCost ?? 0 }));
-          window.POSITIONS = mapped; // set global before event so panels can read it immediately
+          window.POSITIONS = mapped;
           setPositions(mapped);
           window.dispatchEvent(new Event('se:positions'));
+
+          // Fetch real sparklines and push into SPARKS proxy
+          const tks = mapped.map(p => p.ticker).filter(t => t && t !== 'USD').join(',');
+          if (tks) {
+            fetch(`/api/sparks?tickers=${tks}`)
+              .then(r => r.ok ? r.json() : null)
+              .then(sparks => {
+                if (sparks && typeof sparks === 'object') {
+                  Object.assign(window.SPARKS, sparks);
+                  window.dispatchEvent(new Event('se:sparks'));
+                }
+              })
+              .catch(() => {});
+          }
         }
       })
       .catch(() => {});

@@ -9,6 +9,14 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 // HOLDINGS PANEL
 // =============================================================
 function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, onHover, onLeave, hoveredTk }) {
+  // Re-render when real sparklines arrive from /api/sparks
+  const [_sv, setSv] = useState(0);
+  useEffect(() => {
+    const h = () => setSv(v => v + 1);
+    window.addEventListener('se:sparks', h);
+    return () => window.removeEventListener('se:sparks', h);
+  }, []);
+
   const enriched = useMemo(() => positions.map(p => {
     const q = quotes[p.ticker] || {};
     const mv = (q.px || 0) * p.qty;
@@ -231,11 +239,11 @@ function NewsPanel() {
         ]).then(([news, wire]) => {
           let anyLive = false;
           if (Array.isArray(news) && news.length) {
-            setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false })));
+            setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url || '' })));
             anyLive = true;
           }
           if (Array.isArray(wire) && wire.length) {
-            setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER' })));
+            setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url || '' })));
             anyLive = true;
           }
           setSrc(anyLive ? 'live' : 'seed');
@@ -280,7 +288,11 @@ function NewsPanel() {
                 <div className={`news-tk ${n.macro ? 'macro' : ''}`}>{n.tk}</div>
               </div>
               <div>
-                <div className="news-headline">{n.headline}</div>
+                <div className="news-headline">
+                  {n.url
+                    ? <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
+                    : n.headline}
+                </div>
                 <div className="news-meta">{n.src}</div>
               </div>
               <div className="news-time">{n.t}</div>
@@ -298,6 +310,9 @@ function NewsPanel() {
 function MacroPanel() {
   const wrap = useRef(null);
   const [w, setW] = useState(360);
+  const [liveMs, setLiveMs] = useState(null);
+  const [src, setSrc] = useState('seed');
+
   useEffect(() => {
     if (!wrap.current) return;
     const ro = new ResizeObserver(entries => {
@@ -306,7 +321,20 @@ function MacroPanel() {
     ro.observe(wrap.current);
     return () => ro.disconnect();
   }, []);
-  const ms = window.MACRO_SERIES || { nav: [], spx: [] };
+
+  useEffect(() => {
+    fetch('/api/nav-history')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.nav?.length && d?.spx?.length) {
+          setLiveMs(d);
+          setSrc('live');
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const ms = liveMs || window.MACRO_SERIES || { nav: [], spx: [] };
   const lastNav = ms.nav[ms.nav.length - 1] || 100;
   const lastSpx = ms.spx[ms.spx.length - 1] || 100;
   return (
@@ -315,7 +343,7 @@ function MacroPanel() {
         <div className="panel-title"><span className="num">05</span> Macro Correlation</div>
         <div className="panel-actions">
           <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>14M · MONTHLY</span>
-          <SrcPill src="seed" age="seed" />
+          <SrcPill src={src} age={src === 'live' ? 'now' : 'seed'} />
         </div>
       </div>
       <div className="panel-body">
@@ -386,9 +414,12 @@ function FilingsPanel() {
         <div className="filings-list">
           {display.map((f, i) => (
             <div className="filing-item" key={i}>
-              <span className="filing-form">{f.form}</span>
+              {f.url
+                ? <a className="filing-form" href={f.url} target="_blank" rel="noopener noreferrer">{f.form}</a>
+                : <span className="filing-form">{f.form}</span>
+              }
               <span className="filing-tk">{f.tk}</span>
-              <span className="filing-tldr">{f.tldr}</span>
+              <span className="filing-tldr">{f.tldr || '—'}</span>
               <span className={`sent ${f.sent}`}>{f.sent}</span>
             </div>
           ))}

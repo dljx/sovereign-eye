@@ -1,12 +1,13 @@
 /**
  * GET /api/filings?tickers=AMZN,MSFT,...
  *
- * Returns recent SEC filings for portfolio tickers via Finnhub.
- * KV-cached for 60 minutes.
+ * Returns recent SEC filings for portfolio tickers via Finnhub,
+ * with Gemini-generated TL;DRs and direct SEC.gov links.
+ * KV-cached 60 minutes.
  */
 
-const CACHE_KEY  = 'sec:filings:v1';
-const CACHE_TTL  = 60 * 60 * 1000;
+const CACHE_KEY  = 'sec:filings:v2';
+const CACHE_TTL  = 3600;
 const MEANINGFUL = new Set(['8-K','10-Q','10-K','S-1','DEF 14A','6-K','10-K/A','8-K/A']);
 
 function relDate(d) {
@@ -14,37 +15,79 @@ function relDate(d) {
   try {
     const ms = Date.now() - new Date(d).getTime();
     const days = Math.floor(ms / 86400000);
-    if (days < 1) return 'today';
-    if (days < 7) return `${days}d ago`;
+    if (days < 1)  return 'today';
+    if (days < 7)  return `${days}d ago`;
     if (days < 30) return `${Math.floor(days / 7)}w ago`;
     return `${Math.floor(days / 30)}mo ago`;
   } catch { return d.slice(0, 10); }
 }
 
+async function generateTldrs(gemKey, filings) {
+  if (!gemKey || !filings.length) return [];
+
+  const list = filings.map((f, i) =>
+    `${i + 1}. ${f.tk} — ${f.form} filed ${f.filedDate || f.when}`
+  ).join('\n');
+
+  const prompt = `You are a financial analyst. For each SEC filing below, write a concise 1-sentence TLDR (under 18 words) summarising what the filing likely disclosed, based on your knowledge of the company's business and recent performance. If you're uncertain, describe what the form type typically covers for this company.
+
+Return ONLY a JSON array of strings in the same order as the input. No markdown, no preamble.
+
+Filings:
+${list}`;
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${gemKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
+        }),
+        signal: AbortSignal.timeout(20000),
+      }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const raw   = (parts.find(p => !p.thought) || parts[0] || {}).text || '';
+    const jsonStr = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
+    const parsed  = JSON.parse(jsonStr);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function onRequestGet(context) {
-  const kv  = context.env.SE_KV;
-  const key = (context.env.FINNHUB_API_KEY || '').trim();
-  if (!key) return Response.json([], { status: 200 });
+  const kv     = context.env.DD_KV;
+  const fhKey  = (context.env.FINNHUB_API_KEY || '').trim();
+  const gemKey = (context.env.GEMINI_API_KEY  || '').trim();
+
+  if (!fhKey) return Response.json([]);
 
   const url     = new URL(context.request.url);
   const tickers = (url.searchParams.get('tickers') || '')
-    .split(',').map(t => t.trim().toUpperCase()).filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
-  if (!tickers.length) return Response.json([], { status: 200 });
+    .split(',').map(t => t.trim().toUpperCase())
+    .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
+  if (!tickers.length) return Response.json([]);
 
-  // Check cache
+  // Serve cache
   if (kv) {
     try {
-      const cached = await kv.getWithMetadata(CACHE_KEY, { type: 'json' });
-      if (cached?.value && cached.metadata?.ts && Date.now() - cached.metadata.ts < CACHE_TTL) {
-        return Response.json(cached.value, { headers: { 'X-Cache': 'HIT' } });
+      const cached = await kv.get(CACHE_KEY, 'json');
+      if (Array.isArray(cached) && cached.length) {
+        return Response.json(cached, { headers: { 'X-Cache': 'HIT' } });
       }
-    } catch (_) { /* cache miss */ }
+    } catch (_) {}
   }
 
-  // Fetch in parallel
+  // Fetch Finnhub filings in parallel
   const results = await Promise.all(
     tickers.map(t =>
-      fetch(`https://finnhub.io/api/v1/stock/filings?symbol=${t}&token=${key}`)
+      fetch(`https://finnhub.io/api/v1/stock/filings?symbol=${t}&token=${fhKey}`)
         .then(r => r.ok ? r.json() : null)
         .catch(() => null)
     )
@@ -57,22 +100,31 @@ export async function onRequestGet(context) {
       .filter(f => MEANINGFUL.has(f.form))
       .slice(0, 2)
       .forEach(f => filings.push({
-        form: f.form,
+        form:       f.form,
         tk,
-        tldr: '',
-        sent: 'neutral',
-        when: relDate(f.filedDate || f.reportDate || ''),
+        tldr:       '',
+        sent:       'neutral',
+        when:       relDate(f.filedDate || f.reportDate || ''),
+        filedDate:  f.filedDate || '',
+        url:        f.reportUrl || f.filingUrl || '',
       }));
   });
 
-  filings.sort((a, b) => (b.when || '').localeCompare(a.when || ''));
-  const out = filings.slice(0, 12);
+  filings.sort((a, b) => (b.filedDate || '').localeCompare(a.filedDate || ''));
+  const top = filings.slice(0, 12);
 
-  if (kv && out.length) {
+  // Generate Gemini TLDRs for all filings in one batch call
+  const tldrs = await generateTldrs(gemKey, top);
+  top.forEach((f, i) => {
+    if (tldrs[i]) f.tldr = tldrs[i];
+    delete f.filedDate; // don't expose raw date to client — `when` is enough
+  });
+
+  if (kv && top.length) {
     try {
-      await kv.put(CACHE_KEY, JSON.stringify(out), { metadata: { ts: Date.now() } });
-    } catch (_) { /* ignore */ }
+      await kv.put(CACHE_KEY, JSON.stringify(top), { expirationTtl: CACHE_TTL });
+    } catch (_) {}
   }
 
-  return Response.json(out);
+  return Response.json(top);
 }
