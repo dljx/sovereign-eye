@@ -18,24 +18,9 @@
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-const MY_POSITIONS = [
-  // ── IBKR ──
-  { ticker: "AMZN",  name: "Amazon.com",            broker: "IBKR",  qty: 40,  avg: 237.45,  sector: "Cons. Disc.",  industry: "E-commerce · Cloud" },
-  { ticker: "ANET",  name: "Arista Networks",       broker: "IBKR",  qty: 80,  avg: 143.64,  sector: "Tech",         industry: "Networking" },
-  { ticker: "EME",   name: "EMCOR Group",           broker: "IBKR",  qty: 13,  avg: 922.69,  sector: "Industrials",  industry: "Electrical · Mech" },
-  { ticker: "MRVL",  name: "Marvell Technology",    broker: "IBKR",  qty: 67,  avg: 153.04,  sector: "Tech",         industry: "Semis · Custom AI" },
-  { ticker: "MTZ",   name: "MasTec Inc",            broker: "IBKR",  qty: 28,  avg: 407.71,  sector: "Industrials",  industry: "Infrastructure · Telecom" },
-  { ticker: "PENG",  name: "Penguin Solutions",     broker: "IBKR",  qty: 234, avg: 22.37,   sector: "Tech",         industry: "AI Infra" },
-  { ticker: "VST",   name: "Vistra Corp",           broker: "IBKR",  qty: 69,  avg: 146.64,  sector: "Energy",       industry: "Power Generation" },
-
-  // ── Tiger ──
-  { ticker: "AVGO",  name: "Broadcom Inc",          broker: "Tiger", qty: 24,  avg: 373.41,  sector: "Tech",         industry: "Semis · Networking" },
-  { ticker: "GOOG",  name: "Alphabet Cl C",         broker: "Tiger", qty: 30,  avg: 173.74,  sector: "Tech",         industry: "Internet · Ads" },
-  { ticker: "MSFT",  name: "Microsoft Corp",        broker: "Tiger", qty: 27,  avg: 414.58,  sector: "Tech",         industry: "Software · Cloud" },
-  { ticker: "MU",    name: "Micron Technology",     broker: "Tiger", qty: 17,  avg: 611.12,  sector: "Tech",         industry: "Semis · Memory" },
-  { ticker: "NOW",   name: "ServiceNow",            broker: "Tiger", qty: 82,  avg: 92.02,   sector: "Tech",         industry: "Enterprise SaaS" },
-  { ticker: "P",     name: "Everpure",              broker: "Tiger", qty: 62,  avg: 82.14,   sector: "Cons. Disc.",  industry: "Consumer" },
-];
+// Positions are loaded from KV via /api/positions (updated through the app's import feature).
+// This array is intentionally empty — do not hardcode positions here.
+const MY_POSITIONS = [];
 
 // ═══════════════════════════════════════════════════════════════════════════
 // API Config

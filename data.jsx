@@ -107,9 +107,18 @@ POSITIONS.forEach(p => {
   if (!SPARKS[p.ticker]) {
     const arr = [];
     let v = 100;
-    const s1 = p.ticker.charCodeAt(0) * 13 + (p.ticker.charCodeAt(1) || 7) * 7;
+    // Hash all chars so each ticker gets a genuinely distinct seed
+    let seed = 0;
+    for (let c = 0; c < p.ticker.length; c++)
+      seed = ((seed * 31) + p.ticker.charCodeAt(c)) & 0xffff;
+    // Different frequency + phase per ticker → visually distinct curves
+    const freq  = 0.18 + (seed % 60) / 250;
+    const freq2 = 0.11 + ((seed >> 4) % 40) / 400;
+    const phase = (seed % 628) / 100;
+    const vol   = 0.9 + (seed % 40) / 100;
     for (let i = 0; i < 24; i++) {
-      v += Math.sin(i * 0.3 + s1 * 0.001) * 1.2 + (Math.cos(i * s1 * 0.01) * 0.5 - 0.25) * 1.1;
+      v += Math.sin(i * freq + phase) * vol
+         + Math.sin(i * freq2 + phase * 0.7) * vol * 0.5;
       arr.push(v);
     }
     SPARKS[p.ticker] = arr;

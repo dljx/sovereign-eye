@@ -206,21 +206,56 @@ function IntelPanel() {
 // =============================================================
 function NewsPanel() {
   const [tab, setTab] = useState('portfolio');
-  const list = tab === 'portfolio' ? (window.NEWS_PORTFOLIO || []) : (window.NEWS_WIRE || []);
+  const [livePortfolio, setLivePortfolio] = useState(null);
+  const [liveWire, setLiveWire]           = useState(null);
+  const [src, setSrc] = useState('seed');
+
+  useEffect(() => {
+    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+    if (!tickers.length) return;
+    const qs = tickers.join(',');
+
+    const load = () => {
+      // Fetch both in parallel
+      Promise.all([
+        fetch(`/api/news?tickers=${qs}`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/wire?tickers=${qs}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]).then(([news, wire]) => {
+        let anyLive = false;
+        if (Array.isArray(news) && news.length) {
+          setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false })));
+          anyLive = true;
+        }
+        if (Array.isArray(wire) && wire.length) {
+          setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER' })));
+          anyLive = true;
+        }
+        setSrc(anyLive ? 'live' : 'seed');
+      });
+    };
+    load();
+    const id = setInterval(load, 15 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const portfolioList = livePortfolio ?? (window.NEWS_PORTFOLIO || []);
+  const wireList      = liveWire      ?? (window.NEWS_WIRE || []);
+  const list = tab === 'portfolio' ? portfolioList : wireList;
+
   return (
     <>
       <div className="panel-header">
         <div className="panel-title"><span className="num">04</span> News</div>
         <div className="tabs">
           <span className={`tab ${tab === 'portfolio' ? 'active' : ''}`} onClick={() => setTab('portfolio')}>
-            Portfolio <span className="count">{(window.NEWS_PORTFOLIO || []).length}</span>
+            Portfolio <span className="count">{portfolioList.length}</span>
           </span>
           <span className={`tab ${tab === 'wire' ? 'active' : ''}`} onClick={() => setTab('wire')}>
-            Wire <span className="count">{(window.NEWS_WIRE || []).length}</span>
+            Wire <span className="count">{wireList.length}</span>
           </span>
         </div>
         <div className="panel-actions">
-          <SrcPill src="seed" age="now" />
+          <SrcPill src={src} age={src === 'live' ? 'now' : 'seed'} />
         </div>
       </div>
       <div className="panel-body">
@@ -786,43 +821,67 @@ function ScoutPanel({ onPick }) {
 // API HEALTH PANEL
 // =============================================================
 function ApiHealthPanel() {
-  const health = window.API_HEALTH || [];
-  const overall = useMemo(() => {
-    const errs = health.filter(a => a.status === 'error').length;
-    const degr = health.filter(a => a.status === 'degraded').length;
-    if (errs) return { src: 'error', label: `${errs} DOWN` };
-    if (degr) return { src: 'cached', label: `${degr} DEGRADED` };
-    return { src: 'live', label: 'ALL OK' };
+  const [health, setHealth] = useState(null);
+  const [src, setSrc] = useState('seed');
+
+  useEffect(() => {
+    fetch('/api/health')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (Array.isArray(data) && data.length) {
+          setHealth(data);
+          setSrc('live');
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const display = health || window.API_HEALTH || [];
+
+  const overall = useMemo(() => {
+    const errs = display.filter(a => a.status === 'error' || a.status === 'down').length;
+    const degr = display.filter(a => a.status === 'degraded' || a.status === 'unknown').length;
+    if (errs) return { label: `${errs} DOWN` };
+    if (degr) return { label: `${degr} DEGRADED` };
+    return { label: 'ALL OK' };
+  }, [display]);
+
+  const overallSrc = src === 'live'
+    ? (display.some(a => a.status === 'error' || a.status === 'down') ? 'error'
+      : display.some(a => a.status === 'degraded' || a.status === 'unknown') ? 'cached'
+      : 'live')
+    : 'seed';
 
   return (
     <>
       <div className="panel-header">
         <div className="panel-title"><span className="num">09</span> API Health</div>
         <div className="panel-actions">
-          <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>{health.length} SERVICES</span>
-          <SrcPill src={overall.src} age={overall.label} />
+          <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>{display.length} SERVICES</span>
+          <SrcPill src={overallSrc} age={overall.label} />
         </div>
       </div>
       <div className="panel-body">
         <div className="api-health-list">
-          {health.map(api => {
-            const pct = api.quota ? Math.min(100, (api.used / api.quota) * 100) : 0;
+          {display.map(api => {
+            const pct = (api.quota && api.used != null) ? Math.min(100, (api.used / api.quota) * 100) : 0;
             const quotaWarn = pct > 75;
+            const statusLabel = api.status === 'ok' ? '● OK'
+              : api.status === 'degraded' ? '◐ DEGR'
+              : api.status === 'unknown'  ? '○ N/A'
+              : '✕ DOWN';
             return (
               <div key={api.id} className={`api-card ${api.status}`}>
                 <div className="api-card-top">
                   <span className="api-card-name">{api.name}</span>
-                  <span className={`api-card-status ${api.status}`}>
-                    {api.status === 'ok' ? '● OK' : api.status === 'degraded' ? '◐ DEGR' : '✕ DOWN'}
-                  </span>
+                  <span className={`api-card-status ${api.status}`}>{statusLabel}</span>
                 </div>
                 <div className="api-card-scope">{api.scope}</div>
                 <div className="api-card-metrics">
                   {api.latency > 0 && <span><span className="lbl">p95</span>{api.latency}ms</span>}
                   <span><span className="lbl">ok</span>{api.lastOk}</span>
                 </div>
-                {api.quota > 0 && (
+                {api.quota > 0 && api.used != null && (
                   <>
                     <div className="api-card-metrics">
                       <span><span className="lbl">use</span>{api.used.toLocaleString()} / {api.quota.toLocaleString()}</span>
