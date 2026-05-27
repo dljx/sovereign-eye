@@ -6,7 +6,6 @@
  * KV-cached 60 minutes.
  */
 
-const CACHE_KEY  = 'sec:filings:v2';
 const CACHE_TTL  = 3600;
 const MEANINGFUL = new Set(['8-K','10-Q','10-K','S-1','DEF 14A','6-K','10-K/A','8-K/A']);
 
@@ -38,7 +37,7 @@ ${list}`;
 
   try {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${gemKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${gemKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -52,7 +51,7 @@ ${list}`;
     if (!res.ok) return [];
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
-    const raw   = (parts.find(p => !p.thought) || parts[0] || {}).text || '';
+    const raw   = (parts[0] || {}).text || '';
     const jsonStr = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
     const parsed  = JSON.parse(jsonStr);
     return Array.isArray(parsed) ? parsed : [];
@@ -74,11 +73,13 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
+  const cacheKey = `sec:filings:v3:${[...tickers].sort().join(',')}`;
+
   // Serve cache
   if (kv) {
     try {
-      const cached = await kv.get(CACHE_KEY, 'json');
-      if (Array.isArray(cached) && cached.length) {
+      const cached = await kv.get(cacheKey, 'json');
+      if (Array.isArray(cached) && cached.length && cached.some(f => f.tldr)) {
         return Response.json(cached, { headers: { 'X-Cache': 'HIT' } });
       }
     } catch (_) {}
@@ -120,9 +121,9 @@ export async function onRequestGet(context) {
     delete f.filedDate; // don't expose raw date to client — `when` is enough
   });
 
-  if (kv && top.length) {
+  if (kv && top.length && top.some(f => f.tldr)) {
     try {
-      await kv.put(CACHE_KEY, JSON.stringify(top), { expirationTtl: CACHE_TTL });
+      await kv.put(cacheKey, JSON.stringify(top), { expirationTtl: CACHE_TTL });
     } catch (_) {}
   }
 
