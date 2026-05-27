@@ -404,8 +404,10 @@ function App() {
     fetch('/api/positions')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (Array.isArray(data) && data.length)
+        if (Array.isArray(data) && data.length) {
           setPositions(data.map(p => ({ ...p, avg: p.avg ?? p.avgCost ?? 0 })));
+          window.dispatchEvent(new Event('se:positions'));
+        }
       })
       .catch(() => {});
   }, []);

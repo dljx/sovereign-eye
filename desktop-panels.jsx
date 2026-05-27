@@ -124,24 +124,32 @@ function IntelPanel() {
   const [src, setSrc] = useState('seed');
 
   useEffect(() => {
-    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
-    if (!tickers.length) { setSrc('seed'); return; }
-    const qs = tickers.join(',');
-    const load = () =>
-      fetch(`/api/synthesis?tickers=${qs}`)
-        .then(r => r.ok ? r.json() : null)
-        .then(d => {
-          if (d && (d.catalysts || d.risks || d.macro)) {
-            setLiveData(d);
-            setSrc(d.cached ? 'cached' : 'live');
-          } else {
-            setSrc('seed');
-          }
-        })
-        .catch(() => setSrc('seed'));
-    load();
-    const id = setInterval(load, 5 * 60 * 1000);
-    return () => clearInterval(id);
+    let interval = null;
+    const start = () => {
+      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      if (!tickers.length) return;
+      const qs = tickers.join(',');
+      const load = () =>
+        fetch(`/api/synthesis?tickers=${qs}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d && (d.catalysts || d.risks || d.macro)) {
+              setLiveData(d);
+              setSrc(d.cached ? 'cached' : 'live');
+            } else {
+              setSrc('seed');
+            }
+          })
+          .catch(() => setSrc('seed'));
+      load();
+      interval = setInterval(load, 5 * 60 * 1000);
+    };
+    start();
+    window.addEventListener('se:positions', start, { once: true });
+    return () => {
+      window.removeEventListener('se:positions', start);
+      if (interval) clearInterval(interval);
+    };
   }, []);
 
   const items = useMemo(() => {
@@ -211,31 +219,37 @@ function NewsPanel() {
   const [src, setSrc] = useState('seed');
 
   useEffect(() => {
-    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
-    if (!tickers.length) return;
-    const qs = tickers.join(',');
-
-    const load = () => {
-      // Fetch both in parallel
-      Promise.all([
-        fetch(`/api/news?tickers=${qs}`).then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(`/api/wire?tickers=${qs}`).then(r => r.ok ? r.json() : null).catch(() => null),
-      ]).then(([news, wire]) => {
-        let anyLive = false;
-        if (Array.isArray(news) && news.length) {
-          setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false })));
-          anyLive = true;
-        }
-        if (Array.isArray(wire) && wire.length) {
-          setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER' })));
-          anyLive = true;
-        }
-        setSrc(anyLive ? 'live' : 'seed');
-      });
+    let interval = null;
+    const start = () => {
+      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      if (!tickers.length) return;
+      const qs = tickers.join(',');
+      const load = () => {
+        Promise.all([
+          fetch(`/api/news?tickers=${qs}`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/wire?tickers=${qs}`).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([news, wire]) => {
+          let anyLive = false;
+          if (Array.isArray(news) && news.length) {
+            setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false })));
+            anyLive = true;
+          }
+          if (Array.isArray(wire) && wire.length) {
+            setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER' })));
+            anyLive = true;
+          }
+          setSrc(anyLive ? 'live' : 'seed');
+        });
+      };
+      load();
+      interval = setInterval(load, 15 * 60 * 1000);
     };
-    load();
-    const id = setInterval(load, 15 * 60 * 1000);
-    return () => clearInterval(id);
+    start();
+    window.addEventListener('se:positions', start, { once: true });
+    return () => {
+      window.removeEventListener('se:positions', start);
+      if (interval) clearInterval(interval);
+    };
   }, []);
 
   const portfolioList = livePortfolio ?? (window.NEWS_PORTFOLIO || []);
@@ -327,44 +341,34 @@ function FilingsPanel() {
   const [src, setSrc] = useState('loading');
 
   useEffect(() => {
-    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
-    const apiKey = window.SE_CONFIG?.CONFIG?.FINNHUB_API_KEY;
-    if (!tickers.length || !apiKey) { setSrc('seed'); return; }
-
-    const seedMap = {};
-    (window.SEC_FILINGS || []).forEach(f => {
-      if (!seedMap[f.tk]) seedMap[f.tk] = { tldr: f.tldr, sent: f.sent };
-    });
-
-    Promise.all(
-      tickers.slice(0, 8).map(t =>
-        fetch(`https://finnhub.io/api/v1/stock/filings?symbol=${t}&token=${apiKey}`)
-          .then(r => r.ok ? r.json() : null)
-          .catch(() => null)
-      )
-    ).then(results => {
-      const live = [];
-      tickers.slice(0, 8).forEach((t, i) => {
-        if (!Array.isArray(results[i])) return;
-        results[i]
-          .filter(f => _MEANINGFUL_FORMS.has(f.form))
-          .slice(0, 2)
-          .forEach(f => live.push({
-            form: f.form,
-            tk: t,
-            tldr: seedMap[t]?.tldr || '—',
-            sent: seedMap[t]?.sent || 'neutral',
-            when: (f.filedDate || f.reportDate || '').slice(0, 10),
-          }));
-      });
-      if (live.length) {
-        live.sort((a, b) => (b.when || '').localeCompare(a.when || ''));
-        setRows(live.slice(0, 10));
-        setSrc('live');
-      } else {
-        setSrc('seed');
-      }
-    }).catch(() => setSrc('seed'));
+    const start = () => {
+      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      if (!tickers.length) { setSrc('seed'); return; }
+      const qs = tickers.join(',');
+      fetch(`/api/filings?tickers=${qs}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (Array.isArray(data) && data.length) {
+            // Overlay seed TLDRs where available
+            const seedMap = {};
+            (window.SEC_FILINGS || []).forEach(f => {
+              if (!seedMap[f.tk]) seedMap[f.tk] = { tldr: f.tldr, sent: f.sent };
+            });
+            setRows(data.map(f => ({
+              ...f,
+              tldr: f.tldr || seedMap[f.tk]?.tldr || '—',
+              sent: f.sent !== 'neutral' ? f.sent : (seedMap[f.tk]?.sent || 'neutral'),
+            })));
+            setSrc('live');
+          } else {
+            setSrc('seed');
+          }
+        })
+        .catch(() => setSrc('seed'));
+    };
+    start();
+    window.addEventListener('se:positions', start, { once: true });
+    return () => window.removeEventListener('se:positions', start);
   }, []);
 
   const display = rows || (window.SEC_FILINGS || []);
