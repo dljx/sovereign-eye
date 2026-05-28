@@ -9,20 +9,38 @@
 const CACHE_TTL  = 3600;
 const MEANINGFUL = new Set(['8-K','10-Q','10-K','S-1','DEF 14A','6-K','10-K/A','8-K/A']);
 
+function cleanHtml(html) {
+  return html.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
 async function fetchFilingSnippet(url) {
   if (!url) return '';
+  const headers = { 'User-Agent': 'SovereignEye/1.0 daryl.lee97@gmail.com' };
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'SovereignEye/1.0 daryl.lee97@gmail.com' },
-      signal: AbortSignal.timeout(6000),
-    });
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
     if (!res.ok) return '';
-    const html = await res.text();
-    const text = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
-    // Skip cover-page boilerplate — jump to first Item section
+    const text = cleanHtml(await res.text());
     const itemIdx = text.search(/Item\s+\d/);
     const start = itemIdx > 0 ? itemIdx : 0;
-    return text.slice(start, start + 1500);
+    const snippet = text.slice(start, start + 1500);
+
+    // Results 8-Ks: actual numbers are in Exhibit 99.1, not the body stub
+    if (/Exhibit\s+99|furnished\s+herewith/i.test(snippet)) {
+      try {
+        const dirUrl = url.slice(0, url.lastIndexOf('/') + 1);
+        const idxRes = await fetch(`${dirUrl}index.json`, { headers, signal: AbortSignal.timeout(5000) });
+        if (idxRes.ok) {
+          const idx = await idxRes.json();
+          const ex99 = (idx?.directory?.item || []).find(f => /EX-99\.1|EX-99$/i.test(f.type));
+          if (ex99?.name) {
+            const exRes = await fetch(`${dirUrl}${ex99.name}`, { headers, signal: AbortSignal.timeout(6000) });
+            if (exRes.ok) return cleanHtml(await exRes.text()).slice(0, 1500);
+          }
+        }
+      } catch {}
+    }
+
+    return snippet;
   } catch { return ''; }
 }
 
@@ -102,7 +120,7 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v6:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v7:${[...tickers].sort().join(',')}`;
 
   // Serve cache
   if (kv) {
