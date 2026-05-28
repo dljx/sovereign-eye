@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed:v7";
+const CACHE_KEY = "news:feed:v8";
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -20,19 +20,19 @@ function timeAgo(ts) {
 
 async function fetchFinnhubCompanyNews(tickers, apiKey) {
   const today = new Date().toISOString().slice(0, 10);
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
 
   // Fetch all tickers in parallel
   const results = await Promise.all(
-    tickers.slice(0, 6).map(async sym => {
+    tickers.slice(0, 8).map(async sym => {
       try {
         const res = await fetch(
-          `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${weekAgo}&to=${today}&token=${apiKey}`
+          `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${twoWeeksAgo}&to=${today}&token=${apiKey}`
         );
         if (!res.ok) return [];
         const data = await res.json();
         if (!Array.isArray(data)) return [];
-        return data.slice(0, 4).map(n => ({
+        return data.slice(0, 8).map(n => ({
           ticker: sym,
           source: n.source || "—",
           datetime: n.datetime || 0,
