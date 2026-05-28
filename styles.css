@@ -1749,7 +1749,7 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 .news-tier-mid .news-importance-bar { background:#e8a030; }
 .news-tier-low .news-importance-bar { background:var(--border-2); }
 
-.news-score { font-family:var(--mono); font-size:9px; color:var(--fg-4); padding-top:2px; text-align:center; }
+.news-score { font-family:var(--mono); font-size:9px; color:var(--fg-3); padding-top:2px; text-align:center; }
 .news-tier-top .news-score { color:var(--acc); }
 .news-tier-mid .news-score { color:#e8a030; }
 
