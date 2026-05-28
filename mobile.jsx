@@ -281,7 +281,7 @@ function MobileIntel() {
       if (hadP || hadW) setNewsSrc('cached');
       const load = () => {
         Promise.all([
-          fetch(`/api/news?tickers=${qs}&v=11`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/news?tickers=${qs}&v=12`).then(r => r.ok ? r.json() : null).catch(() => null),
           fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null),
         ]).then(([news, wire]) => {
           if (Array.isArray(news) && news.length) {

@@ -3,11 +3,14 @@
  *
  * Fetches company-specific news from Finnhub for each ticker,
  * then runs Gemma to filter to material items and clean headlines.
- * KV-cached for 15 minutes.
+ * KV-cached for 30 minutes.
  */
 
-const CACHE_KEY = "news:feed:v11";
+const CACHE_KEY = "news:feed:v12";
 const CACHE_TTL_MS = 30 * 60 * 1000;
+
+// Headlines containing these patterns are generic market noise — discard before Gemma
+const PREFLIGHT_NOISE = /^dow jones|^nasdaq|^s&p 500|futures (fall|rise|drop|surge)|week in review|weekly recap|top \d+ stocks?|best stocks? to buy|should you buy|buy or sell\??|is .{3,40} a (top|good) (stock|buy|invest)|small.cap|mid.cap|etf (could|may|might|is|are)|a (top|major|big) .{0,20}etf|ethereum|bitcoin|\bcrypto\b|market (wrap|recap|roundup|update)|premarket|pre-market|after.?hours|opening bell|closing bell/i;
 
 function timeAgo(ts) {
   const diff = Date.now() - ts * 1000;
@@ -22,7 +25,6 @@ async function fetchFinnhubCompanyNews(tickers, apiKey) {
   const today = new Date().toISOString().slice(0, 10);
   const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
 
-  // Fetch all tickers in parallel
   const results = await Promise.all(
     tickers.slice(0, 8).map(async sym => {
       try {
@@ -32,19 +34,31 @@ async function fetchFinnhubCompanyNews(tickers, apiKey) {
         if (!res.ok) return [];
         const data = await res.json();
         if (!Array.isArray(data)) return [];
-        return data.slice(0, 8).map(n => ({
-          ticker: sym,
-          source: n.source || "—",
-          datetime: n.datetime || 0,
-          ago: timeAgo(n.datetime || 0),
-          headline: (n.headline || "").slice(0, 150),
-          url: n.url || null,
-        })).filter(n => n.headline);
+        return data
+          .slice(0, 12)
+          .map(n => ({
+            ticker: sym,
+            source: n.source || "—",
+            datetime: n.datetime || 0,
+            ago: timeAgo(n.datetime || 0),
+            headline: (n.headline || "").slice(0, 150),
+            url: n.url || null,
+          }))
+          .filter(n => n.headline && !PREFLIGHT_NOISE.test(n.headline));
       } catch { return []; }
     })
   );
 
-  return results.flat().sort((a, b) => b.datetime - a.datetime);
+  // Deduplicate across tickers by headline prefix
+  const seen = new Set();
+  return results.flat()
+    .sort((a, b) => b.datetime - a.datetime)
+    .filter(item => {
+      const key = item.headline.slice(0, 70).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 async function filterWithGemma(rawItems, tickers, apiKey) {
@@ -57,37 +71,47 @@ async function filterWithGemma(rawItems, tickers, apiKey) {
 
   const prompt = `You are an editorial filter for a stock portfolio dashboard. Portfolio tickers: ${tickerList}.
 
-Each headline below is tagged with the ticker whose Finnhub feed it came from, but that tag may be WRONG — Finnhub sometimes returns articles that only mention a stock in passing.
+Each headline is tagged with the Finnhub source ticker, but that tag is OFTEN WRONG. Finnhub returns off-topic articles in a company's feed.
 
-Your job:
+STRICT RULES — apply all of them:
 1. Identify the PRIMARY company the article is actually about (the main subject of the headline).
-2. If that primary company is one of the portfolio tickers, keep it and set "ticker" to that portfolio symbol.
-3. If the primary company is NOT in the portfolio — even if a portfolio ticker is mentioned in passing — DISCARD the article.
-4. Discard pure price-recap articles ("stock up 2%", "week in review"), obvious duplicates, and generic market roundups with no specific portfolio company as the subject.
+2. Keep it ONLY if the primary subject is one of the portfolio tickers above.
+3. DISCARD if the primary subject is any other company, ETF, index, or unnamed entity — even if a portfolio ticker is mentioned in passing.
+4. DISCARD any article whose headline does not exclusively focus on one portfolio company.
+5. DISCARD roundups, rankings, or comparison articles ("Top stocks", "Best buys", "X vs Y", "like NVDA").
 
-Examples of correct behaviour:
-- "[AMZN] Why The Market Is Re-Rating Google Stock" → primary subject is GOOG → discard (GOOG not in portfolio) OR reassign to GOOG if it is
-- "[AMZN] Cisco Is Up 17%... like Arista Networks" → primary subject is Cisco → discard unless CSCO is in portfolio
-- "[MRVL] Everyone's Talking About Micron" → primary subject is Micron → discard unless MU is in portfolio
-- "[GOOG] ByteDance making custom CPU chips" → primary subject is ByteDance (not a public ticker) → DISCARD even though ByteDance competes with GOOG
-- "[MSFT] OpenAI signs deal with Oracle" → primary subject is OpenAI/Oracle → DISCARD even though MSFT is an OpenAI investor
-- "[NVDA] AMD announces new GPU lineup" → primary subject is AMD → discard unless AMD is in portfolio; do NOT assign to NVDA just because they compete
+ALWAYS DISCARD — no exceptions:
+- Any article about an ETF, fund, or index (even if a portfolio company is named as a "beneficiary")
+- Any article whose primary subject is a company NOT in the portfolio list
+- Market roundup / macro articles ("Dow Jones", "S&P 500", "Nasdaq futures", "premarket", "closing bell")
+- Crypto / commodity articles unless the portfolio explicitly holds crypto
+- Articles asking "Is X a top stock?" or "Should you buy X?" where X is not a portfolio ticker
+- Articles where the headline's main company is mentioned via a ticker in brackets but the article is actually about someone else
+
+Examples:
+- "[AVGO] Is Applied Materials (AMAT) a Top AI Semiconductor Stock?" → primary subject is AMAT → DISCARD (AMAT not in portfolio)
+- "[AMZN] Standard Chartered Says Ethereum Could 20X" → crypto article → DISCARD
+- "[MRVL] Dow Jones Futures Fall, Snowflake Surges On Earnings" → market roundup → DISCARD
+- "[GOOG] A Big Wealth Manager Just Bought $22.4 Million Worth of This Small-Cap Value ETF" → ETF article → DISCARD
+- "[GOOG] ByteDance making custom CPU chips" → primary subject is ByteDance → DISCARD
+- "[MSFT] OpenAI signs deal with Oracle" → primary subject is OpenAI/Oracle → DISCARD
+- "[AMZN] Amazon AWS beats estimates, raises guidance" → primary subject is AMZN → KEEP as AMZN
 
 For each KEPT item return:
 - "ticker": the PRIMARY portfolio ticker this article is about
-- "orig_ticker": the original bracket ticker from the input line
+- "orig_ticker": the original bracket ticker from the input
 - "source": keep original
 - "ago": keep original
 - "headline": rewrite concisely under 90 characters, leading with the key fact
-- "sentiment": "bull" if the news is positive/bullish for the stock, "bear" if negative/bearish, "neutral" if informational with no clear price direction
-- "importance": integer 0–100 — how actionable is this for a portfolio investor:
+- "sentiment": "bull" | "bear" | "neutral"
+- "importance": integer 0–100:
     earnings beat/miss or guidance change → 88–98
     analyst upgrade/downgrade with PT     → 72–85
     exec departure or M&A                 → 70–82
     product launch / regulatory           → 60–72
     general positive/negative news        → 40–60
     routine / low signal                  → 10–39
-- "why": ≤10 word phrase — the single most investor-relevant fact (e.g. "Beat EPS by 12%, raised FY guidance")
+- "why": ≤10 word phrase — the single most investor-relevant fact
 
 Return ONLY a JSON array. If nothing qualifies, return [].
 
@@ -113,11 +137,8 @@ ${numbered}`;
     const jsonStr = raw.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
     const parsed = JSON.parse(jsonStr);
     if (!Array.isArray(parsed)) return null;
-    // Hard-filter: only keep items whose assigned ticker is actually in the portfolio
     const validSet = new Set(tickers);
     const kept = parsed.filter(item => item.ticker && validSet.has(item.ticker));
-    // Merge back datetime/url. Use orig_ticker (the Finnhub source ticker) for the lookup
-    // since Gemma may have reassigned ticker to a different portfolio symbol.
     return kept.map(item => {
       const origTk = item.orig_ticker || item.ticker;
       const orig = rawItems.find(r =>
@@ -178,13 +199,11 @@ export async function onRequestGet(context) {
   const fhKey = context.env.FINNHUB_API_KEY;
   const gemKey = context.env.GEMINI_API_KEY;
 
-  // Workers edge cache (URL-only key — auth already validated by middleware)
   const cacheKey = new Request(url.toString());
   const cache = caches.default;
   const edgeCached = await cache.match(cacheKey);
   if (edgeCached) return edgeCached;
 
-  // Check KV cache
   if (context.env.DD_KV) {
     try {
       const cached = await context.env.DD_KV.get(CACHE_KEY, "json");
@@ -203,13 +222,11 @@ export async function onRequestGet(context) {
 
   const rawItems = fhKey ? await fetchFinnhubCompanyNews(tickers, fhKey) : [];
 
-  // Run Gemma filter
   let items = gemKey ? await filterWithGemma(rawItems, tickers, gemKey) : null;
 
   // Fallback: basic noise filter (Gemma unavailable or failed)
   if (!items) {
-    const NOISE = /stock price|quote|at a glance|week that was|live updates|buy or sell/i;
-    items = rawItems.filter(r => !NOISE.test(r.headline)).slice(0, 8).map(r => ({
+    items = rawItems.slice(0, 8).map(r => ({
       ...r,
       sentiment: 'neutral',
       importance: 50,
