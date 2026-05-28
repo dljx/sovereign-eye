@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed:v8";
+const CACHE_KEY = "news:feed:v9";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -69,6 +69,9 @@ Examples of correct behaviour:
 - "[AMZN] Why The Market Is Re-Rating Google Stock" → primary subject is GOOG → discard (GOOG not in portfolio) OR reassign to GOOG if it is
 - "[AMZN] Cisco Is Up 17%... like Arista Networks" → primary subject is Cisco → discard unless CSCO is in portfolio
 - "[MRVL] Everyone's Talking About Micron" → primary subject is Micron → discard unless MU is in portfolio
+- "[GOOG] ByteDance making custom CPU chips" → primary subject is ByteDance (not a public ticker) → DISCARD even though ByteDance competes with GOOG
+- "[MSFT] OpenAI signs deal with Oracle" → primary subject is OpenAI/Oracle → DISCARD even though MSFT is an OpenAI investor
+- "[NVDA] AMD announces new GPU lineup" → primary subject is AMD → discard unless AMD is in portfolio; do NOT assign to NVDA just because they compete
 
 For each KEPT item return:
 - "ticker": the PRIMARY portfolio ticker this article is about
