@@ -1,15 +1,21 @@
 /**
  * GET /api/news?tickers=AMZN,MSFT,...
  *
- * Fetches company-specific news from Finnhub for each ticker,
- * then runs Gemma to filter to material items and clean headlines.
- * KV-cached for 30 minutes.
+ * Returns scored portfolio news. Scoring (Gemma) is SLOW (~38s) and exceeds
+ * the Cloudflare request budget, so it never runs in the response path.
+ * Instead:
+ *   - Fresh KV (< FRESH_TTL)  → served instantly
+ *   - Stale KV (< STALE_TTL)  → served instantly, scores refreshed in background
+ *   - Cold (no KV)            → unscored items served instantly, scored in background
+ * Background work runs via context.waitUntil() using PARALLEL per-ticker Gemma
+ * calls. Per-ticker scoring also fixes misattribution: each batch only keeps
+ * articles whose primary subject is that ticker.
  */
 
-const CACHE_KEY = "news:feed:v12";
-const CACHE_TTL_MS = 30 * 60 * 1000;
+const CACHE_KEY_PREFIX = "news:scored:v13:";
+const FRESH_TTL_MS = 30 * 60 * 1000;   // serve directly, no refresh
+const STALE_TTL_MS = 6 * 60 * 60 * 1000; // serve but refresh in background
 
-// Headlines containing these patterns are generic market noise — discard before Gemma
 const PREFLIGHT_NOISE = /^dow jones|^nasdaq|^s&p 500|futures (fall|rise|drop|surge)|week in review|weekly recap|top \d+ stocks?|best stocks? to buy|should you buy|buy or sell\??|is .{3,40} a (top|good) (stock|buy|invest)|small.cap|mid.cap|etf (could|may|might|is|are)|a (top|major|big) .{0,20}etf|ethereum|bitcoin|\bcrypto\b|market (wrap|recap|roundup|update)|premarket|pre-market|after.?hours|opening bell|closing bell/i;
 
 function timeAgo(ts) {
@@ -21,21 +27,38 @@ function timeAgo(ts) {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-async function fetchFinnhubCompanyNews(tickers, apiKey) {
+function cacheKeyFor(tickers) {
+  return CACHE_KEY_PREFIX + [...tickers].sort().join(",");
+}
+
+// Salvage a complete JSON array even if the model truncated the output
+function salvageArray(str) {
+  let s = (str || "").replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+  try { return JSON.parse(s); } catch {}
+  const lastBrace = s.lastIndexOf("}");
+  if (lastBrace > 0) {
+    try { return JSON.parse(s.slice(0, lastBrace + 1) + "]"); } catch {}
+  }
+  return null;
+}
+
+// Fetch Finnhub company news grouped by ticker, pre-filtered and de-duped per ticker
+async function fetchFinnhubByTicker(tickers, apiKey) {
   const today = new Date().toISOString().slice(0, 10);
   const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
-
-  const results = await Promise.all(
+  const out = {};
+  await Promise.all(
     tickers.slice(0, 8).map(async sym => {
       try {
         const res = await fetch(
           `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${twoWeeksAgo}&to=${today}&token=${apiKey}`
         );
-        if (!res.ok) return [];
+        if (!res.ok) return;
         const data = await res.json();
-        if (!Array.isArray(data)) return [];
-        return data
-          .slice(0, 12)
+        if (!Array.isArray(data)) return;
+        const seen = new Set();
+        out[sym] = data
+          .slice(0, 10)
           .map(n => ({
             ticker: sym,
             source: n.source || "—",
@@ -44,80 +67,29 @@ async function fetchFinnhubCompanyNews(tickers, apiKey) {
             headline: (n.headline || "").slice(0, 150),
             url: n.url || null,
           }))
-          .filter(n => n.headline && !PREFLIGHT_NOISE.test(n.headline));
-      } catch { return []; }
+          .filter(n => {
+            if (!n.headline || PREFLIGHT_NOISE.test(n.headline)) return false;
+            const key = n.headline.slice(0, 70).toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .slice(0, 6);
+      } catch {}
     })
   );
-
-  // Deduplicate across tickers by headline prefix
-  const seen = new Set();
-  return results.flat()
-    .sort((a, b) => b.datetime - a.datetime)
-    .filter(item => {
-      const key = item.headline.slice(0, 70).toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  return out;
 }
 
-async function filterWithGemma(rawItems, tickers, apiKey) {
-  if (!apiKey || rawItems.length === 0) return null;
-
-  const tickerList = tickers.join(", ");
-  const numbered = rawItems.map((item, i) =>
-    `${i + 1}. [${item.ticker}] "${item.headline}" (${item.source}, ${item.ago} ago)`
-  ).join("\n");
-
-  const prompt = `You are an editorial filter for a stock portfolio dashboard. Portfolio tickers: ${tickerList}.
-
-Each headline is tagged with the Finnhub source ticker, but that tag is OFTEN WRONG. Finnhub returns off-topic articles in a company's feed.
-
-STRICT RULES — apply all of them:
-1. Identify the PRIMARY company the article is actually about (the main subject of the headline).
-2. Keep it ONLY if the primary subject is one of the portfolio tickers above.
-3. DISCARD if the primary subject is any other company, ETF, index, or unnamed entity — even if a portfolio ticker is mentioned in passing.
-4. DISCARD any article whose headline does not exclusively focus on one portfolio company.
-5. DISCARD roundups, rankings, or comparison articles ("Top stocks", "Best buys", "X vs Y", "like NVDA").
-
-ALWAYS DISCARD — no exceptions:
-- Any article about an ETF, fund, or index (even if a portfolio company is named as a "beneficiary")
-- Any article whose primary subject is a company NOT in the portfolio list
-- Market roundup / macro articles ("Dow Jones", "S&P 500", "Nasdaq futures", "premarket", "closing bell")
-- Crypto / commodity articles unless the portfolio explicitly holds crypto
-- Articles asking "Is X a top stock?" or "Should you buy X?" where X is not a portfolio ticker
-- Articles where the headline's main company is mentioned via a ticker in brackets but the article is actually about someone else
-
-Examples:
-- "[AVGO] Is Applied Materials (AMAT) a Top AI Semiconductor Stock?" → primary subject is AMAT → DISCARD (AMAT not in portfolio)
-- "[AMZN] Standard Chartered Says Ethereum Could 20X" → crypto article → DISCARD
-- "[MRVL] Dow Jones Futures Fall, Snowflake Surges On Earnings" → market roundup → DISCARD
-- "[GOOG] A Big Wealth Manager Just Bought $22.4 Million Worth of This Small-Cap Value ETF" → ETF article → DISCARD
-- "[GOOG] ByteDance making custom CPU chips" → primary subject is ByteDance → DISCARD
-- "[MSFT] OpenAI signs deal with Oracle" → primary subject is OpenAI/Oracle → DISCARD
-- "[AMZN] Amazon AWS beats estimates, raises guidance" → primary subject is AMZN → KEEP as AMZN
-
-For each KEPT item return:
-- "ticker": the PRIMARY portfolio ticker this article is about
-- "orig_ticker": the original bracket ticker from the input
-- "source": keep original
-- "ago": keep original
-- "headline": rewrite concisely under 90 characters, leading with the key fact
-- "sentiment": "bull" | "bear" | "neutral"
-- "importance": integer 0–100:
-    earnings beat/miss or guidance change → 88–98
-    analyst upgrade/downgrade with PT     → 72–85
-    exec departure or M&A                 → 70–82
-    product launch / regulatory           → 60–72
-    general positive/negative news        → 40–60
-    routine / low signal                  → 10–39
-- "why": ≤10 word phrase — the single most investor-relevant fact
-
-Return ONLY a JSON array. If nothing qualifies, return [].
-
-Headlines:
+// Score one ticker's headlines with a small, fast Gemma call (line-ref output)
+async function scoreTicker(sym, items, apiKey) {
+  if (!apiKey || !items || !items.length) return [];
+  const numbered = items.map((it, i) => `${i + 1}. ${it.headline}`).join("\n");
+  const prompt = `Score news for ${sym}. The headlines below come from ${sym}'s news feed, but some may actually be about OTHER companies.
+Keep ONLY headlines whose PRIMARY subject is ${sym} itself. Drop anything mainly about another company, an ETF, crypto, or a market roundup.
+Output ONLY a JSON array. Each item: {"n":<line number>,"s":"bull|bear|neutral","i":<importance 0-100>,"w":"<why, max 6 words>"}
+importance guide: earnings/guidance 88-98, analyst rating w/ PT 72-85, M&A/exec 70-82, product/regulatory 60-72, general 40-60, routine 10-39.
 ${numbered}`;
-
   try {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${apiKey}`,
@@ -126,39 +98,78 @@ ${numbered}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+          generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
         }),
       }
     );
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
-    const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
-    const jsonStr = raw.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-    const parsed = JSON.parse(jsonStr);
-    if (!Array.isArray(parsed)) return null;
-    const validSet = new Set(tickers);
-    const kept = parsed.filter(item => item.ticker && validSet.has(item.ticker));
-    return kept.map(item => {
-      const origTk = item.orig_ticker || item.ticker;
-      const orig = rawItems.find(r =>
-          r.ticker === origTk &&
-          r.source?.toLowerCase() === (item.source || "").toLowerCase()
-        ) || rawItems.find(r => r.ticker === origTk)
-          || rawItems.find(r => r.source?.toLowerCase() === (item.source || "").toLowerCase());
+    const txt = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
+    const scored = salvageArray(txt) || [];
+    return scored.map(sc => {
+      const orig = items[(sc.n || 0) - 1];
+      if (!orig) return null;
+      const imp = parseInt(sc.i, 10);
       return {
-        ticker: item.ticker,
-        source: item.source || orig?.source || "—",
-        ago: item.ago || orig?.ago || "?",
-        datetime: orig?.datetime || 0,
-        headline: (item.headline || "").slice(0, 110),
-        sentiment: (['bull','bear','neutral'].includes((item.sentiment||'').toLowerCase()) ? (item.sentiment||'').toLowerCase() : 'neutral'),
-        importance: (() => { const v = parseInt(item.importance, 10); return isNaN(v) ? 50 : Math.min(100, Math.max(0, v)); })(),
-        why: (item.why || "").slice(0, 80),
-        url: orig?.url || null,
+        ticker: sym,
+        source: orig.source,
+        ago: orig.ago,
+        datetime: orig.datetime,
+        headline: orig.headline,
+        sentiment: ['bull', 'bear', 'neutral'].includes((sc.s || '').toLowerCase()) ? (sc.s || '').toLowerCase() : 'neutral',
+        importance: isNaN(imp) ? 50 : Math.min(100, Math.max(0, imp)),
+        why: (sc.w || '').slice(0, 60),
+        url: orig.url,
       };
-    }).filter(item => item.headline);
-  } catch { return null; }
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+// Background: fetch + parallel-score + merge + write KV. Not bound by response time.
+async function refreshScores(env, tickers) {
+  const fhKey = env.FINNHUB_API_KEY;
+  const gemKey = env.GEMINI_API_KEY;
+  if (!fhKey || !gemKey) return;
+  const byTicker = await fetchFinnhubByTicker(tickers, fhKey);
+  const perTicker = await Promise.all(
+    tickers.map(sym => scoreTicker(sym, byTicker[sym], gemKey))
+  );
+  const seen = new Set();
+  const items = perTicker.flat()
+    .sort((a, b) => b.datetime - a.datetime)
+    .filter(it => {
+      const key = it.headline.slice(0, 70).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  if (!items.length) return;
+  try {
+    await env.DD_KV.put(
+      cacheKeyFor(tickers),
+      JSON.stringify({ items, updatedAt: new Date().toISOString() }),
+      { expirationTtl: 24 * 3600 }
+    );
+  } catch {}
+  await archiveToSupabase(env, items);
+}
+
+// Cold-start: fast unscored items so the panel shows something immediately
+async function unscoredFallback(tickers, fhKey) {
+  if (!fhKey) return [];
+  const byTicker = await fetchFinnhubByTicker(tickers, fhKey);
+  const seen = new Set();
+  return Object.values(byTicker).flat()
+    .sort((a, b) => b.datetime - a.datetime)
+    .filter(it => {
+      const key = it.headline.slice(0, 70).toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 12)
+    .map(it => ({ ...it, sentiment: 'neutral', importance: 50, why: '' }));
 }
 
 async function archiveToSupabase(env, items) {
@@ -175,15 +186,27 @@ async function archiveToSupabase(env, items) {
     published_at: n.datetime ? new Date(n.datetime * 1000).toISOString() : null,
   })).filter(r => r.headline);
   if (!rows.length) return;
-  await fetch(`${env.SUPABASE_URL}/rest/v1/news_archive`, {
-    method: 'POST',
+  try {
+    await fetch(`${env.SUPABASE_URL}/rest/v1/news_archive`, {
+      method: 'POST',
+      headers: {
+        'apikey': env.SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=ignore-duplicates',
+      },
+      body: JSON.stringify(rows),
+    });
+  } catch {}
+}
+
+function jsonResponse(items, status) {
+  return new Response(JSON.stringify(items), {
     headers: {
-      'apikey': env.SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'resolution=ignore-duplicates',
+      "Content-Type": "application/json",
+      "X-News-Status": status, // fresh | stale | scoring
+      "Cache-Control": "no-store",
     },
-    body: JSON.stringify(rows),
   });
 }
 
@@ -193,57 +216,32 @@ export async function onRequestGet(context) {
   const tickers = tickerParam.split(",").map(t => t.trim()).filter(Boolean).filter(t => t !== "USD");
 
   if (tickers.length === 0) {
-    return new Response(JSON.stringify([]), { headers: { "Content-Type": "application/json" } });
+    return jsonResponse([], "fresh");
   }
 
   const fhKey = context.env.FINNHUB_API_KEY;
-  const gemKey = context.env.GEMINI_API_KEY;
+  const key = cacheKeyFor(tickers);
 
-  const cacheKey = new Request(url.toString());
-  const cache = caches.default;
-  const edgeCached = await cache.match(cacheKey);
-  if (edgeCached) return edgeCached;
-
+  // Read KV
+  let cached = null;
   if (context.env.DD_KV) {
-    try {
-      const cached = await context.env.DD_KV.get(CACHE_KEY, "json");
-      if (cached?.items && cached.updatedAt) {
-        const age = Date.now() - new Date(cached.updatedAt).getTime();
-        if (age < CACHE_TTL_MS) {
-          const kvHit = new Response(JSON.stringify(cached.items), {
-            headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=900, stale-while-revalidate=300" },
-          });
-          context.waitUntil(cache.put(cacheKey, kvHit.clone()));
-          return kvHit;
-        }
-      }
-    } catch {}
+    try { cached = await context.env.DD_KV.get(key, "json"); } catch {}
   }
 
-  const rawItems = fhKey ? await fetchFinnhubCompanyNews(tickers, fhKey) : [];
-
-  let items = gemKey ? await filterWithGemma(rawItems, tickers, gemKey) : null;
-
-  // Fallback: basic noise filter (Gemma unavailable or failed)
-  if (!items) {
-    items = rawItems.slice(0, 8).map(r => ({
-      ...r,
-      sentiment: 'neutral',
-      importance: 50,
-      why: '',
-    }));
+  if (cached?.items?.length && cached.updatedAt) {
+    const age = Date.now() - new Date(cached.updatedAt).getTime();
+    if (age < FRESH_TTL_MS) {
+      return jsonResponse(cached.items, "fresh");
+    }
+    if (age < STALE_TTL_MS) {
+      // Serve stale immediately, refresh scores in background
+      context.waitUntil(refreshScores(context.env, tickers));
+      return jsonResponse(cached.items, "stale");
+    }
   }
 
-  if (context.env.DD_KV && items.length > 0) {
-    try {
-      await context.env.DD_KV.put(CACHE_KEY, JSON.stringify({ items, updatedAt: new Date().toISOString() }), { expirationTtl: 3600 });
-    } catch {}
-  }
-
-  const freshResponse = new Response(JSON.stringify(items), {
-    headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=900, stale-while-revalidate=300" },
-  });
-  context.waitUntil(cache.put(cacheKey, freshResponse.clone()));
-  context.waitUntil(archiveToSupabase(context.env, items));
-  return freshResponse;
+  // Cold (or very stale): return unscored items now, score in background
+  const fallback = await unscoredFallback(tickers, fhKey);
+  context.waitUntil(refreshScores(context.env, tickers));
+  return jsonResponse(fallback, "scoring");
 }

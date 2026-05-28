@@ -263,6 +263,7 @@ function NewsPanel() {
 
   useEffect(() => {
     let interval = null;
+    let rescore = null;
 
     const restoreLS = (key, mapper, setter) => {
       try {
@@ -285,16 +286,24 @@ function NewsPanel() {
       const hadW = restoreLS(`se:wire:v2:${qs}`, _mapWireItem, setLiveWire);
       if (hadP || hadW) setSrc('cached');
 
-      // Fetch fresh in background
+      // Fetch fresh in background. The news API may return provisional unscored
+      // data with header X-News-Status: scoring|stale while it scores in the
+      // background — in that case re-poll once after 45s to pick up real scores.
       const load = () => {
-        Promise.all([
-          fetch(`/api/news?tickers=${qs}&v=12`).then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null),
-        ]).then(([news, wire]) => {
+        const newsP = fetch(`/api/news?tickers=${qs}&v=13`)
+          .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
+          .catch(() => ({ items: null, status: null }));
+        const wireP = fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null);
+        Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
+          const news = newsRes.items;
+          const provisional = newsRes.status === 'scoring';
           if (Array.isArray(news) && news.length) {
             const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
             setLivePortfolio(mapped);
-            try { localStorage.setItem(`se:news:v2:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+            // Don't persist provisional (unscored) data — only real scores
+            if (!provisional) {
+              try { localStorage.setItem(`se:news:v2:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+            }
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
@@ -306,6 +315,10 @@ function NewsPanel() {
             setLiveWire([]);
           }
           setSrc('live');
+          if (newsRes.status === 'scoring' || newsRes.status === 'stale') {
+            if (rescore) clearTimeout(rescore);
+            rescore = setTimeout(load, 45000);
+          }
         }).catch(() => setSrc('live'));
       };
 
@@ -318,7 +331,7 @@ function NewsPanel() {
     start();
     // Re-run when positions load from KV (fires after /api/positions resolves)
     window.addEventListener('se:positions', start, { once: true });
-    return () => { window.removeEventListener('se:positions', start); if (interval) clearInterval(interval); };
+    return () => { window.removeEventListener('se:positions', start); if (interval) clearInterval(interval); if (rescore) clearTimeout(rescore); };
   }, []);
 
   const portfolioList  = livePortfolio;

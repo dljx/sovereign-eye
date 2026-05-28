@@ -262,6 +262,7 @@ function MobileIntel() {
 
   useEffect(() => {
     let iv = null;
+    let rescore = null;
     const restoreLS = (key, setter) => {
       try {
         const raw = localStorage.getItem(key);
@@ -280,14 +281,19 @@ function MobileIntel() {
       const hadW = restoreLS(`se:wire:v2:${qs}`, setLiveWire);
       if (hadP || hadW) setNewsSrc('cached');
       const load = () => {
-        Promise.all([
-          fetch(`/api/news?tickers=${qs}&v=12`).then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null),
-        ]).then(([news, wire]) => {
+        const newsP = fetch(`/api/news?tickers=${qs}&v=13`)
+          .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
+          .catch(() => ({ items: null, status: null }));
+        const wireP = fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null);
+        Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
+          const news = newsRes.items;
+          const provisional = newsRes.status === 'scoring';
           if (Array.isArray(news) && news.length) {
             const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
             setLivePortfolio(m);
-            try { localStorage.setItem(`se:news:v2:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+            if (!provisional) {
+              try { localStorage.setItem(`se:news:v2:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+            }
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
@@ -299,6 +305,10 @@ function MobileIntel() {
             setLiveWire([]);
           }
           setNewsSrc('live');
+          if (newsRes.status === 'scoring' || newsRes.status === 'stale') {
+            if (rescore) clearTimeout(rescore);
+            rescore = setTimeout(load, 45000);
+          }
         }).catch(() => setNewsSrc('live'));
       };
       if (iv) clearInterval(iv);
@@ -307,7 +317,7 @@ function MobileIntel() {
     };
     start();
     window.addEventListener('se:positions', start, { once: true });
-    return () => { clearInterval(iv); window.removeEventListener('se:positions', start); };
+    return () => { clearInterval(iv); if (rescore) clearTimeout(rescore); window.removeEventListener('se:positions', start); };
   }, []);
 
   return (
