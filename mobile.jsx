@@ -225,13 +225,8 @@ function _parseAgoMs(t) {
   if (!m) return 0;
   return +m[1] * (m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : 86400000);
 }
-function _applyNewsFilters(items, timeRange, sortMode) {
-  const maxAge = timeRange === '1D' ? 86400000 : timeRange === '1W' ? 7 * 86400000 : Infinity;
-  const now = Date.now();
-  const filtered = items.filter(n => {
-    const ms = n.datetime ? now - n.datetime * 1000 : _parseAgoMs(n.t);
-    return ms <= maxAge;
-  });
+function _applyNewsFilters(items, minImp, sortMode) {
+  const filtered = items.filter(n => (n.importance || 50) >= minImp);
   return sortMode === 'rank'
     ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
     : [...filtered].sort((a, b) => (b.datetime || 0) - (a.datetime || 0));
@@ -240,7 +235,7 @@ function _applyNewsFilters(items, timeRange, sortMode) {
 function MobileIntel() {
   const [tab, setTab] = useState('synthesis');
   const [synthTab, setSynthTab] = useState('catalysts');
-  const [newsTimeRange, setNewsTimeRange] = useState('1W');
+  const [newsMinImp, setNewsMinImp] = useState(0);
   const [newsSortMode, setNewsSortMode]   = useState('rank');
   const tabs = ['synthesis','news','filings','macro'];
   const synthesis = window.SYNTHESIS || { catalysts: [], risks: [], macro: [] };
@@ -295,16 +290,16 @@ function MobileIntel() {
       {tab === 'news' && (
         <div style={{ padding: '0 20px' }}>
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '10px 0 6px' }}>
-            {['1D', '1W', '1M'].map(r => (
-              <span key={r} className={`news-filter-btn ${newsTimeRange === r ? 'active' : ''}`}
-                    onClick={() => setNewsTimeRange(r)}>{r}</span>
+            {[[0,'ALL'],[60,'60+'],[80,'80+']].map(([v,label]) => (
+              <span key={v} className={`news-filter-btn ${newsMinImp === v ? 'active' : ''}`}
+                    onClick={() => setNewsMinImp(v)}>{label}</span>
             ))}
             <span className="news-sort-btn"
                   onClick={() => setNewsSortMode(s => s === 'rank' ? 'time' : 'rank')}>
               {newsSortMode === 'rank' ? '↕ Rank' : '↕ Time'}
             </span>
           </div>
-          {_applyNewsFilters(window.NEWS_PORTFOLIO || [], newsTimeRange, newsSortMode).map((n, i) => {
+          {_applyNewsFilters(window.NEWS_PORTFOLIO || [], newsMinImp, newsSortMode).map((n, i) => {
             const tier = (n.importance || 50) >= 80 ? 'top' : (n.importance || 50) >= 60 ? 'mid' : 'low';
             return (
               <div className={`news-item news-tier-${tier}`} key={i}

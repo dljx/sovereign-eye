@@ -83,32 +83,40 @@ Return ONLY a JSON array of objects in the same order as the input. No markdown,
 Filings:
 ${list}`;
 
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${gemKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.2,
-            thinkingConfig: { thinkingLevel: "low" },
-          },
-        }),
-        signal: AbortSignal.timeout(45000),
-      }
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    const parts = data?.candidates?.[0]?.content?.parts || [];
-    const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || '';
-    const jsonStr = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
-    const parsed  = JSON.parse(jsonStr);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+  const candidates = [
+    { model: 'gemini-3.5-flash', config: { temperature: 0.2, thinkingConfig: { thinkingLevel: "low" } } },
+    { model: 'gemma-4-31b-it',   config: { temperature: 0.2, maxOutputTokens: 8192 } },
+  ];
+  for (const { model, config } of candidates) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gemKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: config,
+            }),
+            signal: AbortSignal.timeout(45000),
+          }
+        );
+        if (res.status === 429) {
+          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+          continue;
+        }
+        if (!res.ok) break;
+        const data = await res.json();
+        const parts = data?.candidates?.[0]?.content?.parts || [];
+        const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || '';
+        const jsonStr = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
+        const parsed  = JSON.parse(jsonStr);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { break; }
+    }
   }
+  return [];
 }
 
 export async function onRequestGet(context) {
@@ -124,7 +132,7 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v11:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v12:${[...tickers].sort().join(',')}`;
 
   // Serve cache
   if (kv) {

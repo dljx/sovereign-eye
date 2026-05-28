@@ -186,6 +186,32 @@ ${numbered}`;
   } catch { return null; }
 }
 
+async function archiveToSupabase(env, items) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY || !items?.length) return;
+  const rows = items.map(n => ({
+    ticker:       n.tag === 'TICKER' ? (n.ticker_or_sector ?? null) : null,
+    tag:          n.tag ?? 'MACRO',
+    source:       n.source ?? null,
+    headline:     n.headline,
+    why:          n.why ?? null,
+    importance:   n.importance ?? null,
+    severity:     n.severity ?? null,
+    url:          n.url ?? null,
+    published_at: n.datetime ? new Date(n.datetime * 1000).toISOString() : null,
+  })).filter(r => r.headline);
+  if (!rows.length) return;
+  await fetch(`${env.SUPABASE_URL}/rest/v1/news_archive`, {
+    method: 'POST',
+    headers: {
+      'apikey': env.SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=ignore-duplicates',
+    },
+    body: JSON.stringify(rows),
+  });
+}
+
 export async function onRequestGet(context) {
   const url = new URL(context.request.url);
   const tickerParam = url.searchParams.get("tickers") || "";
@@ -263,5 +289,6 @@ export async function onRequestGet(context) {
     headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=600, stale-while-revalidate=180" },
   });
   context.waitUntil(cache.put(cacheKey, freshResponse.clone()));
+  context.waitUntil(archiveToSupabase(context.env, items));
   return freshResponse;
 }

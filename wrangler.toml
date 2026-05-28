@@ -9,6 +9,9 @@ pages_build_output_dir = "."
 binding = "DD_KV"
 id = "a3a124ad15af46fd98623e1f71c6533b"
 
-# Environment variables — also set these in Cloudflare Pages > Settings > Environment variables:
-#   GH_REPO  = "your-username/sovereign-dd"
-#   GH_TOKEN = "github_pat_..."  (fine-grained PAT: Actions: Read & Write)
+[vars]
+SUPABASE_URL = "https://xujzodtuikzzfybsstst.supabase.co"
+# Also set in Cloudflare Pages > Settings > Environment variables:
+#   GH_REPO              = "your-username/sovereign-dd"
+#   GH_TOKEN             = "github_pat_..."  (fine-grained PAT: Actions: Read & Write)
+#   SUPABASE_SERVICE_KEY = "sb_secret_..."   (service role key — secret, never in toml)

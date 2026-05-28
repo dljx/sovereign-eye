@@ -225,13 +225,8 @@ function parseAgoMs(t) {
   if (!m) return 0;
   return +m[1] * (m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : 86400000);
 }
-function applyNewsFilters(items, timeRange, sortMode) {
-  const maxAge = timeRange === '1D' ? 86400000 : timeRange === '1W' ? 7 * 86400000 : Infinity;
-  const now = Date.now();
-  const filtered = items.filter(n => {
-    const ms = n.datetime ? now - n.datetime * 1000 : parseAgoMs(n.t);
-    return ms <= maxAge;
-  });
+function applyNewsFilters(items, minImp, sortMode) {
+  const filtered = items.filter(n => (n.importance || 50) >= minImp);
   return sortMode === 'rank'
     ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
     : [...filtered].sort((a, b) => (b.datetime || 0) - (a.datetime || 0));
@@ -242,8 +237,8 @@ function NewsPanel() {
   const [livePortfolio, setLivePortfolio] = useState(null);
   const [liveWire, setLiveWire]           = useState(null);
   const [src, setSrc] = useState('seed');
-  const [timeRange, setTimeRange] = useState('1W');
-  const [sortMode, setSortMode]   = useState('rank');
+  const [minImp, setMinImp]     = useState(0);
+  const [sortMode, setSortMode] = useState('rank');
 
   useEffect(() => {
     let interval = null;
@@ -282,7 +277,7 @@ function NewsPanel() {
   const portfolioList = livePortfolio ?? (window.NEWS_PORTFOLIO || []);
   const wireList      = liveWire      ?? (window.NEWS_WIRE || []);
   const rawList = tab === 'portfolio' ? portfolioList : wireList;
-  const list = applyNewsFilters(rawList, timeRange, sortMode);
+  const list = applyNewsFilters(rawList, minImp, sortMode);
 
   return (
     <>
@@ -298,9 +293,9 @@ function NewsPanel() {
         </div>
         <div className="panel-actions">
           <div className="news-controls">
-            {['1D', '1W', '1M'].map(r => (
-              <span key={r} className={`news-filter-btn ${timeRange === r ? 'active' : ''}`}
-                    onClick={() => setTimeRange(r)}>{r}</span>
+            {[[0,'ALL'],[60,'60+'],[80,'80+']].map(([v,label]) => (
+              <span key={v} className={`news-filter-btn ${minImp === v ? 'active' : ''}`}
+                    onClick={() => setMinImp(v)}>{label}</span>
             ))}
             <span className="news-sort-btn"
                   onClick={() => setSortMode(s => s === 'rank' ? 'time' : 'rank')}>
@@ -529,11 +524,71 @@ function _mapDDResult(data) {
   };
 }
 
+function DDTrendChart({ rows, currentPrice }) {
+  if (!rows?.length) return null;
+  const pts = [...rows].reverse(); // oldest→newest
+  const fvs   = pts.map(r => r.result_fv).filter(v => v != null);
+  const cfvs  = pts.map(r => r.composite_fv).filter(v => v != null);
+  const allY  = [...fvs, ...cfvs, currentPrice].filter(Boolean);
+  if (!allY.length) return null;
+
+  const W = 280, H = 56, PAD = 4;
+  const minY = Math.min(...allY) * 0.95;
+  const maxY = Math.max(...allY) * 1.05;
+  const scaleX = i => PAD + (i / Math.max(pts.length - 1, 1)) * (W - PAD * 2);
+  const scaleY = v => PAD + (1 - (v - minY) / (maxY - minY)) * (H - PAD * 2);
+
+  const line = (arr, key) => {
+    const valid = arr.map((r, i) => r[key] != null ? `${scaleX(i)},${scaleY(r[key])}` : null).filter(Boolean);
+    return valid.length > 1 ? `M${valid.join('L')}` : null;
+  };
+
+  const gradeColor = g => {
+    const gl = (g || '').toLowerCase();
+    if (gl.includes('buy')) return '#a78bfa';
+    if (gl.includes('sell')) return '#f87171';
+    return '#6b7280';
+  };
+
+  return (
+    <div className="dd-trend">
+      <div className="dd-section-label" style={{ marginBottom: 6 }}>Fair Value History</div>
+      <svg width={W} height={H} style={{ display: 'block', overflow: 'visible' }}>
+        {currentPrice && (
+          <line x1={PAD} y1={scaleY(currentPrice)} x2={W - PAD} y2={scaleY(currentPrice)}
+            stroke="var(--fg-4)" strokeWidth={1} strokeDasharray="3 2" />
+        )}
+        {line(pts, 'composite_fv') && (
+          <path d={line(pts, 'composite_fv')} fill="none" stroke="var(--fg-4)" strokeWidth={1.5} strokeDasharray="4 2" />
+        )}
+        {line(pts, 'result_fv') && (
+          <path d={line(pts, 'result_fv')} fill="none" stroke="var(--acc)" strokeWidth={1.5} />
+        )}
+        {pts.map((r, i) => r.result_fv != null && (
+          <circle key={i} cx={scaleX(i)} cy={scaleY(r.result_fv)} r={3}
+            fill={gradeColor(r.grade)} stroke="var(--bg-1)" strokeWidth={1} />
+        ))}
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, fontSize: 9, color: 'var(--fg-4)', fontFamily: 'var(--mono)' }}>
+        <span>{pts[0] ? new Date(pts[0].run_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
+        <span style={{ color: 'var(--fg-3)' }}>{pts.length} run{pts.length !== 1 ? 's' : ''}</span>
+        <span>{pts[pts.length - 1] ? new Date(pts[pts.length - 1].run_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
+      </div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 9, color: 'var(--fg-4)', fontFamily: 'var(--mono)' }}>
+        <span><span style={{ color: 'var(--acc)' }}>—</span> LLM FV</span>
+        <span><span style={{ color: 'var(--fg-4)' }}>- -</span> Archetype FV</span>
+        {currentPrice && <span><span style={{ color: 'var(--fg-4)' }}>···</span> Price ${currentPrice.toFixed(0)}</span>}
+      </div>
+    </div>
+  );
+}
+
 function DDPanel({ onTickerSelect }) {
   const [state, setState] = useState('idle'); // idle | loading | result
   const [input, setInput] = useState('AVGO');
   const [ticker, setTicker] = useState(null);
   const [result, setResult] = useState(null);
+  const [trendData, setTrendData] = useState(null);
   const [elapsed, setElapsed] = useState(0);
   const [agentStates, setAgentStates] = useState({});
   const [log, setLog] = useState([]);
@@ -656,6 +711,15 @@ function DDPanel({ onTickerSelect }) {
 
   // Try loading KV result for initial ticker
   useEffect(() => { loadFromKV('AVGO'); }, [loadFromKV]);
+
+  // Fetch Supabase trend history whenever ticker changes
+  useEffect(() => {
+    const tk = ticker || 'AVGO';
+    fetch(`/api/dd/trend?ticker=${tk}&limit=30`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (Array.isArray(d) && d.length) setTrendData(d); })
+      .catch(() => {});
+  }, [ticker]);
 
   const displayResult = result || (state === 'idle' ? window.DD_RESULT : null);
 
@@ -791,6 +855,11 @@ function DDPanel({ onTickerSelect }) {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+            {trendData?.length > 1 && (
+              <div className="dd-section">
+                <DDTrendChart rows={trendData} currentPrice={trendData[0]?.price} />
               </div>
             )}
           </div>

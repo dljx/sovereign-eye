@@ -1758,3 +1758,7 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 
 .news-body { min-width:0; }
 .news-why { font-size:9px; color:var(--fg-4); letter-spacing:.04em; margin-top:2px; font-family:var(--mono); }
+
+/* ── DD trend chart ── */
+.dd-trend { padding: 10px 0 4px; }
+.dd-trend svg { width: 100%; height: auto; }
