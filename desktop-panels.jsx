@@ -117,7 +117,7 @@ function HeatmapPanel({ positions, quotes, totals }) {
   }, []);
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', width: '100%', height: 360 }}>
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%', height: '100%', minHeight: 300 }}>
       <Treemap items={items} width={dims.w} height={dims.h} />
     </div>
   );
