@@ -124,7 +124,7 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v10:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v11:${[...tickers].sort().join(',')}`;
 
   // Serve cache
   if (kv) {
@@ -171,7 +171,6 @@ export async function onRequestGet(context) {
     const r = tldrs[i];
     if (r?.tldr) f.tldr = r.tldr;
     if (r?.sent && ['bull','neutral','bear'].includes(r.sent)) f.sent = r.sent;
-    delete f.filedDate;
   });
 
   if (kv && top.length && top.some(f => f.tldr)) {

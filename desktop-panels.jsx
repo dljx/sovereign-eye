@@ -454,7 +454,10 @@ function FilingsPanel() {
                 : <span className="filing-form">{f.form}</span>
               }
               <span className="filing-tk">{f.tk}</span>
-              <span className="filing-tldr">{f.tldr || '—'}</span>
+              <div>
+                <div className="filing-tldr">{f.tldr || '—'}</div>
+                <div className="news-meta">{f.filedDate ? f.filedDate.slice(0, 10) : f.when}</div>
+              </div>
               <span className={`sent ${f.sent}`}>{f.sent}</span>
             </div>
           ))}
