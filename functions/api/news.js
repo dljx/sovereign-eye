@@ -14,7 +14,7 @@
 const KEY_PREFIX = "news:tk:v14:";       // per-ticker KV key
 const TICKER_TTL_MS = 45 * 60 * 1000;    // a ticker's scores are fresh for 45m
 const SCORE_BATCH = 3;                    // tickers scored per request (fits <30s)
-const MAX_TICKERS = 10;
+const MAX_TICKERS = 15;
 
 const PREFLIGHT_NOISE = /^dow jones|^nasdaq|^s&p 500|futures (fall|rise|drop|surge)|week in review|weekly recap|top \d+ stocks?|best stocks? to buy|should you buy|buy or sell\??|is .{3,40} a (top|good) (stock|buy|invest)|small.cap|mid.cap|etf (could|may|might|is|are)|a (top|major|big) .{0,20}etf|ethereum|bitcoin|\bcrypto\b|market (wrap|recap|roundup|update)|premarket|pre-market|after.?hours|opening bell|closing bell/i;
 
