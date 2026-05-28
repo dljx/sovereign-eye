@@ -232,15 +232,19 @@ function _agoToSec(t) {
   return +m[1] * (m[2] === 'm' ? 60 : m[2] === 'h' ? 3600 : 86400);
 }
 function _effectiveTs(n) {
-  if (n.datetime) return n.datetime;
+  // Valid Unix epoch in seconds: between 2001-09-09 and 2033-05-18
+  if (n.datetime >= 1000000000 && n.datetime <= 2000000000) return n.datetime;
   const age = _agoToSec(n.t);
-  return age ? Math.floor(Date.now() / 1000) - age : 0;
+  if (age > 0) return Math.floor(Date.now() / 1000) - age;
+  return Math.floor(Date.now() / 1000); // unknown → treat as now
 }
 function applyNewsFilters(items, period, sortMode) {
   const cutoff = NEWS_PERIOD_SECS[period] || NEWS_PERIOD_SECS['1W'];
   const nowSec = Date.now() / 1000;
   const withTs = items.map(n => ({ ...n, _ts: _effectiveTs(n) }));
-  const filtered = withTs.filter(n => !n._ts || (nowSec - n._ts) < cutoff);
+  // DEBUG: remove after confirming filter works
+  if (typeof console !== 'undefined') console.log('[news-filter]', period, cutoff, withTs.slice(0, 5).map(n => ({ t: n.t, dt: n.datetime, ts: n._ts, age_h: Math.round((nowSec - n._ts) / 3600) })));
+  const filtered = withTs.filter(n => (nowSec - n._ts) < cutoff);
   return sortMode === 'rank'
     ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
     : [...filtered].sort((a, b) => b._ts - a._ts);

@@ -232,15 +232,16 @@ function _agoToSec(t) {
   return +m[1] * (m[2] === 'm' ? 60 : m[2] === 'h' ? 3600 : 86400);
 }
 function _effectiveTs(n) {
-  if (n.datetime) return n.datetime;
+  if (n.datetime >= 1000000000 && n.datetime <= 2000000000) return n.datetime;
   const age = _agoToSec(n.t || n.ago);
-  return age ? Math.floor(Date.now() / 1000) - age : 0;
+  if (age > 0) return Math.floor(Date.now() / 1000) - age;
+  return Math.floor(Date.now() / 1000);
 }
 function _applyNewsFilters(items, period, sortMode) {
   const cutoff = _NEWS_PERIOD_SECS[period] || _NEWS_PERIOD_SECS['1W'];
   const nowSec = Date.now() / 1000;
   const withTs = items.map(n => ({ ...n, _ts: _effectiveTs(n) }));
-  const filtered = withTs.filter(n => !n._ts || (nowSec - n._ts) < cutoff);
+  const filtered = withTs.filter(n => (nowSec - n._ts) < cutoff);
   return sortMode === 'rank'
     ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
     : [...filtered].sort((a, b) => b._ts - a._ts);
