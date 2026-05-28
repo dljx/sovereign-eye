@@ -225,8 +225,11 @@ function parseAgoMs(t) {
   if (!m) return 0;
   return +m[1] * (m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : 86400000);
 }
-function applyNewsFilters(items, minImp, sortMode) {
-  const filtered = items.filter(n => (n.importance || 50) >= minImp);
+const NEWS_PERIOD_SECS = { '1D': 86400, '1W': 604800, '1M': 2592000 };
+function applyNewsFilters(items, period, sortMode) {
+  const cutoff = NEWS_PERIOD_SECS[period] || NEWS_PERIOD_SECS['1W'];
+  const nowSec = Date.now() / 1000;
+  const filtered = items.filter(n => !n.datetime || (nowSec - n.datetime) < cutoff);
   return sortMode === 'rank'
     ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
     : [...filtered].sort((a, b) => (b.datetime || 0) - (a.datetime || 0));
@@ -237,7 +240,7 @@ function NewsPanel() {
   const [livePortfolio, setLivePortfolio] = useState(null);
   const [liveWire, setLiveWire]           = useState(null);
   const [src, setSrc] = useState('seed');
-  const [minImp, setMinImp]     = useState(0);
+  const [period, setPeriod]     = useState('1W');
   const [sortMode, setSortMode] = useState('rank');
 
   useEffect(() => {
@@ -277,7 +280,7 @@ function NewsPanel() {
   const portfolioList = livePortfolio ?? (window.NEWS_PORTFOLIO || []);
   const wireList      = liveWire      ?? (window.NEWS_WIRE || []);
   const rawList = tab === 'portfolio' ? portfolioList : wireList;
-  const list = applyNewsFilters(rawList, minImp, sortMode);
+  const list = applyNewsFilters(rawList, period, sortMode);
 
   return (
     <>
@@ -293,9 +296,9 @@ function NewsPanel() {
         </div>
         <div className="panel-actions">
           <div className="news-controls">
-            {[[0,'ALL'],[60,'60+'],[80,'80+']].map(([v,label]) => (
-              <span key={v} className={`news-filter-btn ${minImp === v ? 'active' : ''}`}
-                    onClick={() => setMinImp(v)}>{label}</span>
+            {['1D','1W','1M'].map(p => (
+              <span key={p} className={`news-filter-btn ${period === p ? 'active' : ''}`}
+                    onClick={() => setPeriod(p)}>{p}</span>
             ))}
             <span className="news-sort-btn"
                   onClick={() => setSortMode(s => s === 'rank' ? 'time' : 'rank')}>
