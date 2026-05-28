@@ -251,10 +251,58 @@ function MobileIntel() {
   const [tab, setTab] = useState('synthesis');
   const [synthTab, setSynthTab] = useState('catalysts');
   const [newsPeriod, setNewsPeriod] = useState('1W');
-  const [newsSortMode, setNewsSortMode]   = useState('rank');
+  const [newsSortMode, setNewsSortMode] = useState('rank');
+  const [newsTab, setNewsTab] = useState('portfolio');
+  const [livePortfolio, setLivePortfolio] = useState(null);
+  const [liveWire, setLiveWire] = useState(null);
+  const [newsSrc, setNewsSrc] = useState('loading');
   const tabs = ['synthesis','news','filings','macro'];
   const synthesis = window.SYNTHESIS || { catalysts: [], risks: [], macro: [] };
   const ms = window.MACRO_SERIES || { nav: [], spx: [] };
+
+  useEffect(() => {
+    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+    if (!tickers.length) return;
+    const qs = tickers.join(',');
+    const restoreLS = (key, setter) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return false;
+        const { items, savedAt } = JSON.parse(raw);
+        if (!Array.isArray(items) || Date.now() - savedAt > 3600000) return false;
+        setter(items);
+        return true;
+      } catch { return false; }
+    };
+    const hadP = restoreLS(`se:news:${qs}`, setLivePortfolio);
+    const hadW = restoreLS(`se:wire:${qs}`, setLiveWire);
+    if (hadP || hadW) setNewsSrc('cached');
+    const load = () => {
+      Promise.all([
+        fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]).then(([news, wire]) => {
+        let any = false;
+        if (Array.isArray(news) && news.length) {
+          const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+          setLivePortfolio(m);
+          try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+          any = true;
+        }
+        if (Array.isArray(wire) && wire.length) {
+          const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+          setLiveWire(m);
+          try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+          any = true;
+        }
+        if (any) setNewsSrc('live');
+      });
+    };
+    load();
+    const iv = setInterval(load, 15 * 60 * 1000);
+    window.addEventListener('se:positions', load, { once: true });
+    return () => { clearInterval(iv); window.removeEventListener('se:positions', load); };
+  }, []);
 
   return (
     <div className="mobile-screen">
@@ -264,7 +312,7 @@ function MobileIntel() {
           <div className="mscreen-bignum" style={{ fontSize: 22 }}>
             {tab === 'synthesis' ? 'Synthesis' : tab === 'news' ? 'News' : tab === 'filings' ? 'Filings' : 'Macro'}
           </div>
-          <SrcPill src="seed" age="seed" />
+          <SrcPill src={tab === 'news' ? (newsSrc === 'loading' ? 'seed' : newsSrc) : 'seed'} age={tab === 'news' && newsSrc === 'live' ? 'now' : 'seed'} />
         </div>
       </div>
       <div className="m-tabs">
@@ -302,43 +350,60 @@ function MobileIntel() {
         </>
       )}
 
-      {tab === 'news' && (
-        <div style={{ padding: '0 20px' }}>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '10px 0 6px' }}>
-            {['1D','1W','1M'].map(p => (
-              <span key={p} className={`news-filter-btn ${newsPeriod === p ? 'active' : ''}`}
-                    onClick={() => setNewsPeriod(p)}>{p}</span>
-            ))}
-            <span className="news-sort-btn"
-                  onClick={() => setNewsSortMode(s => s === 'rank' ? 'time' : 'rank')}>
-              {newsSortMode === 'rank' ? '↕ Rank' : '↕ Time'}
-            </span>
-          </div>
-          {_applyNewsFilters(window.NEWS_PORTFOLIO || [], newsPeriod, newsSortMode).map((n, i) => {
-            const tier = (n.importance || 50) >= 80 ? 'top' : (n.importance || 50) >= 60 ? 'mid' : 'low';
-            return (
-              <div className={`news-item news-tier-${tier}`} key={i}
-                   style={{ gridTemplateColumns: '28px 40px 1fr 32px', padding: '10px 0' }}>
-                <div className="news-score">{n.importance || 50}</div>
-                <div className={`news-tk ${n.macro ? 'macro' : ''}`}>{n.tk}</div>
-                <div className="news-body">
-                  <div className="news-headline">
-                    {n.url
-                      ? <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
-                      : n.headline}
-                  </div>
-                  {n.why && <div className="news-why">{n.why}</div>}
-                  <div className="news-meta">
-                    {n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>}
-                    {n.src}
-                  </div>
-                </div>
-                <div className="news-time">{n.t}</div>
+      {tab === 'news' && (() => {
+        const mobileRaw = newsTab === 'portfolio' ? livePortfolio : liveWire;
+        const mobileList = mobileRaw ? _applyNewsFilters(mobileRaw, newsPeriod, newsSortMode) : null;
+        return (
+          <div style={{ padding: '0 20px' }}>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '10px 0 4px' }}>
+              {['portfolio','wire'].map(nt => (
+                <span key={nt} className={`news-filter-btn ${newsTab === nt ? 'active' : ''}`}
+                      onClick={() => setNewsTab(nt)} style={{ textTransform: 'capitalize' }}>{nt}</span>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '0 0 6px' }}>
+              {['1D','1W','1M'].map(p => (
+                <span key={p} className={`news-filter-btn ${newsPeriod === p ? 'active' : ''}`}
+                      onClick={() => setNewsPeriod(p)}>{p}</span>
+              ))}
+              <span className="news-sort-btn"
+                    onClick={() => setNewsSortMode(s => s === 'rank' ? 'time' : 'rank')}>
+                {newsSortMode === 'rank' ? '↕ Rank' : '↕ Time'}
+              </span>
+            </div>
+            {!mobileList ? (
+              <div className="news-loading" style={{ height: 200 }}>
+                <div className="news-spinner" />
+                <span>Loading news…</span>
               </div>
-            );
-          })}
-        </div>
-      )}
+            ) : mobileList.length === 0 ? (
+              <div className="news-loading" style={{ height: 120 }}><span>No items in this period</span></div>
+            ) : mobileList.map((n, i) => {
+              const tier = (n.importance || 50) >= 80 ? 'top' : (n.importance || 50) >= 60 ? 'mid' : 'low';
+              return (
+                <div className={`news-item news-tier-${tier}`} key={i}
+                     style={{ gridTemplateColumns: '28px 40px 1fr 32px', padding: '10px 0' }}>
+                  <div className="news-score">{n.importance || 50}</div>
+                  <div className={`news-tk${n.macro ? ' macro' : ''}`}>{n.tk}</div>
+                  <div className="news-body">
+                    <div className="news-headline">
+                      {n.url
+                        ? <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
+                        : n.headline}
+                    </div>
+                    {n.why && <div className="news-why">{n.why}</div>}
+                    <div className="news-meta">
+                      {n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>}
+                      {n.src}
+                    </div>
+                  </div>
+                  <div className="news-time">{n.t}</div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {tab === 'filings' && (
         <div style={{ padding: '0 20px' }}>

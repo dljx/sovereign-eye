@@ -242,114 +242,163 @@ function applyNewsFilters(items, period, sortMode) {
   const cutoff = NEWS_PERIOD_SECS[period] || NEWS_PERIOD_SECS['1W'];
   const nowSec = Date.now() / 1000;
   const withTs = items.map(n => ({ ...n, _ts: _effectiveTs(n) }));
-  // DEBUG: remove after confirming filter works
-  if (typeof console !== 'undefined') console.log('[news-filter]', period, cutoff, withTs.slice(0, 5).map(n => ({ t: n.t, dt: n.datetime, ts: n._ts, age_h: Math.round((nowSec - n._ts) / 3600) })));
   const filtered = withTs.filter(n => (nowSec - n._ts) < cutoff);
   return sortMode === 'rank'
     ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
     : [...filtered].sort((a, b) => b._ts - a._ts);
 }
 
+const _mapPortfolioItem = d => ({ tk: d.tk||d.ticker, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' });
+const _mapWireItem      = d => ({ tk: d.tk||d.ticker_or_sector, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: d.macro!==false && d.tag!=='TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' });
+
 function NewsPanel() {
-  const [tab, setTab] = useState('portfolio');
+  const [tab, setTab]               = useState('portfolio');
   const [livePortfolio, setLivePortfolio] = useState(null);
-  const [liveWire, setLiveWire]           = useState(null);
-  const [src, setSrc] = useState('seed');
-  const [period, setPeriod]     = useState('1W');
-  const [sortMode, setSortMode] = useState('rank');
+  const [liveWire, setLiveWire]     = useState(null);
+  const [src, setSrc]               = useState('loading');
+  const [period, setPeriod]         = useState('1W');
+  const [sortMode, setSortMode]     = useState('rank');
+  const [expandedIdx, setExpandedIdx] = useState(null);
+  const [tickerFilter, setTickerFilter] = useState(null);
 
   useEffect(() => {
-    let interval = null;
-    const start = () => {
-      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
-      if (!tickers.length) return;
-      const qs = tickers.join(',');
-      const load = () => {
-        Promise.all([
-          fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
-        ]).then(([news, wire]) => {
-          let anyLive = false;
-          if (Array.isArray(news) && news.length) {
-            setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url || '', importance: d.importance || 50, why: d.why || '', datetime: d.datetime || 0, sentiment: d.sentiment || 'neutral' })));
-            anyLive = true;
-          }
-          if (Array.isArray(wire) && wire.length) {
-            setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url || '', importance: d.importance || 50, why: d.why || '', datetime: d.datetime || 0, sentiment: d.sentiment || 'neutral' })));
-            anyLive = true;
-          }
-          setSrc(anyLive ? 'live' : 'seed');
-        });
-      };
-      load();
-      interval = setInterval(load, 15 * 60 * 1000);
+    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+    if (!tickers.length) return;
+    const qs = tickers.join(',');
+
+    // 1. Restore from localStorage immediately
+    const restoreLS = (key, mapper, setter) => {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return false;
+        const { items, savedAt } = JSON.parse(raw);
+        if (!Array.isArray(items) || Date.now() - savedAt > 3600000) return false;
+        setter(items.map(mapper));
+        return true;
+      } catch { return false; }
     };
+    const hadP = restoreLS(`se:news:${qs}`, _mapPortfolioItem, setLivePortfolio);
+    const hadW = restoreLS(`se:wire:${qs}`, _mapWireItem, setLiveWire);
+    if (hadP || hadW) setSrc('cached');
+
+    // 2. Fetch fresh in background
+    let interval = null;
+    const load = () => {
+      Promise.all([
+        fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]).then(([news, wire]) => {
+        let anyLive = false;
+        if (Array.isArray(news) && news.length) {
+          const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+          setLivePortfolio(mapped);
+          try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+          anyLive = true;
+        }
+        if (Array.isArray(wire) && wire.length) {
+          const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+          setLiveWire(mapped);
+          try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+          anyLive = true;
+        }
+        if (anyLive) setSrc('live');
+      });
+    };
+    const start = () => { load(); interval = setInterval(load, 15 * 60 * 1000); };
     start();
     window.addEventListener('se:positions', start, { once: true });
-    return () => {
-      window.removeEventListener('se:positions', start);
-      if (interval) clearInterval(interval);
-    };
+    return () => { window.removeEventListener('se:positions', start); if (interval) clearInterval(interval); };
   }, []);
 
-  const portfolioList = livePortfolio ?? (window.NEWS_PORTFOLIO || []);
-  const wireList      = liveWire      ?? (window.NEWS_WIRE || []);
-  const rawList = tab === 'portfolio' ? portfolioList : wireList;
-  const list = applyNewsFilters(rawList, period, sortMode);
+  const portfolioList  = livePortfolio;
+  const wireList       = liveWire;
+  const rawList        = tab === 'portfolio' ? portfolioList : wireList;
+  const periodSorted   = rawList ? applyNewsFilters(rawList, period, sortMode) : null;
+  const list           = (periodSorted && tickerFilter) ? periodSorted.filter(n => n.tk === tickerFilter) : periodSorted;
 
   return (
     <>
       <div className="panel-header">
         <div className="panel-title"><span className="num">04</span> News</div>
         <div className="tabs">
-          <span className={`tab ${tab === 'portfolio' ? 'active' : ''}`} onClick={() => setTab('portfolio')}>
-            Portfolio <span className="count">{portfolioList.length}</span>
+          <span className={`tab ${tab === 'portfolio' ? 'active' : ''}`} onClick={() => { setTab('portfolio'); setExpandedIdx(null); }}>
+            Portfolio {portfolioList && <span className="count">{portfolioList.length}</span>}
           </span>
-          <span className={`tab ${tab === 'wire' ? 'active' : ''}`} onClick={() => setTab('wire')}>
-            Wire <span className="count">{wireList.length}</span>
+          <span className={`tab ${tab === 'wire' ? 'active' : ''}`} onClick={() => { setTab('wire'); setExpandedIdx(null); }}>
+            Wire {wireList && <span className="count">{wireList.length}</span>}
           </span>
         </div>
         <div className="panel-actions">
           <div className="news-controls">
             {['1D','1W','1M'].map(p => (
               <span key={p} className={`news-filter-btn ${period === p ? 'active' : ''}`}
-                    onClick={() => setPeriod(p)}>{p}</span>
+                    onClick={() => { setPeriod(p); setExpandedIdx(null); }}>{p}</span>
             ))}
-            <span className="news-sort-btn"
-                  onClick={() => setSortMode(s => s === 'rank' ? 'time' : 'rank')}>
+            {tickerFilter && (
+              <span className="news-ticker-chip">
+                {tickerFilter}
+                <span className="news-ticker-chip-x" onClick={() => { setTickerFilter(null); setExpandedIdx(null); }}>×</span>
+              </span>
+            )}
+            <span className="news-sort-btn" onClick={() => { setSortMode(s => s === 'rank' ? 'time' : 'rank'); setExpandedIdx(null); }}>
               {sortMode === 'rank' ? '↕ Rank' : '↕ Time'}
             </span>
           </div>
-          <SrcPill src={src} age={src === 'live' ? 'now' : 'seed'} />
+          <SrcPill src={src === 'loading' ? 'seed' : src} age={src === 'live' ? 'now' : src} />
         </div>
       </div>
       <div className="panel-body">
-        <div className="news-list">
-          {list.map((n, i) => {
-            const tier = n.importance >= 80 ? 'top' : n.importance >= 60 ? 'mid' : 'low';
-            const isTop = i === 0 && sortMode === 'rank';
-            return (
-              <div className={`news-item news-tier-${tier}${isTop ? ' news-ranked1' : ''}`} key={i}>
-                <div className="news-importance-bar" />
-                <div className="news-score">{n.importance}</div>
-                <div className={`news-tk ${n.macro ? 'macro' : ''}`}>{n.tk}</div>
-                <div className="news-body">
-                  <div className="news-headline">
-                    {n.url
-                      ? <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
-                      : n.headline}
+        {!list ? (
+          <div className="news-loading">
+            <div className="news-spinner" />
+            <span>Loading news…</span>
+          </div>
+        ) : list.length === 0 ? (
+          <div className="news-loading"><span>No items in this period</span></div>
+        ) : (
+          <div className="news-list">
+            {list.map((n, i) => {
+              const tier = n.importance >= 80 ? 'top' : n.importance >= 60 ? 'mid' : 'low';
+              const isTop = i === 0 && sortMode === 'rank';
+              const isOpen = expandedIdx === i;
+              const exactDate = n._ts ? new Date(n._ts * 1000).toLocaleString('en-SG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Singapore' }) : null;
+              return (
+                <React.Fragment key={i}>
+                  <div
+                    className={`news-item news-tier-${tier}${isTop ? ' news-ranked1' : ''}${isOpen ? ' news-item-open' : ''}`}
+                    onClick={() => setExpandedIdx(isOpen ? null : i)}
+                  >
+                    <div className="news-importance-bar" />
+                    <div className="news-score">{n.importance}</div>
+                    <div
+                      className={`news-tk${n.macro ? ' macro' : ''}${tickerFilter === n.tk ? ' news-tk-active' : ''}`}
+                      onClick={e => { e.stopPropagation(); setTickerFilter(tickerFilter === n.tk ? null : n.tk); setExpandedIdx(null); }}
+                    >{n.tk}</div>
+                    <div className="news-body">
+                      <div className="news-headline">
+                        {n.url
+                          ? <a href={n.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{n.headline}</a>
+                          : n.headline}
+                      </div>
+                      {n.why && <div className="news-why">{n.why}</div>}
+                      <div className="news-meta">
+                        {n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>}
+                        {n.src}
+                      </div>
+                    </div>
+                    <div className="news-time">{n.t}</div>
                   </div>
-                  {n.why && <div className="news-why">{n.why}</div>}
-                  <div className="news-meta">
-                    {n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>}
-                    {n.src}
-                  </div>
-                </div>
-                <div className="news-time">{n.t}</div>
-              </div>
-            );
-          })}
-        </div>
+                  {isOpen && (
+                    <div className="news-expand-row">
+                      {exactDate && <span className="news-expand-date">{exactDate}</span>}
+                      {n.url && <a className="news-expand-link" href={n.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>Read Article →</a>}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
+        )}
       </div>
     </>
   );

@@ -1766,6 +1766,26 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 .news-sent-bear  { color:#ef4444; background:rgba(239,68,68,.12); }
 .news-sent-neutral { color:var(--fg-4); background:var(--bg-3); }
 
+/* ── News loading spinner ── */
+.news-loading { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; height:100%; color:var(--fg-4); font-size:11px; letter-spacing:.08em; font-family:var(--mono); }
+.news-spinner { width:20px; height:20px; border:2px solid var(--bg-3); border-top-color:var(--acc); border-radius:50%; animation:spin .8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── News expand row ── */
+.news-item { cursor:pointer; }
+.news-item-open { border-bottom:none; }
+.news-expand-row { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; padding:5px 4px 8px 71px; border-bottom:1px solid var(--border-1); margin-top:-1px; }
+.news-expand-date { font-family:var(--mono); font-size:9px; color:var(--fg-3); letter-spacing:.06em; white-space:nowrap; }
+.news-expand-link { font-family:var(--mono); font-size:9px; color:var(--acc); text-decoration:none; letter-spacing:.06em; white-space:nowrap; }
+.news-expand-link:hover { text-decoration:underline; }
+
+/* ── Ticker drilldown ── */
+.news-tk { cursor:pointer; transition:background .15s; }
+.news-tk.news-tk-active { color:var(--fg-0); background:rgba(99,102,241,.2); padding:1px 4px; border-radius:2px; }
+.news-ticker-chip { display:inline-flex; align-items:center; gap:4px; font-family:var(--mono); font-size:9px; font-weight:600; letter-spacing:.08em; padding:2px 6px; border:1px solid var(--acc); color:var(--acc); background:rgba(99,102,241,.12); }
+.news-ticker-chip-x { cursor:pointer; color:var(--fg-3); font-size:11px; line-height:1; margin-left:2px; }
+.news-ticker-chip-x:hover { color:var(--fg-0); }
+
 /* ── DD trend chart ── */
 .dd-trend { padding: 10px 0 4px; }
 .dd-trend svg { width: 100%; height: auto; }

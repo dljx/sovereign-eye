@@ -7,7 +7,7 @@
  */
 
 const CACHE_KEY = "news:feed:v8";
-const CACHE_TTL_MS = 15 * 60 * 1000;
+const CACHE_TTL_MS = 30 * 60 * 1000;
 
 function timeAgo(ts) {
   const diff = Date.now() - ts * 1000;
