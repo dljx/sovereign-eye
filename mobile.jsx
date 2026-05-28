@@ -758,23 +758,24 @@ function MobileSettings({ positions, setPositions }) {
     return { adds, upds, rems };
   }
 
-  async function parseFile(file) {
-    if (!file?.type?.startsWith('image/')) return;
+  async function parseFiles(fileList) {
+    const files = Array.from(fileList || []).filter(f => f.type?.startsWith('image/')).slice(0, 6);
+    if (!files.length) return;
     setStep('parse');
     setProgress(0);
     let prog = 0;
     const pt = setInterval(() => { prog = Math.min(prog + 5 + Math.random() * 6, 88); setProgress(prog); }, 180);
     try {
-      const base64 = await new Promise((res, rej) => {
+      const images = await Promise.all(files.map(f => new Promise((res, rej) => {
         const fr = new FileReader();
-        fr.onload = () => res(fr.result.split(',')[1]);
+        fr.onload = () => res({ imageData: fr.result.split(',')[1], mimeType: f.type || 'image/jpeg' });
         fr.onerror = rej;
-        fr.readAsDataURL(file);
-      });
+        fr.readAsDataURL(f);
+      })));
       const r = await fetch('/api/portfolio/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData: base64, mimeType: file.type || 'image/jpeg' }),
+        body: JSON.stringify({ images }),
       });
       const result = await r.json();
       if (!r.ok || !result.ok) throw new Error(result.error || `HTTP ${r.status}`);
@@ -838,15 +839,15 @@ function MobileSettings({ positions, setPositions }) {
       <div className="m-import-hero">
         <div className="m-import-hero-icon"><Icon name="image" size={22} /></div>
         <h3>Import from Screenshot</h3>
-        <p>Take a screenshot of your broker app and let Gemini extract your positions.</p>
+        <p>Screenshot your broker app — add several if your list scrolls — and let Gemini extract your positions.</p>
 
         {step === 'idle' && (
           <>
-            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
-              onChange={e => parseFile(e.target.files[0])} />
+            <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+              onChange={e => parseFiles(e.target.files)} />
             <button className="btn btn-primary btn-lg" style={{ width: '100%', marginTop: 6 }}
               onClick={() => fileRef.current?.click()}>
-              <Icon name="upload" size={14} /> Choose screenshot
+              <Icon name="upload" size={14} /> Choose screenshot(s)
             </button>
           </>
         )}

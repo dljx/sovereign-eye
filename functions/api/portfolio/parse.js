@@ -1,17 +1,20 @@
 /**
  * POST /api/portfolio/parse
  *
- * Body: { imageData: "<base64>", mimeType: "image/jpeg|png|webp|heic" }
+ * Body (either form):
+ *   { imageData: "<base64>", mimeType: "image/jpeg|png|webp|heic" }        // single
+ *   { images: [{ imageData: "<base64>", mimeType: "..." }, ...] }          // multiple
  *
- * Sends the screenshot to Gemini Vision and returns extracted positions:
+ * All images are sent to Gemini Vision in ONE request (so several screenshots
+ * of a scrolled portfolio merge into one result, and we make one API call
+ * instead of N — which avoids tripping the free-tier rate limit). Returns:
  *   { ok: true, broker: "IBKR"|"Tiger"|"Unknown", partial: bool, positions: [...] }
- *
- * Each position: { ticker, name, broker, qty, avg, sector, industry }
  *
  * Auth: Basic auth handled by _middleware.js
  */
 
 const VALID_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic"];
+const MAX_IMAGES = 6;
 
 const EXTRACTION_PROMPT = `You are a financial data extraction assistant.
 Extract all stock positions visible in this brokerage portfolio screenshot.
@@ -31,6 +34,11 @@ Tiger Brokers layout:
 - Right column: Current price on top, Cost (avg cost per share) below.
 - "Cost" IS the average cost per share — use it directly as "avg".
   Example: AVGO row shows 24 shares, Cost=373.41 → qty=24, avg=373.41
+
+MULTIPLE IMAGES: You may receive several screenshots of the SAME portfolio
+(e.g. a long list scrolled across images). Merge positions from ALL images and
+DEDUPLICATE by ticker — each ticker must appear only once. If the same ticker
+shows different values in two images, prefer the row with complete, larger data.
 
 Return ONLY valid JSON (no markdown, no code fences):
 {
@@ -64,39 +72,57 @@ export async function onRequestPost(context) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { imageData, mimeType = "image/jpeg" } = body || {};
+  // Normalize to an array of images, supporting the legacy single-image body.
+  let images = [];
+  if (Array.isArray(body?.images)) {
+    images = body.images;
+  } else if (body?.imageData) {
+    images = [{ imageData: body.imageData, mimeType: body.mimeType || "image/jpeg" }];
+  }
+  images = images
+    .filter(im => im && typeof im.imageData === "string" && im.imageData.length >= 100)
+    .map(im => ({ imageData: im.imageData, mimeType: VALID_MIME_TYPES.includes(im.mimeType) ? im.mimeType : "image/jpeg" }))
+    .slice(0, MAX_IMAGES);
 
-  if (!imageData || typeof imageData !== "string" || imageData.length < 100) {
-    return Response.json({ error: "Missing or invalid imageData" }, { status: 400 });
+  if (!images.length) {
+    return Response.json({ error: "Missing or invalid image(s)" }, { status: 400 });
   }
-  if (!VALID_MIME_TYPES.includes(mimeType)) {
-    return Response.json({ error: `Unsupported mimeType: ${mimeType}` }, { status: 400 });
-  }
+
+  const parts = images.map(im => ({ inlineData: { mimeType: im.mimeType, data: im.imageData } }));
+  parts.push({ text: EXTRACTION_PROMPT });
+
+  const callGemini = () => fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${gemKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+      }),
+    }
+  );
 
   let gemRes;
   try {
-    gemRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${gemKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inlineData: { mimeType, data: imageData } },
-              { text: EXTRACTION_PROMPT },
-            ],
-          }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
-        }),
-      }
-    );
+    gemRes = await callGemini();
+    // One retry on rate-limit — the free tier can briefly 429 under load.
+    if (gemRes.status === 429) {
+      await new Promise(r => setTimeout(r, 2500));
+      gemRes = await callGemini();
+    }
   } catch (e) {
     return Response.json({ error: `Gemini fetch failed: ${String(e)}` }, { status: 502 });
   }
 
   if (!gemRes.ok) {
     const errText = await gemRes.text().catch(() => "");
+    if (gemRes.status === 429) {
+      return Response.json(
+        { error: "Gemini rate limit (429) — the shared free-tier quota is momentarily exhausted. Wait ~30s and retry." },
+        { status: 429 }
+      );
+    }
     return Response.json({ error: `Gemini ${gemRes.status}: ${errText.slice(0, 300)}` }, { status: 502 });
   }
 
@@ -120,7 +146,8 @@ export async function onRequestPost(context) {
   }
 
   const broker = parsed.broker || "Unknown";
-  const positions = (parsed.positions || [])
+  const byTicker = new Map();
+  (parsed.positions || [])
     .filter(p => p.ticker && typeof p.ticker === "string" && p.ticker.trim())
     .map(p => ({
       ticker:   p.ticker.trim().toUpperCase(),
@@ -131,7 +158,12 @@ export async function onRequestPost(context) {
       sector:   String(p.sector || "").trim(),
       industry: String(p.industry || "").trim(),
     }))
-    .filter(p => p.qty > 0);
+    .filter(p => p.qty > 0)
+    .forEach(p => {
+      // Dedupe by ticker across images — keep the entry with the larger qty.
+      const existing = byTicker.get(p.ticker);
+      if (!existing || p.qty > existing.qty) byTicker.set(p.ticker, p);
+    });
 
-  return Response.json({ ok: true, broker, partial: !!parsed.partial, positions });
+  return Response.json({ ok: true, broker, partial: !!parsed.partial, positions: [...byTicker.values()] });
 }

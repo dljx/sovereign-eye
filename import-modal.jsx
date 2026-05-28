@@ -52,9 +52,10 @@ function ImportModal({ open, positions, onClose, onSave }) {
     return { adds, upds, rems };
   }, []);
 
-  // Parse file via Gemini
-  const parseFile = useCallback(async (file) => {
-    if (!file || !file.type.startsWith('image/')) return;
+  // Parse one or more files via Gemini (all sent in a single request)
+  const parseFiles = useCallback(async (fileList) => {
+    const files = Array.from(fileList || []).filter(f => f.type.startsWith('image/')).slice(0, 6);
+    if (!files.length) return;
     setStep('parse');
     setProgress(0);
     setErrMsg('');
@@ -67,17 +68,17 @@ function ImportModal({ open, positions, onClose, onSave }) {
     }, 200);
 
     try {
-      const base64 = await new Promise((res, rej) => {
+      const images = await Promise.all(files.map(f => new Promise((res, rej) => {
         const reader = new FileReader();
-        reader.onload = () => res(reader.result.split(',')[1]);
+        reader.onload = () => res({ imageData: reader.result.split(',')[1], mimeType: f.type || 'image/jpeg' });
         reader.onerror = rej;
-        reader.readAsDataURL(file);
-      });
+        reader.readAsDataURL(f);
+      })));
 
       const r = await fetch('/api/portfolio/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData: base64, mimeType: file.type || 'image/jpeg' }),
+        body: JSON.stringify({ images }),
       });
       const result = await r.json();
       if (!r.ok || !result.ok) throw new Error(result.error || `HTTP ${r.status}`);
@@ -109,9 +110,8 @@ function ImportModal({ open, positions, onClose, onSave }) {
   const handleDrop = useCallback((e) => {
     e.preventDefault();
     setDrag(false);
-    const file = e.dataTransfer.files[0];
-    if (file) parseFile(file);
-  }, [parseFile]);
+    if (e.dataTransfer.files?.length) parseFiles(e.dataTransfer.files);
+  }, [parseFiles]);
 
   // Save confirmed changes
   const save = useCallback(async () => {
@@ -187,11 +187,11 @@ function ImportModal({ open, positions, onClose, onSave }) {
                 onDrop={handleDrop}
                 onClick={() => fileRef.current?.click()}
               >
-                <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
-                  onChange={e => parseFile(e.target.files[0])} />
+                <input ref={fileRef} type="file" accept="image/*" multiple style={{ display: 'none' }}
+                  onChange={e => parseFiles(e.target.files)} />
                 <div className="dropzone-icon"><Icon name="image" size={22} /></div>
-                <div className="dropzone-title">Drop a brokerage screenshot</div>
-                <div className="dropzone-sub">PNG, JPG, WEBP — full screen or window capture</div>
+                <div className="dropzone-title">Drop one or more brokerage screenshots</div>
+                <div className="dropzone-sub">PNG, JPG, WEBP — add several to capture a long, scrolled list (up to 6)</div>
                 <div className="dropzone-brokers">
                   <span className="broker-tag ibkr">IBKR</span>
                   <span className="broker-tag tiger">TIGER</span>
