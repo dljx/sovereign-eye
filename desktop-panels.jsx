@@ -262,11 +262,8 @@ function NewsPanel() {
   const [tickerFilter, setTickerFilter] = useState(null);
 
   useEffect(() => {
-    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
-    if (!tickers.length) { setSrc('live'); setLivePortfolio([]); setLiveWire([]); return; }
-    const qs = tickers.join(',');
+    let interval = null;
 
-    // 1. Restore from localStorage immediately
     const restoreLS = (key, mapper, setter) => {
       try {
         const raw = localStorage.getItem(key);
@@ -277,36 +274,49 @@ function NewsPanel() {
         return true;
       } catch { return false; }
     };
-    const hadP = restoreLS(`se:news:${qs}`, _mapPortfolioItem, setLivePortfolio);
-    const hadW = restoreLS(`se:wire:${qs}`, _mapWireItem, setLiveWire);
-    if (hadP || hadW) setSrc('cached');
 
-    // 2. Fetch fresh in background
-    let interval = null;
-    const load = () => {
-      Promise.all([
-        fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
-      ]).then(([news, wire]) => {
-        if (Array.isArray(news) && news.length) {
-          const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
-          setLivePortfolio(mapped);
-          try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
-        } else if (Array.isArray(news)) {
-          setLivePortfolio([]);
-        }
-        if (Array.isArray(wire) && wire.length) {
-          const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
-          setLiveWire(mapped);
-          try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
-        } else if (Array.isArray(wire)) {
-          setLiveWire([]);
-        }
-        setSrc('live');
-      }).catch(() => setSrc('live'));
+    const start = () => {
+      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      if (!tickers.length) return;
+      const qs = tickers.join(',');
+
+      // Restore from localStorage immediately
+      const hadP = restoreLS(`se:news:${qs}`, _mapPortfolioItem, setLivePortfolio);
+      const hadW = restoreLS(`se:wire:${qs}`, _mapWireItem, setLiveWire);
+      if (hadP || hadW) setSrc('cached');
+
+      // Fetch fresh in background
+      const load = () => {
+        Promise.all([
+          fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([news, wire]) => {
+          if (Array.isArray(news) && news.length) {
+            const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+            setLivePortfolio(mapped);
+            try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+          } else if (Array.isArray(news)) {
+            setLivePortfolio([]);
+          }
+          if (Array.isArray(wire) && wire.length) {
+            const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+            setLiveWire(mapped);
+            try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+          } else if (Array.isArray(wire)) {
+            setLiveWire([]);
+          }
+          setSrc('live');
+        }).catch(() => setSrc('live'));
+      };
+
+      if (interval) clearInterval(interval);
+      load();
+      interval = setInterval(load, 15 * 60 * 1000);
     };
-    const start = () => { load(); interval = setInterval(load, 15 * 60 * 1000); };
+
+    // Try immediately (positions may already be in window.POSITIONS)
     start();
+    // Re-run when positions load from KV (fires after /api/positions resolves)
     window.addEventListener('se:positions', start, { once: true });
     return () => { window.removeEventListener('se:positions', start); if (interval) clearInterval(interval); };
   }, []);

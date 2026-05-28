@@ -261,9 +261,7 @@ function MobileIntel() {
   const ms = window.MACRO_SERIES || { nav: [], spx: [] };
 
   useEffect(() => {
-    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
-    if (!tickers.length) { setNewsSrc('live'); setLivePortfolio([]); setLiveWire([]); return; }
-    const qs = tickers.join(',');
+    let iv = null;
     const restoreLS = (key, setter) => {
       try {
         const raw = localStorage.getItem(key);
@@ -274,35 +272,42 @@ function MobileIntel() {
         return true;
       } catch { return false; }
     };
-    const hadP = restoreLS(`se:news:${qs}`, setLivePortfolio);
-    const hadW = restoreLS(`se:wire:${qs}`, setLiveWire);
-    if (hadP || hadW) setNewsSrc('cached');
-    const load = () => {
-      Promise.all([
-        fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
-      ]).then(([news, wire]) => {
-        if (Array.isArray(news) && news.length) {
-          const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
-          setLivePortfolio(m);
-          try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
-        } else if (Array.isArray(news)) {
-          setLivePortfolio([]);
-        }
-        if (Array.isArray(wire) && wire.length) {
-          const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
-          setLiveWire(m);
-          try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
-        } else if (Array.isArray(wire)) {
-          setLiveWire([]);
-        }
-        setNewsSrc('live');
-      }).catch(() => setNewsSrc('live'));
+    const start = () => {
+      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      if (!tickers.length) return;
+      const qs = tickers.join(',');
+      const hadP = restoreLS(`se:news:${qs}`, setLivePortfolio);
+      const hadW = restoreLS(`se:wire:${qs}`, setLiveWire);
+      if (hadP || hadW) setNewsSrc('cached');
+      const load = () => {
+        Promise.all([
+          fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([news, wire]) => {
+          if (Array.isArray(news) && news.length) {
+            const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+            setLivePortfolio(m);
+            try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+          } else if (Array.isArray(news)) {
+            setLivePortfolio([]);
+          }
+          if (Array.isArray(wire) && wire.length) {
+            const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+            setLiveWire(m);
+            try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+          } else if (Array.isArray(wire)) {
+            setLiveWire([]);
+          }
+          setNewsSrc('live');
+        }).catch(() => setNewsSrc('live'));
+      };
+      if (iv) clearInterval(iv);
+      load();
+      iv = setInterval(load, 15 * 60 * 1000);
     };
-    load();
-    const iv = setInterval(load, 15 * 60 * 1000);
-    window.addEventListener('se:positions', load, { once: true });
-    return () => { clearInterval(iv); window.removeEventListener('se:positions', load); };
+    start();
+    window.addEventListener('se:positions', start, { once: true });
+    return () => { clearInterval(iv); window.removeEventListener('se:positions', start); };
   }, []);
 
   return (
