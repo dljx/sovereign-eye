@@ -31,7 +31,7 @@ async function fetchFilingSnippet(url) {
         const idxRes = await fetch(`${dirUrl}index.json`, { headers, signal: AbortSignal.timeout(5000) });
         if (idxRes.ok) {
           const idx = await idxRes.json();
-          const ex99 = (idx?.directory?.item || []).find(f => /EX-99\.1|EX-99$/i.test(f.type));
+          const ex99 = (idx?.directory?.item || []).find(f => /ex.?99|exhibit.?99/i.test(f.name) && /\.htm?$/i.test(f.name));
           if (ex99?.name) {
             const exRes = await fetch(`${dirUrl}${ex99.name}`, { headers, signal: AbortSignal.timeout(6000) });
             if (exRes.ok) return cleanHtml(await exRes.text()).slice(0, 1500);
@@ -120,7 +120,7 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v7:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v8:${[...tickers].sort().join(',')}`;
 
   // Serve cache
   if (kv) {
