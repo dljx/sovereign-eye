@@ -93,7 +93,7 @@ ${list}`;
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.2,
-            thinkingConfig: { thinkingLevel: "high" },
+            thinkingConfig: { thinkingLevel: "low" },
           },
         }),
         signal: AbortSignal.timeout(45000),
@@ -102,7 +102,7 @@ ${list}`;
     if (!res.ok) return [];
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
-    const raw   = (parts[0] || {}).text || '';
+    const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || '';
     const jsonStr = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
     const parsed  = JSON.parse(jsonStr);
     return Array.isArray(parsed) ? parsed : [];
@@ -124,7 +124,7 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v9:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v10:${[...tickers].sort().join(',')}`;
 
   // Serve cache
   if (kv) {
