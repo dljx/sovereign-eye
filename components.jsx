@@ -238,15 +238,20 @@ function MacroChart({ nav, spx, w = 360, h = 180 }) {
 }
 
 function Treemap({ items, width, height }) {
-  const total = items.reduce((s, x) => s + x.weight, 0);
+  // Only tiles with a real positive weight can be laid out. Dropping zero/NaN
+  // weights (e.g. a holding with no live price) prevents divide-by-zero →
+  // NaN tile dimensions, which previously broke the whole heatmap render.
+  const valid = (items || []).filter(x => x && x.weight > 0 && isFinite(x.weight));
+  const total = valid.reduce((s, x) => s + x.weight, 0);
   if (!total || !width || !height) return <div className="heatmap" style={{ width, height, background: 'var(--bg-0)' }} />;
-  const sorted = [...items].sort((a, b) => b.weight - a.weight);
+  const sorted = [...valid].sort((a, b) => b.weight - a.weight);
   const tiles = [];
 
   function layout(arr, x, y, w, h, horizontal) {
     if (arr.length === 0) return;
     if (arr.length === 1) { tiles.push({ ...arr[0], x, y, w, h }); return; }
     const sum = arr.reduce((s, a) => s + a.weight, 0);
+    if (sum <= 0) return;
     let take = 1, cum = arr[0].weight;
     while (take < arr.length - 1 && cum < sum / 2) { cum += arr[take].weight; take++; }
     const a = arr.slice(0, take), b = arr.slice(take);
@@ -263,6 +268,7 @@ function Treemap({ items, width, height }) {
   }
   function layoutStrip(arr, x, y, w, h, horizontal) {
     const sum = arr.reduce((s, x) => s + x.weight, 0);
+    if (sum <= 0) return;
     let off = 0;
     arr.forEach(item => {
       const portion = item.weight / sum;
