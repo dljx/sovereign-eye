@@ -11,6 +11,8 @@
  * articles whose primary subject is that ticker.
  */
 
+import { geminiFetch, geminiKeys } from "./_gemini.js";
+
 const KEY_PREFIX = "news:tk:v15:";       // per-ticker KV key
 const TICKER_TTL_MS = 45 * 60 * 1000;    // a ticker's scores are fresh for 45m
 const SCORE_BATCH = 3;                    // tickers scored per request (fits <30s)
@@ -84,8 +86,8 @@ async function fetchTickerName(sym, apiKey) {
 }
 
 // Score one ticker (small, fast Gemma call with line-ref output)
-async function scoreTicker(sym, companyName, items, apiKey) {
-  if (!apiKey || !items || !items.length) return [];
+async function scoreTicker(sym, companyName, items, env) {
+  if (!items || !items.length) return [];
   const who = companyName ? `${companyName} (ticker ${sym})` : sym;
   const numbered = items.map((it, i) => `${i + 1}. ${it.headline}`).join("\n");
   const prompt = `Score news for ${who}. The headlines below come from ${sym}'s news feed, but some may actually be about OTHER companies.
@@ -95,18 +97,11 @@ Output ONLY a JSON array. Each item: {"n":<line number>,"s":"bull|bear|neutral",
 importance guide: earnings/guidance 88-98, analyst rating w/ PT 72-85, M&A/exec 70-82, product/regulatory 60-72, general 40-60, routine 10-39.
 ${numbered}`;
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-        }),
-      }
-    );
-    if (!res.ok) return [];
+    const res = await geminiFetch(env, "gemma-4-31b-it:generateContent", {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+    });
+    if (!res || !res.ok) return [];
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const txt = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
@@ -133,11 +128,10 @@ ${numbered}`;
 // Background: score a small batch of tickers and cache each. Bounded < 30s.
 async function scoreBatch(env, tickers) {
   const fhKey = env.FINNHUB_API_KEY;
-  const gemKey = env.GEMINI_API_KEY;
-  if (!fhKey || !gemKey) return;
+  if (!fhKey || !geminiKeys(env).length) return;
   await Promise.all(tickers.map(async sym => {
     const [raw, name] = await Promise.all([fetchTickerNews(sym, fhKey), fetchTickerName(sym, fhKey)]);
-    const scored = await scoreTicker(sym, name, raw, gemKey);
+    const scored = await scoreTicker(sym, name, raw, env);
     if (!scored.length) return;
     try {
       await env.DD_KV.put(

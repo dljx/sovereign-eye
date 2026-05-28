@@ -6,6 +6,8 @@
  * Results are KV-cached for 10 minutes.
  */
 
+import { geminiFetch, geminiKeys } from "./_gemini.js";
+
 const CACHE_KEY = "wire:feed:v7";
 const CACHE_TTL_MS = 20 * 60 * 1000;
 
@@ -107,8 +109,8 @@ async function fetchTavilyItems(tickers, apiKey) {
   return raw;
 }
 
-async function filterWithGemma(rawItems, tickers, apiKey) {
-  if (!apiKey || rawItems.length === 0) return [];
+async function filterWithGemma(rawItems, tickers, env) {
+  if (rawItems.length === 0) return [];
 
   const tickerList = tickers.join(", ");
   const numbered = rawItems.map((item, i) =>
@@ -143,18 +145,11 @@ Headlines to evaluate:
 ${numbered}`;
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-        }),
-      }
-    );
-    if (!res.ok) return null;
+    const res = await geminiFetch(env, "gemma-4-31b-it:generateContent", {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
+    });
+    if (!res || !res.ok) return null;
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
@@ -219,7 +214,7 @@ export async function onRequestGet(context) {
 
   const fhKey = context.env.FINNHUB_API_KEY;
   const tvKey = context.env.TAVILY_API_KEY;
-  const gemKey = context.env.GEMINI_API_KEY;
+  const hasGemini = geminiKeys(context.env).length > 0;
 
   // Workers edge cache (URL-only key — auth already validated by middleware)
   const cacheKey = new Request(url.toString());
@@ -260,7 +255,7 @@ export async function onRequestGet(context) {
   });
 
   // Run Gemma editorial filter
-  let items = gemKey ? await filterWithGemma(allRaw, tickers, gemKey) : null;
+  let items = hasGemini ? await filterWithGemma(allRaw, tickers, context.env) : null;
 
   // Fallback: basic keyword filter if Gemma fails
   if (!items) {

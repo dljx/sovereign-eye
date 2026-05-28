@@ -10,6 +10,8 @@
  *   3. Return result
  */
 
+import { geminiFetch, geminiKeys } from "./_gemini.js";
+
 const CACHE_KEY = "dd:synthesis";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -53,7 +55,7 @@ async function fetchHeadlines(tickers, fhKey) {
   return headlines.slice(0, 30);
 }
 
-async function callGemini(tickers, headlines, apiKey) {
+async function callGemini(tickers, headlines, env) {
   const tickerList = tickers.join(", ");
   const headlineBlock = headlines.map((h, i) => `${i + 1}. ${h}`).join("\n");
 
@@ -71,24 +73,17 @@ Each bullet should be 1–2 sentences, specific to the actual holdings, referenc
 Recent headlines:
 ${headlineBlock}`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.3,
-          thinkingConfig: { thinkingLevel: "high" },
-        },
-      }),
-    }
-  );
+  const res = await geminiFetch(env, "gemini-3.5-flash:generateContent", {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.3,
+      thinkingConfig: { thinkingLevel: "high" },
+    },
+  });
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini error ${res.status}: ${err.slice(0, 200)}`);
+  if (!res || !res.ok) {
+    const err = res ? await res.text() : "";
+    throw new Error(`Gemini error ${res ? res.status : 502}: ${err.slice(0, 200)}`);
   }
 
   const data = await res.json();
@@ -107,9 +102,8 @@ export async function onRequestGet(context) {
   const tickers = tickerParam.split(",").map(t => t.trim()).filter(Boolean).filter(t => t !== "USD");
 
   const fhKey = context.env.FINNHUB_API_KEY;
-  const gemKey = context.env.GEMINI_API_KEY;
 
-  if (!gemKey) {
+  if (!geminiKeys(context.env).length) {
     return new Response(JSON.stringify({ error: "GEMINI_API_KEY not configured" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
@@ -144,7 +138,7 @@ export async function onRequestGet(context) {
 
   let synthesis;
   try {
-    synthesis = await callGemini(tickers, headlines, gemKey);
+    synthesis = await callGemini(tickers, headlines, context.env);
   } catch (e) {
     // If Gemini fails, return a 502 so frontend falls back to seed
     return new Response(JSON.stringify({ error: e.message }), {

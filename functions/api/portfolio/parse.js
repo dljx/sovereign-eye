@@ -13,6 +13,8 @@
  * Auth: Basic auth handled by _middleware.js
  */
 
+import { geminiFetch, geminiKeys } from "../_gemini.js";
+
 const VALID_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic"];
 const MAX_IMAGES = 6;
 
@@ -60,8 +62,7 @@ Rules:
 - Extract every visible equity position`;
 
 export async function onRequestPost(context) {
-  const gemKey = context.env.GEMINI_API_KEY;
-  if (!gemKey) {
+  if (!geminiKeys(context.env).length) {
     return Response.json({ error: "GEMINI_API_KEY not configured" }, { status: 500 });
   }
 
@@ -91,39 +92,33 @@ export async function onRequestPost(context) {
   const reqParts = images.map(im => ({ inlineData: { mimeType: im.mimeType, data: im.imageData } }));
   reqParts.push({ text: EXTRACTION_PROMPT });
 
-  const callGemini = () => fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${gemKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: reqParts }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
-      }),
-    }
-  );
+  const reqBody = {
+    contents: [{ parts: reqParts }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
+  };
 
   let gemRes;
   try {
-    gemRes = await callGemini();
-    // One retry on rate-limit — the free tier can briefly 429 under load.
-    if (gemRes.status === 429) {
+    // geminiFetch rotates across the key pool, failing over on 429/5xx.
+    gemRes = await geminiFetch(context.env, "gemini-3.5-flash:generateContent", reqBody);
+    // If every key is rate-limited, wait briefly and try the pool once more.
+    if (gemRes && gemRes.status === 429) {
       await new Promise(r => setTimeout(r, 2500));
-      gemRes = await callGemini();
+      gemRes = await geminiFetch(context.env, "gemini-3.5-flash:generateContent", reqBody);
     }
   } catch (e) {
     return Response.json({ error: `Gemini fetch failed: ${String(e)}` }, { status: 502 });
   }
 
-  if (!gemRes.ok) {
-    const errText = await gemRes.text().catch(() => "");
-    if (gemRes.status === 429) {
+  if (!gemRes || !gemRes.ok) {
+    const errText = gemRes ? await gemRes.text().catch(() => "") : "";
+    if (gemRes && gemRes.status === 429) {
       return Response.json(
-        { error: "Gemini rate limit (429) — the shared free-tier quota is momentarily exhausted. Wait ~30s and retry." },
+        { error: "Gemini rate limit (429) — all keys are momentarily exhausted. Wait ~30s and retry." },
         { status: 429 }
       );
     }
-    return Response.json({ error: `Gemini ${gemRes.status}: ${errText.slice(0, 300)}` }, { status: 502 });
+    return Response.json({ error: `Gemini ${gemRes ? gemRes.status : 502}: ${errText.slice(0, 300)}` }, { status: 502 });
   }
 
   const gemData = await gemRes.json();

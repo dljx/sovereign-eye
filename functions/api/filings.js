@@ -6,6 +6,8 @@
  * KV-cached 60 minutes.
  */
 
+import { geminiFetch, geminiKeys } from "./_gemini.js";
+
 const CACHE_TTL  = 3600;
 const MEANINGFUL = new Set(['8-K','10-Q','10-K','S-1','DEF 14A','6-K','10-K/A','8-K/A']);
 
@@ -60,8 +62,8 @@ function relDate(d) {
   } catch { return d.slice(0, 10); }
 }
 
-async function generateTldrs(gemKey, filings) {
-  if (!gemKey || !filings.length) return [];
+async function generateTldrs(env, filings) {
+  if (!geminiKeys(env).length || !filings.length) return [];
 
   const snippets = await Promise.all(filings.map(f => fetchFilingSnippet(f.url)));
 
@@ -87,34 +89,22 @@ ${list}`;
     { model: 'gemini-3.5-flash', config: { temperature: 0.2, thinkingConfig: { thinkingLevel: "low" } } },
     { model: 'gemma-4-31b-it',   config: { temperature: 0.2, maxOutputTokens: 8192 } },
   ];
+  // geminiFetch rotates across the key pool (failing over on 429) per model;
+  // we still fall back across models if a model itself fails.
   for (const { model, config } of candidates) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${gemKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: config,
-            }),
-            signal: AbortSignal.timeout(45000),
-          }
-        );
-        if (res.status === 429) {
-          await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
-          continue;
-        }
-        if (!res.ok) break;
-        const data = await res.json();
-        const parts = data?.candidates?.[0]?.content?.parts || [];
-        const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || '';
-        const jsonStr = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
-        const parsed  = JSON.parse(jsonStr);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch { break; }
-    }
+    try {
+      const res = await geminiFetch(env, `${model}:generateContent`, {
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: config,
+      }, { timeoutMs: 45000 });
+      if (!res || !res.ok) continue;
+      const data = await res.json();
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || '';
+      const jsonStr = raw.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
+      const parsed  = JSON.parse(jsonStr);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { continue; }
   }
   return [];
 }
@@ -122,7 +112,6 @@ ${list}`;
 export async function onRequestGet(context) {
   const kv     = context.env.DD_KV;
   const fhKey  = (context.env.FINNHUB_API_KEY || '').trim();
-  const gemKey = (context.env.GEMINI_API_KEY  || '').trim();
 
   if (!fhKey) return Response.json([]);
 
@@ -174,7 +163,7 @@ export async function onRequestGet(context) {
   const top = filings.slice(0, 12);
 
   // Generate Gemini TLDRs + sentiment for all filings in one batch call
-  const tldrs = await generateTldrs(gemKey, top);
+  const tldrs = await generateTldrs(context.env, top);
   top.forEach((f, i) => {
     const r = tldrs[i];
     if (r?.tldr) f.tldr = r.tldr;
