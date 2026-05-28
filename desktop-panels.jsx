@@ -227,7 +227,7 @@ function parseAgoMs(t) {
 }
 const NEWS_PERIOD_SECS = { '1D': 86400, '1W': 604800, '1M': 2592000 };
 function _agoToSec(t) {
-  const m = (t || '').match(/^(\d+)(m|h|d)$/);
+  const m = (t || '').match(/(\d+)\s*(m|h|d)/);
   if (!m) return 0;
   return +m[1] * (m[2] === 'm' ? 60 : m[2] === 'h' ? 3600 : 86400);
 }
