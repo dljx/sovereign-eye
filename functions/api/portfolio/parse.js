@@ -88,8 +88,8 @@ export async function onRequestPost(context) {
     return Response.json({ error: "Missing or invalid image(s)" }, { status: 400 });
   }
 
-  const parts = images.map(im => ({ inlineData: { mimeType: im.mimeType, data: im.imageData } }));
-  parts.push({ text: EXTRACTION_PROMPT });
+  const reqParts = images.map(im => ({ inlineData: { mimeType: im.mimeType, data: im.imageData } }));
+  reqParts.push({ text: EXTRACTION_PROMPT });
 
   const callGemini = () => fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${gemKey}`,
@@ -97,7 +97,7 @@ export async function onRequestPost(context) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts }],
+        contents: [{ parts: reqParts }],
         generationConfig: { temperature: 0.1, maxOutputTokens: 4096 },
       }),
     }
