@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed:v10";
+const CACHE_KEY = "news:feed:v11";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -131,8 +131,8 @@ ${numbered}`;
         ago: item.ago || orig?.ago || "?",
         datetime: orig?.datetime || 0,
         headline: (item.headline || "").slice(0, 110),
-        sentiment: ['bull','bear','neutral'].includes(item.sentiment) ? item.sentiment : 'neutral',
-        importance: typeof item.importance === "number" ? Math.min(100, Math.max(0, Math.round(item.importance))) : 50,
+        sentiment: (['bull','bear','neutral'].includes((item.sentiment||'').toLowerCase()) ? (item.sentiment||'').toLowerCase() : 'neutral'),
+        importance: (() => { const v = parseInt(item.importance, 10); return isNaN(v) ? 50 : Math.min(100, Math.max(0, v)); })(),
         why: (item.why || "").slice(0, 80),
         url: orig?.url || null,
       };

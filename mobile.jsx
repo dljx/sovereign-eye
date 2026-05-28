@@ -281,8 +281,8 @@ function MobileIntel() {
       if (hadP || hadW) setNewsSrc('cached');
       const load = () => {
         Promise.all([
-          fetch(`/api/news?tickers=${qs}&v=10`).then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/news?tickers=${qs}&v=11`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null),
         ]).then(([news, wire]) => {
           if (Array.isArray(news) && news.length) {
             const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
