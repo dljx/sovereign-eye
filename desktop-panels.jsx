@@ -286,24 +286,22 @@ function NewsPanel() {
       const hadW = restoreLS(`se:wire:v2:${qs}`, _mapWireItem, setLiveWire);
       if (hadP || hadW) setSrc('cached');
 
-      // Fetch fresh in background. The news API may return provisional unscored
-      // data with header X-News-Status: scoring|stale while it scores in the
-      // background — in that case re-poll once after 45s to pick up real scores.
-      const load = () => {
-        const newsP = fetch(`/api/news?tickers=${qs}&v=13`)
+      // The news API scores tickers progressively (a few per request) and returns
+      // X-News-Status: scoring until all are done. While scoring, re-poll every 30s
+      // (capped) to pick up newly-scored tickers as the cache fills in.
+      let scoreAttempts = 0;
+      const load = (isRescore) => {
+        if (!isRescore) scoreAttempts = 0;
+        const newsP = fetch(`/api/news?tickers=${qs}&v=14`)
           .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
           .catch(() => ({ items: null, status: null }));
         const wireP = fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null);
         Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
           const news = newsRes.items;
-          const provisional = newsRes.status === 'scoring';
           if (Array.isArray(news) && news.length) {
             const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
             setLivePortfolio(mapped);
-            // Don't persist provisional (unscored) data — only real scores
-            if (!provisional) {
-              try { localStorage.setItem(`se:news:v2:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
-            }
+            try { localStorage.setItem(`se:news:v2:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
@@ -315,16 +313,17 @@ function NewsPanel() {
             setLiveWire([]);
           }
           setSrc('live');
-          if (newsRes.status === 'scoring' || newsRes.status === 'stale') {
+          if (newsRes.status === 'scoring' && scoreAttempts < 8) {
+            scoreAttempts++;
             if (rescore) clearTimeout(rescore);
-            rescore = setTimeout(load, 45000);
+            rescore = setTimeout(() => load(true), 30000);
           }
         }).catch(() => setSrc('live'));
       };
 
       if (interval) clearInterval(interval);
-      load();
-      interval = setInterval(load, 15 * 60 * 1000);
+      load(false);
+      interval = setInterval(() => load(false), 15 * 60 * 1000);
     };
 
     // Try immediately (positions may already be in window.POSITIONS)
