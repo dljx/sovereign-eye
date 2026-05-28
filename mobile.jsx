@@ -262,7 +262,7 @@ function MobileIntel() {
 
   useEffect(() => {
     const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
-    if (!tickers.length) return;
+    if (!tickers.length) { setNewsSrc('live'); setLivePortfolio([]); setLiveWire([]); return; }
     const qs = tickers.join(',');
     const restoreLS = (key, setter) => {
       try {
@@ -282,21 +282,22 @@ function MobileIntel() {
         fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
       ]).then(([news, wire]) => {
-        let any = false;
         if (Array.isArray(news) && news.length) {
           const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
           setLivePortfolio(m);
           try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
-          any = true;
+        } else if (Array.isArray(news)) {
+          setLivePortfolio([]);
         }
         if (Array.isArray(wire) && wire.length) {
           const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
           setLiveWire(m);
           try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
-          any = true;
+        } else if (Array.isArray(wire)) {
+          setLiveWire([]);
         }
-        if (any) setNewsSrc('live');
-      });
+        setNewsSrc('live');
+      }).catch(() => setNewsSrc('live'));
     };
     load();
     const iv = setInterval(load, 15 * 60 * 1000);

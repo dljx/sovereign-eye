@@ -263,7 +263,7 @@ function NewsPanel() {
 
   useEffect(() => {
     const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
-    if (!tickers.length) return;
+    if (!tickers.length) { setSrc('live'); setLivePortfolio([]); setLiveWire([]); return; }
     const qs = tickers.join(',');
 
     // 1. Restore from localStorage immediately
@@ -288,21 +288,22 @@ function NewsPanel() {
         fetch(`/api/news?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
       ]).then(([news, wire]) => {
-        let anyLive = false;
         if (Array.isArray(news) && news.length) {
           const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
           setLivePortfolio(mapped);
           try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
-          anyLive = true;
+        } else if (Array.isArray(news)) {
+          setLivePortfolio([]);
         }
         if (Array.isArray(wire) && wire.length) {
           const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
           setLiveWire(mapped);
           try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
-          anyLive = true;
+        } else if (Array.isArray(wire)) {
+          setLiveWire([]);
         }
-        if (anyLive) setSrc('live');
-      });
+        setSrc('live');
+      }).catch(() => setSrc('live'));
     };
     const start = () => { load(); interval = setInterval(load, 15 * 60 * 1000); };
     start();
