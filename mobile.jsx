@@ -1003,10 +1003,12 @@ function MobileApp() {
 window.MobileFrame = MobileFrame;
 window.MobileApp = MobileApp;
 
-// mobile.html renders standalone
+// mobile.html renders standalone — wrap in the .mobile-shell grid (statusbar /
+// scrollable screen / tabbar) the layout depends on. Without this the three
+// regions render side-by-side (flex row) and the page is unusable.
 if (document.getElementById('root') && !window.__DESKTOP_BOOT__) {
   ReactDOM.createRoot(document.getElementById('root')).render(
-    <div style={{ display: 'flex', justifyContent: 'center', padding: 0 }}>
+    <div className="mobile-shell mobile-shell-standalone">
       <MobileApp />
     </div>
   );
