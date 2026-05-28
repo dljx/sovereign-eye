@@ -11,7 +11,7 @@
  * articles whose primary subject is that ticker.
  */
 
-const KEY_PREFIX = "news:tk:v14:";       // per-ticker KV key
+const KEY_PREFIX = "news:tk:v15:";       // per-ticker KV key
 const TICKER_TTL_MS = 45 * 60 * 1000;    // a ticker's scores are fresh for 45m
 const SCORE_BATCH = 3;                    // tickers scored per request (fits <30s)
 const MAX_TICKERS = 15;
@@ -72,12 +72,25 @@ async function fetchTickerNews(sym, apiKey) {
   } catch { return []; }
 }
 
+// Look up the company name for a ticker (so the model knows EME = EMCOR Group,
+// not "Evolution Metals"). Returns null on failure.
+async function fetchTickerName(sym, apiKey) {
+  try {
+    const res = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${sym}&token=${apiKey}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data?.name || "").trim() || null;
+  } catch { return null; }
+}
+
 // Score one ticker (small, fast Gemma call with line-ref output)
-async function scoreTicker(sym, items, apiKey) {
+async function scoreTicker(sym, companyName, items, apiKey) {
   if (!apiKey || !items || !items.length) return [];
+  const who = companyName ? `${companyName} (ticker ${sym})` : sym;
   const numbered = items.map((it, i) => `${i + 1}. ${it.headline}`).join("\n");
-  const prompt = `Score news for ${sym}. The headlines below come from ${sym}'s news feed, but some may actually be about OTHER companies.
-Keep ONLY headlines whose PRIMARY subject is ${sym} itself. Drop anything mainly about another company, an ETF, crypto, or a market roundup.
+  const prompt = `Score news for ${who}. The headlines below come from ${sym}'s news feed, but some may actually be about OTHER companies.
+The ticker ${sym} refers specifically to ${who} — do NOT keep articles about other companies that merely share a similar name or ticker.
+Keep ONLY headlines whose PRIMARY subject is ${who} itself. Drop anything mainly about another company, an ETF, crypto, or a market roundup.
 Output ONLY a JSON array. Each item: {"n":<line number>,"s":"bull|bear|neutral","i":<importance 0-100>,"w":"<why, max 6 words>"}
 importance guide: earnings/guidance 88-98, analyst rating w/ PT 72-85, M&A/exec 70-82, product/regulatory 60-72, general 40-60, routine 10-39.
 ${numbered}`;
@@ -123,8 +136,8 @@ async function scoreBatch(env, tickers) {
   const gemKey = env.GEMINI_API_KEY;
   if (!fhKey || !gemKey) return;
   await Promise.all(tickers.map(async sym => {
-    const raw = await fetchTickerNews(sym, fhKey);
-    const scored = await scoreTicker(sym, raw, gemKey);
+    const [raw, name] = await Promise.all([fetchTickerNews(sym, fhKey), fetchTickerName(sym, fhKey)]);
+    const scored = await scoreTicker(sym, name, raw, gemKey);
     if (!scored.length) return;
     try {
       await env.DD_KV.put(

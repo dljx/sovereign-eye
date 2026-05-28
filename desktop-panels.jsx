@@ -292,7 +292,7 @@ function NewsPanel() {
       let scoreAttempts = 0;
       const load = (isRescore) => {
         if (!isRescore) scoreAttempts = 0;
-        const newsP = fetch(`/api/news?tickers=${qs}&v=14`)
+        const newsP = fetch(`/api/news?tickers=${qs}&v=15`)
           .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
           .catch(() => ({ items: null, status: null }));
         const wireP = fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null);

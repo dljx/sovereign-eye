@@ -293,8 +293,8 @@ function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
   }
 
   return (
-    <div className="dash">
-      <div className="panel" style={{ gridColumn: '1 / 2' }}>
+    <div className="dash dash-overview">
+      <div className="panel" style={{ gridArea: 'holdings' }}>
         <div className="panel-header">
           <div className="panel-title">
             <span className="num">01</span> Holdings Inventory
@@ -321,7 +321,7 @@ function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
         </div>
       </div>
 
-      <div className="panel" style={{ gridColumn: '2 / 3' }}>
+      <div className="panel" style={{ gridArea: 'heatmap' }}>
         <div className="panel-header">
           <div className="panel-title"><span className="num">02</span> Holdings Heatmap</div>
           <div className="panel-actions">
@@ -334,10 +334,10 @@ function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
         </div>
       </div>
 
-      <div className="panel" style={{ gridColumn: '1 / 2' }}><IntelPanel /></div>
-      <div className="panel" style={{ gridColumn: '2 / 3' }}><NewsPanel /></div>
-      <div className="panel" style={{ gridColumn: '1 / 2' }}><MacroPanel /></div>
-      <div className="panel" style={{ gridColumn: '2 / 3' }}><FilingsPanel /></div>
+      <div className="panel" style={{ gridArea: 'intel' }}><IntelPanel /></div>
+      <div className="panel panel-news" style={{ gridArea: 'news' }}><NewsPanel /></div>
+      <div className="panel" style={{ gridArea: 'filings' }}><FilingsPanel /></div>
+      <div className="panel" style={{ gridArea: 'macro' }}><MacroPanel /></div>
     </div>
   );
 }

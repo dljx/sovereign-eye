@@ -409,6 +409,21 @@ input:focus, select:focus, textarea:focus {
   padding: 12px;
 }
 
+/* Overview: left column stacks holdings/intel/SEC/macro; right column is
+   heatmap + a tall News that spans the lower rows so both columns end level. */
+.dash-overview {
+  grid-template-areas:
+    "holdings heatmap"
+    "intel    news"
+    "filings  news"
+    "macro    news";
+  align-items: stretch;
+}
+/* News fills its spanned area and scrolls internally instead of forcing the
+   left rows taller. */
+.dash-overview .panel-news { min-height: 0; overflow: hidden; }
+.dash-overview .panel-news .panel-body { overflow-y: auto; min-height: 0; }
+
 .panel {
   background: var(--bg-1);
   border: 1px solid var(--border-1);
