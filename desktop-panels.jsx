@@ -281,8 +281,8 @@ function NewsPanel() {
       const qs = tickers.join(',');
 
       // Restore from localStorage immediately
-      const hadP = restoreLS(`se:news:${qs}`, _mapPortfolioItem, setLivePortfolio);
-      const hadW = restoreLS(`se:wire:${qs}`, _mapWireItem, setLiveWire);
+      const hadP = restoreLS(`se:news:v2:${qs}`, _mapPortfolioItem, setLivePortfolio);
+      const hadW = restoreLS(`se:wire:v2:${qs}`, _mapWireItem, setLiveWire);
       if (hadP || hadW) setSrc('cached');
 
       // Fetch fresh in background
@@ -294,14 +294,14 @@ function NewsPanel() {
           if (Array.isArray(news) && news.length) {
             const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
             setLivePortfolio(mapped);
-            try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+            try { localStorage.setItem(`se:news:v2:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
           if (Array.isArray(wire) && wire.length) {
             const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
             setLiveWire(mapped);
-            try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+            try { localStorage.setItem(`se:wire:v2:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(wire)) {
             setLiveWire([]);
           }

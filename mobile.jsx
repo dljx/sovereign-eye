@@ -276,8 +276,8 @@ function MobileIntel() {
       const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
       if (!tickers.length) return;
       const qs = tickers.join(',');
-      const hadP = restoreLS(`se:news:${qs}`, setLivePortfolio);
-      const hadW = restoreLS(`se:wire:${qs}`, setLiveWire);
+      const hadP = restoreLS(`se:news:v2:${qs}`, setLivePortfolio);
+      const hadW = restoreLS(`se:wire:v2:${qs}`, setLiveWire);
       if (hadP || hadW) setNewsSrc('cached');
       const load = () => {
         Promise.all([
@@ -287,14 +287,14 @@ function MobileIntel() {
           if (Array.isArray(news) && news.length) {
             const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
             setLivePortfolio(m);
-            try { localStorage.setItem(`se:news:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+            try { localStorage.setItem(`se:news:v2:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
           if (Array.isArray(wire) && wire.length) {
             const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
             setLiveWire(m);
-            try { localStorage.setItem(`se:wire:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+            try { localStorage.setItem(`se:wire:v2:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(wire)) {
             setLiveWire([]);
           }
