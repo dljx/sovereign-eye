@@ -220,9 +220,28 @@ function MobilePortfolio({ positions, quotes }) {
 // =============================================================
 // INTEL SCREEN
 // =============================================================
+function _parseAgoMs(t) {
+  const m = (t || '').match(/^(\d+)(m|h|d)$/);
+  if (!m) return 0;
+  return +m[1] * (m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : 86400000);
+}
+function _applyNewsFilters(items, timeRange, sortMode) {
+  const maxAge = timeRange === '1D' ? 86400000 : timeRange === '1W' ? 7 * 86400000 : Infinity;
+  const now = Date.now();
+  const filtered = items.filter(n => {
+    const ms = n.datetime ? now - n.datetime * 1000 : _parseAgoMs(n.t);
+    return ms <= maxAge;
+  });
+  return sortMode === 'rank'
+    ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
+    : [...filtered].sort((a, b) => (b.datetime || 0) - (a.datetime || 0));
+}
+
 function MobileIntel() {
   const [tab, setTab] = useState('synthesis');
   const [synthTab, setSynthTab] = useState('catalysts');
+  const [newsTimeRange, setNewsTimeRange] = useState('1W');
+  const [newsSortMode, setNewsSortMode]   = useState('rank');
   const tabs = ['synthesis','news','filings','macro'];
   const synthesis = window.SYNTHESIS || { catalysts: [], risks: [], macro: [] };
   const ms = window.MACRO_SERIES || { nav: [], spx: [] };
@@ -275,16 +294,36 @@ function MobileIntel() {
 
       {tab === 'news' && (
         <div style={{ padding: '0 20px' }}>
-          {(window.NEWS_PORTFOLIO || []).map((n, i) => (
-            <div className="news-item" key={i} style={{ padding: '12px 0' }}>
-              <div><div className="news-tk">{n.tk}</div></div>
-              <div>
-                <div className="news-headline">{n.headline}</div>
-                <div className="news-meta">{n.src}</div>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', padding: '10px 0 6px' }}>
+            {['1D', '1W', '1M'].map(r => (
+              <span key={r} className={`news-filter-btn ${newsTimeRange === r ? 'active' : ''}`}
+                    onClick={() => setNewsTimeRange(r)}>{r}</span>
+            ))}
+            <span className="news-sort-btn"
+                  onClick={() => setNewsSortMode(s => s === 'rank' ? 'time' : 'rank')}>
+              {newsSortMode === 'rank' ? '↕ Rank' : '↕ Time'}
+            </span>
+          </div>
+          {_applyNewsFilters(window.NEWS_PORTFOLIO || [], newsTimeRange, newsSortMode).map((n, i) => {
+            const tier = (n.importance || 50) >= 80 ? 'top' : (n.importance || 50) >= 60 ? 'mid' : 'low';
+            return (
+              <div className={`news-item news-tier-${tier}`} key={i}
+                   style={{ gridTemplateColumns: '28px 40px 1fr 32px', padding: '10px 0' }}>
+                <div className="news-score">{n.importance || 50}</div>
+                <div className={`news-tk ${n.macro ? 'macro' : ''}`}>{n.tk}</div>
+                <div className="news-body">
+                  <div className="news-headline">
+                    {n.url
+                      ? <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
+                      : n.headline}
+                  </div>
+                  {n.why && <div className="news-why">{n.why}</div>}
+                  <div className="news-meta">{n.src}</div>
+                </div>
+                <div className="news-time">{n.t}</div>
               </div>
-              <div className="news-time">{n.t}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

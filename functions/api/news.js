@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed:v3";
+const CACHE_KEY = "news:feed:v4";
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -77,6 +77,14 @@ For each KEPT item return:
 - "ago": keep original
 - "headline": rewrite concisely under 90 characters, leading with the key fact
 - "severity": "warn" for negative/risk news, "info" for positive/neutral
+- "importance": integer 0–100 — how actionable is this for a portfolio investor:
+    earnings beat/miss or guidance change → 88–98
+    analyst upgrade/downgrade with PT     → 72–85
+    exec departure or M&A                 → 70–82
+    product launch / regulatory           → 60–72
+    general positive/negative news        → 40–60
+    routine / low signal                  → 10–39
+- "why": ≤10 word phrase — the single most investor-relevant fact (e.g. "Beat EPS by 12%, raised FY guidance")
 
 Return ONLY a JSON array. If nothing qualifies, return [].
 
@@ -121,6 +129,8 @@ ${numbered}`;
         datetime: orig?.datetime || 0,
         headline: (item.headline || "").slice(0, 110),
         severity: item.severity || "info",
+        importance: typeof item.importance === "number" ? Math.min(100, Math.max(0, Math.round(item.importance))) : 50,
+        why: (item.why || "").slice(0, 80),
         url: orig?.url || null,
       };
     }).filter(item => item.headline);

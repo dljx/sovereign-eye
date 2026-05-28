@@ -6,7 +6,7 @@
  * Results are KV-cached for 10 minutes.
  */
 
-const CACHE_KEY = "wire:feed:v2";
+const CACHE_KEY = "wire:feed:v3";
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 function timeAgo(dateStr) {
@@ -27,6 +27,7 @@ async function fetchFinnhubGeneralNews(apiKey) {
     return data.slice(0, 15).map(n => ({
       source: n.source || "Finnhub",
       ago: timeAgo(new Date((n.datetime || 0) * 1000).toISOString()),
+      datetime: n.datetime || 0,
       headline: (n.headline || "").slice(0, 150),
       url: n.url || null,
       hint: "MACRO",
@@ -64,9 +65,10 @@ async function fetchTavilyItems(tickers, apiKey) {
         raw.push({
           source,
           ago: r.published_date ? timeAgo(r.published_date) : "?",
+          datetime: r.published_date ? Math.floor(new Date(r.published_date).getTime() / 1000) : 0,
           headline,
           url: r.url || null,
-          hint: ticker,  // which ticker this query was for
+          hint: ticker,
         });
       });
     })
@@ -96,7 +98,7 @@ async function fetchTavilyItems(tickers, apiKey) {
       if (!headline) return;
       let source = "unknown";
       try { source = new URL(r.url).hostname.replace("www.", ""); } catch {}
-      raw.push({ source, ago: r.published_date ? timeAgo(r.published_date) : "?", headline, url: r.url || null, hint: "MACRO" });
+      raw.push({ source, ago: r.published_date ? timeAgo(r.published_date) : "?", datetime: r.published_date ? Math.floor(new Date(r.published_date).getTime() / 1000) : 0, headline, url: r.url || null, hint: "MACRO" });
     });
   })
   .catch(() => {});
@@ -125,6 +127,15 @@ For each item you keep:
 - Only assign a ticker if the article is genuinely about that company — not just tangentially mentioning it
 - Write a clean "headline" under 100 characters that captures the key fact
 - Set "severity" to "warn" for negative news, "info" for positive/neutral
+- "importance": integer 0–100 — how actionable for a portfolio investor:
+    earnings beat/miss or guidance change → 88–98
+    analyst upgrade/downgrade with PT     → 72–85
+    exec departure or M&A                 → 70–82
+    product launch / regulatory           → 60–72
+    macro data (Fed, CPI, GDP)            → 55–75
+    general positive/negative news        → 40–60
+    routine / low signal                  → 10–39
+- "why": ≤10 word phrase — the single most investor-relevant fact
 
 Return ONLY a JSON array (no markdown, no explanation). If nothing qualifies, return [].
 
@@ -164,8 +175,11 @@ ${numbered}`;
         ticker_or_sector: item.ticker_or_sector || "—",
         source: orig?.source || "—",
         ago: orig?.ago || "?",
+        datetime: orig?.datetime || 0,
         headline: (item.headline || "").slice(0, 110),
         severity: item.severity || "info",
+        importance: typeof item.importance === "number" ? Math.min(100, Math.max(0, Math.round(item.importance))) : 50,
+        why: (item.why || "").slice(0, 80),
         url: orig?.url || null,
       };
     }).filter(item => item.headline);

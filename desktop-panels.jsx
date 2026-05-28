@@ -220,11 +220,30 @@ function IntelPanel() {
 // =============================================================
 // NEWS PANEL
 // =============================================================
+function parseAgoMs(t) {
+  const m = (t || '').match(/^(\d+)(m|h|d)$/);
+  if (!m) return 0;
+  return +m[1] * (m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : 86400000);
+}
+function applyNewsFilters(items, timeRange, sortMode) {
+  const maxAge = timeRange === '1D' ? 86400000 : timeRange === '1W' ? 7 * 86400000 : Infinity;
+  const now = Date.now();
+  const filtered = items.filter(n => {
+    const ms = n.datetime ? now - n.datetime * 1000 : parseAgoMs(n.t);
+    return ms <= maxAge;
+  });
+  return sortMode === 'rank'
+    ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
+    : [...filtered].sort((a, b) => (b.datetime || 0) - (a.datetime || 0));
+}
+
 function NewsPanel() {
   const [tab, setTab] = useState('portfolio');
   const [livePortfolio, setLivePortfolio] = useState(null);
   const [liveWire, setLiveWire]           = useState(null);
   const [src, setSrc] = useState('seed');
+  const [timeRange, setTimeRange] = useState('1W');
+  const [sortMode, setSortMode]   = useState('rank');
 
   useEffect(() => {
     let interval = null;
@@ -239,11 +258,11 @@ function NewsPanel() {
         ]).then(([news, wire]) => {
           let anyLive = false;
           if (Array.isArray(news) && news.length) {
-            setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url || '' })));
+            setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url || '', importance: d.importance || 50, why: d.why || '', datetime: d.datetime || 0 })));
             anyLive = true;
           }
           if (Array.isArray(wire) && wire.length) {
-            setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url || '' })));
+            setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url || '', importance: d.importance || 50, why: d.why || '', datetime: d.datetime || 0 })));
             anyLive = true;
           }
           setSrc(anyLive ? 'live' : 'seed');
@@ -262,7 +281,8 @@ function NewsPanel() {
 
   const portfolioList = livePortfolio ?? (window.NEWS_PORTFOLIO || []);
   const wireList      = liveWire      ?? (window.NEWS_WIRE || []);
-  const list = tab === 'portfolio' ? portfolioList : wireList;
+  const rawList = tab === 'portfolio' ? portfolioList : wireList;
+  const list = applyNewsFilters(rawList, timeRange, sortMode);
 
   return (
     <>
@@ -277,27 +297,42 @@ function NewsPanel() {
           </span>
         </div>
         <div className="panel-actions">
+          <div className="news-controls">
+            {['1D', '1W', '1M'].map(r => (
+              <span key={r} className={`news-filter-btn ${timeRange === r ? 'active' : ''}`}
+                    onClick={() => setTimeRange(r)}>{r}</span>
+            ))}
+            <span className="news-sort-btn"
+                  onClick={() => setSortMode(s => s === 'rank' ? 'time' : 'rank')}>
+              {sortMode === 'rank' ? '↕ Rank' : '↕ Time'}
+            </span>
+          </div>
           <SrcPill src={src} age={src === 'live' ? 'now' : 'seed'} />
         </div>
       </div>
       <div className="panel-body">
         <div className="news-list">
-          {list.map((n, i) => (
-            <div className="news-item" key={i}>
-              <div>
+          {list.map((n, i) => {
+            const tier = n.importance >= 80 ? 'top' : n.importance >= 60 ? 'mid' : 'low';
+            const isTop = i === 0 && sortMode === 'rank';
+            return (
+              <div className={`news-item news-tier-${tier}${isTop ? ' news-ranked1' : ''}`} key={i}>
+                <div className="news-importance-bar" />
+                <div className="news-score">{n.importance}</div>
                 <div className={`news-tk ${n.macro ? 'macro' : ''}`}>{n.tk}</div>
-              </div>
-              <div>
-                <div className="news-headline">
-                  {n.url
-                    ? <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
-                    : n.headline}
+                <div className="news-body">
+                  <div className="news-headline">
+                    {n.url
+                      ? <a href={n.url} target="_blank" rel="noopener noreferrer">{n.headline}</a>
+                      : n.headline}
+                  </div>
+                  {n.why && <div className="news-why">{n.why}</div>}
+                  <div className="news-meta">{n.src}</div>
                 </div>
-                <div className="news-meta">{n.src}</div>
+                <div className="news-time">{n.t}</div>
               </div>
-              <div className="news-time">{n.t}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </>

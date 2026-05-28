@@ -1723,3 +1723,38 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
   border: 2px solid transparent;
 }
 .tweak-swatch.active { border-color: var(--fg-0); }
+
+/* ── News ranking ── */
+.news-controls { display:flex; gap:4px; align-items:center; }
+.news-filter-btn { font-family:var(--mono); font-size:9px; letter-spacing:.06em;
+  padding:2px 6px; border:1px solid var(--border-2); color:var(--fg-3); cursor:pointer; }
+.news-filter-btn.active { border-color:var(--acc); color:var(--acc); }
+.news-sort-btn  { font-family:var(--mono); font-size:9px; letter-spacing:.06em;
+  padding:2px 8px; border:1px solid var(--border-2); color:var(--fg-3); cursor:pointer; margin-left:4px; }
+.news-sort-btn:hover,.news-filter-btn:hover { border-color:var(--acc); color:var(--acc); }
+
+.news-item {
+  display:grid;
+  grid-template-columns:3px 28px 40px 1fr 32px;
+  gap:6px;
+  align-items:start;
+  padding:8px 0;
+  border-bottom:1px solid var(--border-1);
+}
+.news-item:last-child { border-bottom:none; }
+.news-item:hover { background:none; margin:0; padding-left:0; padding-right:0; }
+
+.news-importance-bar { width:3px; align-self:stretch; border-radius:1px; }
+.news-tier-top .news-importance-bar { background:var(--acc); }
+.news-tier-mid .news-importance-bar { background:#e8a030; }
+.news-tier-low .news-importance-bar { background:var(--border-2); }
+
+.news-score { font-family:var(--mono); font-size:9px; color:var(--fg-4); padding-top:2px; text-align:center; }
+.news-tier-top .news-score { color:var(--acc); }
+.news-tier-mid .news-score { color:#e8a030; }
+
+.news-ranked1 { background:linear-gradient(90deg,rgba(167,139,250,.08) 0%,transparent 100%);
+  margin:0 -16px; padding-left:16px; padding-right:16px; }
+
+.news-body { min-width:0; }
+.news-why { font-size:9px; color:var(--fg-4); letter-spacing:.04em; margin-top:2px; font-family:var(--mono); }
