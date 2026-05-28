@@ -253,8 +253,8 @@ function NewsPanel() {
       const qs = tickers.join(',');
       const load = () => {
         Promise.all([
-          fetch(`/api/news?tickers=${qs}`).then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch(`/api/wire?tickers=${qs}`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/news?tickers=${qs}&v=5`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/wire?tickers=${qs}&v=4`).then(r => r.ok ? r.json() : null).catch(() => null),
         ]).then(([news, wire]) => {
           let anyLive = false;
           if (Array.isArray(news) && news.length) {
