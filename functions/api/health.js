@@ -7,6 +7,8 @@
  * exercised yet.
  */
 
+import { geminiKeys } from "./_gemini.js";
+
 const KV_CHECKS = [
   { key: 'news:feed:v3',  apiId: 'finnhub' },
   { key: 'dd:synthesis',  apiId: 'gemini'  },
@@ -31,6 +33,7 @@ async function pingFinnhub(apiKey) {
 export async function onRequestGet(context) {
   const kv      = context.env.DD_KV;
   const fhKey   = (context.env.FINNHUB_API_KEY || '').trim();
+  const gemKeyCount = geminiKeys(context.env).length;
 
   // Run all checks in parallel
   const [fhPing, ...kvResults] = await Promise.all([
@@ -56,9 +59,10 @@ export async function onRequestGet(context) {
       lastOk:  fhPing.ok ? 'just now' : (kvMap['finnhub'] ? 'recently' : 'no data yet'),
     },
     {
-      id: 'gemini', name: 'Gemini', scope: 'Synthesis · DD', endpoint: 'generativelanguage.googleapis.com',
-      status:  'ok',
+      id: 'gemini', name: 'Gemini', scope: `Synthesis · DD · ${gemKeyCount} key${gemKeyCount === 1 ? '' : 's'}`, endpoint: 'generativelanguage.googleapis.com',
+      status:  gemKeyCount > 0 ? 'ok' : 'degraded',
       latency: null,
+      keys:    gemKeyCount,
       lastOk:  kvMap['gemini'] ? 'recently' : 'no data yet',
     },
     {
