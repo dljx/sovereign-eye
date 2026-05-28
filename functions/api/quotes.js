@@ -44,6 +44,26 @@ async function yahooQuote(ticker) {
   } catch { return null; }
 }
 
+// USD per 1 unit of `ccy` (e.g. CAD → ~0.73), via Yahoo FX pair. Cached per request.
+const _fxCache = new Map();
+async function fxToUsd(ccy) {
+  if (!ccy || ccy === "USD") return 1;
+  if (_fxCache.has(ccy)) return _fxCache.get(ccy);
+  let rate = null;
+  try {
+    const r = await fetch(
+      `https://query1.finance.yahoo.com/v8/finance/chart/${ccy}USD=X?interval=1d&range=1d`,
+      { headers: { "User-Agent": "Mozilla/5.0" } }
+    );
+    if (r.ok) {
+      const p = (await r.json())?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      if (p > 0) rate = p;
+    }
+  } catch {}
+  _fxCache.set(ccy, rate);
+  return rate;
+}
+
 export async function onRequestGet(context) {
   const key = (context.env.FINNHUB_API_KEY || "").trim();
 
@@ -63,6 +83,19 @@ export async function onRequestGet(context) {
     // Anything Finnhub didn't resolve (incl. .V / .TO listings) → Yahoo.
     if (!q) q = await yahooQuote(t);
     if (q) quotes[t] = q;
+  }));
+
+  // Convert any non-USD quote into USD so it sums correctly into NLV.
+  await Promise.all(Object.values(quotes).map(async q => {
+    if (!q._ccy || q._ccy === "USD") return;
+    const rate = await fxToUsd(q._ccy);
+    if (!rate) return; // FX unavailable — leave native, better than dropping
+    q.c  *= rate;
+    q.pc *= rate;
+    q.d  *= rate;     // dp (percent) is currency-invariant — unchanged
+    q._usdFrom = q._ccy;
+    q._fxRate  = rate;
+    q._ccy = "USD";
   }));
 
   return Response.json(quotes, { headers: { "Cache-Control": "no-store" } });
