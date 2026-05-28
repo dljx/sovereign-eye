@@ -7,6 +7,8 @@
 (function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
+const BUILD = '20260528-5';
+
 // =============================================================
 // TIMEZONE / MARKET SESSION
 // =============================================================
@@ -270,6 +272,8 @@ function StatusBar({ session, lastRefresh, quoteSrc, sgdRate, hovered, totals })
         </>
       ) : null}
       <div className="status-item">{clock} SGT</div>
+      <div className="status-divider" />
+      <div className="status-item" style={{ color: 'var(--fg-4)', letterSpacing: '0.06em' }}>BUILD · {BUILD}</div>
     </div>
   );
 }
