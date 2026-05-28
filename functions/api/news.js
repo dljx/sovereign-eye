@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed:v6";
+const CACHE_KEY = "news:feed:v7";
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -76,7 +76,7 @@ For each KEPT item return:
 - "source": keep original
 - "ago": keep original
 - "headline": rewrite concisely under 90 characters, leading with the key fact
-- "severity": "warn" for negative/risk news, "info" for positive/neutral
+- "sentiment": "bull" if the news is positive/bullish for the stock, "bear" if negative/bearish, "neutral" if informational with no clear price direction
 - "importance": integer 0–100 — how actionable is this for a portfolio investor:
     earnings beat/miss or guidance change → 88–98
     analyst upgrade/downgrade with PT     → 72–85
@@ -128,7 +128,7 @@ ${numbered}`;
         ago: item.ago || orig?.ago || "?",
         datetime: orig?.datetime || 0,
         headline: (item.headline || "").slice(0, 110),
-        severity: item.severity || "info",
+        sentiment: ['bull','bear','neutral'].includes(item.sentiment) ? item.sentiment : 'neutral',
         importance: typeof item.importance === "number" ? Math.min(100, Math.max(0, Math.round(item.importance))) : 50,
         why: (item.why || "").slice(0, 80),
         url: orig?.url || null,

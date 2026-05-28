@@ -248,16 +248,16 @@ function NewsPanel() {
       const qs = tickers.join(',');
       const load = () => {
         Promise.all([
-          fetch(`/api/news?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch(`/api/wire?tickers=${qs}&v=5`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/news?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/wire?tickers=${qs}&v=6`).then(r => r.ok ? r.json() : null).catch(() => null),
         ]).then(([news, wire]) => {
           let anyLive = false;
           if (Array.isArray(news) && news.length) {
-            setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url || '', importance: d.importance || 50, why: d.why || '', datetime: d.datetime || 0 })));
+            setLivePortfolio(news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url || '', importance: d.importance || 50, why: d.why || '', datetime: d.datetime || 0, sentiment: d.sentiment || 'neutral' })));
             anyLive = true;
           }
           if (Array.isArray(wire) && wire.length) {
-            setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url || '', importance: d.importance || 50, why: d.why || '', datetime: d.datetime || 0 })));
+            setLiveWire(wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url || '', importance: d.importance || 50, why: d.why || '', datetime: d.datetime || 0, sentiment: d.sentiment || 'neutral' })));
             anyLive = true;
           }
           setSrc(anyLive ? 'live' : 'seed');
@@ -322,7 +322,10 @@ function NewsPanel() {
                       : n.headline}
                   </div>
                   {n.why && <div className="news-why">{n.why}</div>}
-                  <div className="news-meta">{n.src}</div>
+                  <div className="news-meta">
+                    {n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>}
+                    {n.src}
+                  </div>
                 </div>
                 <div className="news-time">{n.t}</div>
               </div>

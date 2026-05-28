@@ -313,7 +313,10 @@ function MobileIntel() {
                       : n.headline}
                   </div>
                   {n.why && <div className="news-why">{n.why}</div>}
-                  <div className="news-meta">{n.src}</div>
+                  <div className="news-meta">
+                    {n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>}
+                    {n.src}
+                  </div>
                 </div>
                 <div className="news-time">{n.t}</div>
               </div>

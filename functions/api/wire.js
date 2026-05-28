@@ -6,7 +6,7 @@
  * Results are KV-cached for 10 minutes.
  */
 
-const CACHE_KEY = "wire:feed:v5";
+const CACHE_KEY = "wire:feed:v6";
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 function timeAgo(dateStr) {
@@ -126,7 +126,7 @@ For each item you keep:
 - Set "ticker_or_sector" to the exact ticker symbol (e.g. "AMZN") for TICKER items, "MACRO" for macro, or sector name for SECTOR
 - Only assign a ticker if the article is genuinely about that company — not just tangentially mentioning it
 - Write a clean "headline" under 100 characters that captures the key fact
-- Set "severity" to "warn" for negative news, "info" for positive/neutral
+- Set "sentiment" to "bull" if positive/bullish for markets or the stock, "bear" if negative/bearish, "neutral" if informational with no clear direction
 - "importance": integer 0–100 — how actionable for a portfolio investor:
     earnings beat/miss or guidance change → 88–98
     analyst upgrade/downgrade with PT     → 72–85
@@ -177,7 +177,7 @@ ${numbered}`;
         ago: orig?.ago || "?",
         datetime: orig?.datetime || 0,
         headline: (item.headline || "").slice(0, 110),
-        severity: item.severity || "info",
+        sentiment: ['bull','bear','neutral'].includes(item.sentiment) ? item.sentiment : 'neutral',
         importance: typeof item.importance === "number" ? Math.min(100, Math.max(0, Math.round(item.importance))) : 50,
         why: (item.why || "").slice(0, 80),
         url: orig?.url || null,
