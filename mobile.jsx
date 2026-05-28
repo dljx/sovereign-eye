@@ -226,13 +226,24 @@ function _parseAgoMs(t) {
   return +m[1] * (m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : 86400000);
 }
 const _NEWS_PERIOD_SECS = { '1D': 86400, '1W': 604800, '1M': 2592000 };
+function _agoToSec(t) {
+  const m = (t || '').match(/^(\d+)(m|h|d)$/);
+  if (!m) return 0;
+  return +m[1] * (m[2] === 'm' ? 60 : m[2] === 'h' ? 3600 : 86400);
+}
+function _effectiveTs(n) {
+  if (n.datetime) return n.datetime;
+  const age = _agoToSec(n.t || n.ago);
+  return age ? Math.floor(Date.now() / 1000) - age : 0;
+}
 function _applyNewsFilters(items, period, sortMode) {
   const cutoff = _NEWS_PERIOD_SECS[period] || _NEWS_PERIOD_SECS['1W'];
   const nowSec = Date.now() / 1000;
-  const filtered = items.filter(n => !n.datetime || (nowSec - n.datetime) < cutoff);
+  const withTs = items.map(n => ({ ...n, _ts: _effectiveTs(n) }));
+  const filtered = withTs.filter(n => !n._ts || (nowSec - n._ts) < cutoff);
   return sortMode === 'rank'
     ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
-    : [...filtered].sort((a, b) => (b.datetime || 0) - (a.datetime || 0));
+    : [...filtered].sort((a, b) => b._ts - a._ts);
 }
 
 function MobileIntel() {
