@@ -8,7 +8,7 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 // =============================================================
 // HOLDINGS PANEL
 // =============================================================
-function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, onHover, onLeave, hoveredTk }) {
+function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, onHover, onLeave, hoveredTk, onRowClick }) {
   // Re-render when real sparklines arrive from /api/sparks
   const [_sv, setSv] = useState(0);
   useEffect(() => {
@@ -64,7 +64,8 @@ function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, on
           <tr key={p.ticker}
               onMouseEnter={() => onHover && onHover(p)}
               onMouseLeave={() => onLeave && onLeave()}
-              style={hoveredTk === p.ticker ? { background: 'var(--bg-2)' } : null}>
+              onClick={() => onRowClick && p.ticker !== 'USD' && onRowClick(p.ticker)}
+              style={{ cursor: p.ticker === 'USD' ? 'default' : 'pointer', ...(hoveredTk === p.ticker ? { background: 'var(--bg-2)' } : null) }}>
             <td>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                 <span className="tk">{p.ticker}</span>
@@ -1212,8 +1213,168 @@ function ScoutDDModal({ ticker, onClose }) {
   );
 }
 
+// ── Holding dossier popup — fetches the real daily-screen DD for a ticker ──
+function DDTranscriptEntry({ t }) {
+  const r = String(t.round);
+  const roundLabel = t.round === 1 ? 'R1 · Initial'
+    : r.startsWith('2') ? 'R2 · Challenge'
+    : r.startsWith('3') ? 'R3 · Rebuttal'
+    : t.round === 'synthesis' ? 'Synthesis'
+    : `R${t.round}`;
+  const score = t.revised_score != null ? t.revised_score : t.score;
+  return (
+    <div className="dd-turn">
+      <div className="dd-turn-head">
+        <span className="dd-turn-agent">{t.agent}</span>
+        <span className="dd-turn-round">{roundLabel}</span>
+        {t.target_agent && <span className="dd-turn-target">→ {t.target_agent}</span>}
+        {score != null && (
+          <span className="dd-turn-score">
+            {(+score).toFixed(1)}{t.score_delta != null ? ` (${t.score_delta > 0 ? '+' : ''}${t.score_delta})` : ''}
+          </span>
+        )}
+      </div>
+      {t.thesis && <div className="dd-turn-body">{t.thesis}</div>}
+      {t.challenge && <div className="dd-turn-body">{t.challenge}</div>}
+      {t.rebuttal && <div className="dd-turn-body">{t.rebuttal}</div>}
+      {t.concessions && <div className="dd-turn-body dd-turn-concede"><b>Concedes:</b> {t.concessions}</div>}
+      {t.final_thesis && <div className="dd-turn-body"><b>Final:</b> {t.final_thesis}</div>}
+      {t.direct_question && <div className="dd-turn-q">Q: {t.direct_question}</div>}
+      {t.key_risk && <div className="dd-turn-risk">Risk: {t.key_risk}</div>}
+    </div>
+  );
+}
+
+function HoldingDDModal({ ticker, onClose }) {
+  const [data, setData] = useState(null);
+  const [state, setState] = useState('loading'); // loading | ready | empty | error
+  const [showTranscript, setShowTranscript] = useState(false);
+
+  useEffect(() => {
+    if (!ticker) return;
+    setState('loading'); setData(null); setShowTranscript(false);
+    let cancelled = false;
+    fetch(`/api/dd/${ticker}`)
+      .then(r => r.status === 404 ? { __empty: true } : (r.ok ? r.json() : Promise.reject()))
+      .then(d => {
+        if (cancelled) return;
+        if (d.__empty) { setState('empty'); return; }
+        const result = d.result || d;
+        if (!result || !result.ticker) { setState('empty'); return; }
+        setData(result); setState('ready');
+      })
+      .catch(() => { if (!cancelled) setState('error'); });
+    return () => { cancelled = true; };
+  }, [ticker]);
+
+  if (!ticker) return null;
+  const gradeClass = g => (g || '').toLowerCase().replace(/\s+/g, '-');
+  const scoreColor = s => s >= 7 ? 'bull' : s <= 5 ? 'bear' : 'neutral';
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <Icon name="research" size={16} />
+          <div className="modal-title">Sovereign DD — {ticker}</div>
+          <div style={{ flex: 1 }} />
+          <SrcPill src="cached" age="daily screen" />
+          <button className="btn-icon" onClick={onClose}><Icon name="close" size={14} /></button>
+        </div>
+        <div className="modal-body">
+          {state === 'loading' && <div className="news-loading"><div className="news-spinner" /><span>Loading dossier…</span></div>}
+          {state === 'empty' && <div className="news-loading"><span>No dossier yet for {ticker}. Daily pre-market screens populate this.</span></div>}
+          {state === 'error' && <div className="news-loading"><span>Could not load dossier — try again.</span></div>}
+          {state === 'ready' && data && (
+            <>
+              <div className="dd-result-header">
+                <div>
+                  <div className="dd-ticker">{data.ticker}</div>
+                  <div className="dd-conf">CONF: {data.confidence || '—'}</div>
+                </div>
+                <div style={{ flex: 1 }} />
+                <div style={{ textAlign: 'right' }}>
+                  <div className="dd-score">{Number(data.consensus_score).toFixed(1)}<span className="denom"> / 10</span></div>
+                  <div className={`dd-grade ${gradeClass(data.consensus_grade)}`}>{data.consensus_grade}</div>
+                </div>
+              </div>
+
+              <div className="dd-chips">
+                {data.entry_assessment && <span className="dd-chip">Entry: {String(data.entry_assessment).replace(/_/g, ' ')}</span>}
+                {data.fair_value_composite != null && <span className="dd-chip">Fair value: ${data.fair_value_composite}</span>}
+                {data.asymmetry_ratio && <span className="dd-chip">Asymmetry: {data.asymmetry_ratio}</span>}
+                {data.moat_composite != null && <span className="dd-chip">Moat: {data.moat_composite}/10</span>}
+                {data.position_guidance?.range && <span className="dd-chip">Size: {data.position_guidance.range}</span>}
+                {data.cycle_position?.regime && <span className="dd-chip">{data.cycle_position.regime} · {data.cycle_position.phase}</span>}
+                {data.banger?.is_banger && <span className="dd-chip dd-chip-hot">BANGER</span>}
+              </div>
+
+              <div className="dd-section">
+                <div className="dd-section-label">Majority Thesis</div>
+                <div className="dd-thesis">{data.majority_thesis}</div>
+              </div>
+              {data.catalyst && (
+                <div className="dd-section">
+                  <div className="dd-section-label">Catalyst</div>
+                  <div className="dd-thesis">{data.catalyst}</div>
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                {data.key_swing_factor && <div><div className="dd-section-label">Key Swing Factor</div><div className="dd-swing">{data.key_swing_factor}</div></div>}
+                {data.dissent && <div><div className="dd-section-label">Dissent</div><div className="dd-dissent">{data.dissent}</div></div>}
+              </div>
+              {data.score_rationale && (
+                <div className="dd-section">
+                  <div className="dd-section-label">Score Rationale</div>
+                  <div className="dd-swing">{data.score_rationale}</div>
+                </div>
+              )}
+
+              {data.agent_final_scores && (
+                <div className="dd-section">
+                  <div className="dd-section-label">Agent Scores (R1 → final)</div>
+                  <div className="dd-agents">
+                    {Object.entries(data.agent_final_scores).map(([name, fin]) => {
+                      const r1 = data.agent_r1_scores?.[name];
+                      return (
+                        <div key={name} className="dd-agent">
+                          <div className="ag-name">{name}</div>
+                          <div className={`ag-vote ${scoreColor(fin)}`}>{Number(fin).toFixed(1)}</div>
+                          <div className="ag-rationale">{r1 != null ? `R1 ${Number(r1).toFixed(1)} → ${Number(fin).toFixed(1)}` : `Final ${Number(fin).toFixed(1)}`}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {Array.isArray(data.transcript) && data.transcript.length > 0 && (
+                <div className="dd-section">
+                  <div className="dd-section-label dd-transcript-toggle" onClick={() => setShowTranscript(s => !s)}>
+                    {showTranscript ? '▼' : '▶'} Full Debate Transcript ({data.transcript.length} turns)
+                  </div>
+                  {showTranscript && (
+                    <div className="dd-transcript">
+                      {data.transcript.filter(t => t.round !== 'synthesis').map((t, i) => <DDTranscriptEntry key={i} t={t} />)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="modal-footer">
+          <span className="mono dim" style={{ fontSize: 11 }}>Compiled by the daily 5-agent debate</span>
+          <span style={{ flex: 1 }} />
+          <button className="btn" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 Object.assign(window, {
   HoldingsPanel, HeatmapPanel, IntelPanel, NewsPanel, MacroPanel,
-  FilingsPanel, DDPanel, ScoutPanel, ApiHealthPanel, ScoutDDModal,
+  FilingsPanel, DDPanel, ScoutPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
 });
 })();

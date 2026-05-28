@@ -1,6 +1,6 @@
 /* global React, ReactDOM, window, Icon, SrcPill,
    HoldingsPanel, HeatmapPanel, IntelPanel, NewsPanel, MacroPanel,
-   FilingsPanel, DDPanel, ScoutPanel, ApiHealthPanel, ScoutDDModal,
+   FilingsPanel, DDPanel, ScoutPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
    ImportModal, MobileFrame, MobileApp,
    computeTotals, fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
    TweaksPanel, useTweaks, TweakSection, TweakRadio, TweakColor, TweakToggle */
@@ -284,6 +284,7 @@ function StatusBar({ session, lastRefresh, quoteSrc, sgdRate, hovered, totals })
 function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
   const [sortKey, setSortKey] = useState('mv');
   const [sortDir, setSortDir] = useState('desc');
+  const [ddTicker, setDdTicker] = useState(null);
 
   function onSort(k) {
     setSortKey(prev => {
@@ -317,6 +318,7 @@ function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
             onHover={onHoverPosition}
             onLeave={() => onHoverPosition(null)}
             hoveredTk={hoveredTk}
+            onRowClick={setDdTicker}
           />
         </div>
       </div>
@@ -338,6 +340,7 @@ function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
       <div className="panel panel-news" style={{ gridArea: 'news' }}><NewsPanel /></div>
       <div className="panel" style={{ gridArea: 'filings' }}><FilingsPanel /></div>
       <div className="panel" style={{ gridArea: 'macro' }}><MacroPanel /></div>
+      {ddTicker && <HoldingDDModal ticker={ddTicker} onClose={() => setDdTicker(null)} />}
     </div>
   );
 }

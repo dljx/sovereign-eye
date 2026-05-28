@@ -1045,6 +1045,30 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 .dd-agent .ag-vote.neutral { color: var(--warn); }
 .dd-agent .ag-rationale { font-size: 11px; color: var(--fg-2); line-height: 1.45; }
 
+/* DD dossier meta chips */
+.dd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.dd-chip {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--fg-2); background: var(--bg-2);
+  border: 1px solid var(--border-1); padding: 3px 8px; border-radius: 3px;
+}
+.dd-chip-hot { color: var(--acc); border-color: var(--acc); background: rgba(99,102,241,.12); font-weight: 600; }
+
+/* DD debate transcript */
+.dd-transcript-toggle { cursor: pointer; user-select: none; }
+.dd-transcript-toggle:hover { color: var(--fg-0); }
+.dd-transcript { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.dd-turn { border-left: 2px solid var(--border-2); padding: 6px 0 6px 12px; }
+.dd-turn-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.dd-turn-agent { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--fg-0); letter-spacing: 0.04em; }
+.dd-turn-round { font-family: var(--mono); font-size: 9px; color: var(--fg-4); letter-spacing: 0.08em; text-transform: uppercase; }
+.dd-turn-target { font-family: var(--mono); font-size: 9px; color: var(--warn); }
+.dd-turn-score { font-family: var(--mono); font-size: 10px; color: var(--acc); margin-left: auto; }
+.dd-turn-body { font-size: 11px; color: var(--fg-2); line-height: 1.5; margin-bottom: 4px; }
+.dd-turn-concede { color: var(--fg-3); }
+.dd-turn-q { font-size: 10px; color: var(--fg-3); font-style: italic; line-height: 1.45; margin-bottom: 3px; }
+.dd-turn-risk { font-size: 10px; color: var(--neg); line-height: 1.45; }
+
 /* =========================================================
    SCOUT CARDS
    ========================================================= */
