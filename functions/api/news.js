@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed:v4";
+const CACHE_KEY = "news:feed:v5";
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -99,7 +99,7 @@ ${numbered}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+          generationConfig: { temperature: 0.1, maxOutputTokens: 3000 },
         }),
       }
     );

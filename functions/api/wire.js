@@ -6,7 +6,7 @@
  * Results are KV-cached for 10 minutes.
  */
 
-const CACHE_KEY = "wire:feed:v3";
+const CACHE_KEY = "wire:feed:v4";
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 function timeAgo(dateStr) {
@@ -150,7 +150,7 @@ ${numbered}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+          generationConfig: { temperature: 0.1, maxOutputTokens: 3000 },
         }),
       }
     );
