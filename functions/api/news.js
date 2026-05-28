@@ -6,7 +6,7 @@
  * KV-cached for 15 minutes.
  */
 
-const CACHE_KEY = "news:feed:v9";
+const CACHE_KEY = "news:feed:v10";
 const CACHE_TTL_MS = 30 * 60 * 1000;
 
 function timeAgo(ts) {
@@ -206,10 +206,15 @@ export async function onRequestGet(context) {
   // Run Gemma filter
   let items = gemKey ? await filterWithGemma(rawItems, tickers, gemKey) : null;
 
-  // Fallback: basic noise filter
+  // Fallback: basic noise filter (Gemma unavailable or failed)
   if (!items) {
     const NOISE = /stock price|quote|at a glance|week that was|live updates|buy or sell/i;
-    items = rawItems.filter(r => !NOISE.test(r.headline)).slice(0, 8);
+    items = rawItems.filter(r => !NOISE.test(r.headline)).slice(0, 8).map(r => ({
+      ...r,
+      sentiment: 'neutral',
+      importance: 50,
+      why: '',
+    }));
   }
 
   if (context.env.DD_KV && items.length > 0) {
