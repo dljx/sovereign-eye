@@ -25,13 +25,17 @@ async function fetchFilingSnippet(url) {
     const snippet = text.slice(start, start + 1500);
 
     // Results 8-Ks: actual numbers are in Exhibit 99.1, not the body stub
-    if (/Exhibit\s+99|furnished\s+herewith/i.test(snippet)) {
+    if (/\b99\.1\b|Exhibit\s+99|furnished\s+herewith/i.test(snippet)) {
       try {
         const dirUrl = url.slice(0, url.lastIndexOf('/') + 1);
+        const mainFile = url.split('/').pop();
         const idxRes = await fetch(`${dirUrl}index.json`, { headers, signal: AbortSignal.timeout(5000) });
         if (idxRes.ok) {
-          const idx = await idxRes.json();
-          const ex99 = (idx?.directory?.item || []).find(f => /ex.?99|exhibit.?99/i.test(f.name) && /\.htm?$/i.test(f.name));
+          const items = (await idxRes.json())?.directory?.item || [];
+          // Try exact pattern first, then fall back to any non-main non-viewer .htm file
+          const ex99 =
+            items.find(f => /ex.?99|exhibit.?99/i.test(f.name) && /\.htm?$/i.test(f.name)) ||
+            items.find(f => /\.htm?$/i.test(f.name) && f.name !== mainFile && !/^R\d+\.htm/i.test(f.name));
           if (ex99?.name) {
             const exRes = await fetch(`${dirUrl}${ex99.name}`, { headers, signal: AbortSignal.timeout(6000) });
             if (exRes.ok) return cleanHtml(await exRes.text()).slice(0, 1500);
@@ -120,7 +124,7 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v8:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v9:${[...tickers].sort().join(',')}`;
 
   // Serve cache
   if (kv) {
