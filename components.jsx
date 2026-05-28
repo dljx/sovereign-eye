@@ -239,6 +239,7 @@ function MacroChart({ nav, spx, w = 360, h = 180 }) {
 
 function Treemap({ items, width, height }) {
   const total = items.reduce((s, x) => s + x.weight, 0);
+  if (!total || !width || !height) return <div className="heatmap" style={{ width, height, background: 'var(--bg-0)' }} />;
   const sorted = [...items].sort((a, b) => b.weight - a.weight);
   const tiles = [];
 

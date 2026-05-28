@@ -40,9 +40,9 @@ function getRefreshMs(session) {
 function useSGD() {
   const [rate, setRate] = useState(1.35);
   useEffect(() => {
-    fetch('https://api.frankfurter.app/latest?from=USD&to=SGD')
+    fetch('/api/sgd-rate')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.rates?.SGD) setRate(d.rates.SGD); })
+      .then(d => { if (d?.rate) setRate(d.rate); })
       .catch(() => {});
   }, []);
   return rate;
