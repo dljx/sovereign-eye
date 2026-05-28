@@ -18,7 +18,11 @@ async function fetchFilingSnippet(url) {
     });
     if (!res.ok) return '';
     const html = await res.text();
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 800);
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+    // Skip cover-page boilerplate — jump to first Item section
+    const itemIdx = text.search(/Item\s+\d/);
+    const start = itemIdx > 0 ? itemIdx : 0;
+    return text.slice(start, start + 1500);
   } catch { return ''; }
 }
 
@@ -98,7 +102,7 @@ export async function onRequestGet(context) {
     .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v5:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v6:${[...tickers].sort().join(',')}`;
 
   // Serve cache
   if (kv) {
