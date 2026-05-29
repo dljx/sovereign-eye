@@ -493,7 +493,7 @@ function App() {
             hoveredTk={hoveredTk}
           />
         )}
-        {route === 'research' && <ResearchView onPickScout={tk => setScoutPick(tk)} />}
+        {route === 'research' && <ResearchView onPickScout={s => setScoutPick(s)} />}
         {route === 'system'   && <SystemView />}
       </div>
 
@@ -517,7 +517,7 @@ function App() {
       />
 
       <MobilePreviewPane open={mobileOpen} onClose={() => setMobileOpen(false)} />
-      <ScoutDDModal ticker={scoutPick} onClose={() => setScoutPick(null)} />
+      <ScoutDDModal scout={scoutPick} onClose={() => setScoutPick(null)} />
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Display" />

@@ -1,7 +1,7 @@
 /* global React, window, Icon, SrcPill, Sparkline, AgentPixel, MacroChart, Treemap,
    fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
    POSITIONS, QUOTES, SYNTHESIS, SEC_FILINGS,
-   DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals, ddForTicker, API_HEALTH */
+   DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals, API_HEALTH */
 (function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -679,7 +679,7 @@ function DDTrendChart({ rows, currentPrice }) {
 
 function DDPanel({ onTickerSelect }) {
   const [state, setState] = useState('idle'); // idle | loading | result
-  const [input, setInput] = useState('AVGO');
+  const [input, setInput] = useState('');
   const [ticker, setTicker] = useState(null);
   const [result, setResult] = useState(null);
   const [trendData, setTrendData] = useState(null);
@@ -790,26 +790,13 @@ function DDPanel({ onTickerSelect }) {
     livePollRef.current = setInterval(doLivePoll, 5_000);
   }, [input, stopAll]);
 
-  const loadFromKV = useCallback(async (tk) => {
-    try {
-      const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
-      if (!r.ok) return;
-      const data = await r.json();
-      const d = data?.result || data;
-      if (data && (d.consensus_score != null || d.score != null)) {
-        const mapped = _mapDDResult(data);
-        if (mapped) { setResult(mapped); setState('result'); setTicker(tk); }
-      }
-    } catch {}
-  }, []);
+  // Start idle — no auto-loaded default ticker. The user picks a ticker (or clicks
+  // a scout result) to run/load a DD; previously this auto-loaded AVGO on mount.
 
-  // Try loading KV result for initial ticker
-  useEffect(() => { loadFromKV('AVGO'); }, [loadFromKV]);
-
-  // Fetch Supabase trend history whenever ticker changes
+  // Fetch Supabase trend history whenever a ticker is actually selected
   useEffect(() => {
-    const tk = ticker || 'AVGO';
-    fetch(`/api/dd/trend?ticker=${tk}&limit=30`)
+    if (!ticker) { setTrendData(null); return; }
+    fetch(`/api/dd/trend?ticker=${ticker}&limit=30`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (Array.isArray(d) && d.length) setTrendData(d); })
       .catch(() => {});
@@ -975,7 +962,9 @@ function ScoutPanel({ onPick }) {
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (Array.isArray(d) && d.length) {
-          // Normalize sovereign-dd scout shape → design shape
+          // Normalize sovereign-dd scout shape → design shape. Keep the rich agent
+          // consensus fields (thesis/swing/catalyst/position/banger/cycle) so the
+          // click-through modal can render the real DD without another fetch.
           const norm = d.map(s => ({
             tk: s.ticker || s.tk || '—',
             score: s.score ?? 0,
@@ -984,6 +973,15 @@ function ScoutPanel({ onPick }) {
             valPath: s.path || s.valPath || '—',
             rationale: s.gemma_rationale || s.rationale || s.thesis || '—',
             filters: s.matched_filters || s.filters || [],
+            conf: s.conf || s.confidence || '',
+            thesis: s.thesis || s.majority_thesis || '',
+            keySwing: s.key_swing || s.key_swing_factor || '',
+            catalyst: s.catalyst || '',
+            asymmetry: s.asymmetry_ratio || '',
+            position: s.position_guidance || null,
+            banger: s.banger || null,
+            cycle: s.cycle_position || null,
+            analyzedAt: s.analyzed_at || '',
           }));
           setCards(norm);
           setSrc('live');
@@ -1026,7 +1024,7 @@ function ScoutPanel({ onPick }) {
               <div
                 key={s.tk + '-' + i}
                 className={`scout-card ${s.grade.toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}
-                onClick={() => onPick && onPick(s.tk)}
+                onClick={() => onPick && onPick(s)}
                 title={`Open DD for ${s.tk}`}
               >
                 <div className="scout-card-top">
@@ -1141,70 +1139,91 @@ function ApiHealthPanel() {
 // =============================================================
 // SCOUT DD MODAL
 // =============================================================
-function ScoutDDModal({ ticker, onClose }) {
-  if (!ticker) return null;
-  const dd = window.ddForTicker?.(ticker);
-  if (!dd) return null;
+function ScoutDDModal({ scout, onClose }) {
+  if (!scout) return null;
+  // `scout` is the normalized card from ScoutPanel — it already carries the agent
+  // debate consensus pulled from /api/dd/scouts (thesis, swing, catalyst, position,
+  // banger, cycle), so we render directly with no extra fetch.
+  const gradeLabel = (scout.grade || 'HOLD').replace(/-/g, ' ');
+  const gradeClass = gradeLabel.toLowerCase().replace(/\s+/g, '-');
+  const pos    = scout.position && typeof scout.position === 'object' ? scout.position : null;
+  const banger = scout.banger && typeof scout.banger === 'object' && scout.banger.is_banger ? scout.banger : null;
+  const cycle  = scout.cycle && typeof scout.cycle === 'object' && scout.cycle.phase ? scout.cycle : null;
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal modal-lg" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <Icon name="research" size={16} />
-          <div className="modal-title">Sovereign DD — {dd.ticker}</div>
+          <div className="modal-title">Sovereign DD — {scout.tk}</div>
           <div style={{ flex: 1 }} />
-          {dd.fromScout && (
-            <span className="mono" style={{ fontSize: 10, letterSpacing: '0.14em', color: 'var(--acc)', padding: '4px 8px', border: '1px solid var(--acc)' }}>
-              From Scout
-            </span>
-          )}
-          <SrcPill src="cached" age={dd.asOf} />
+          <span className="mono" style={{ fontSize: 10, letterSpacing: '0.14em', color: 'var(--acc)', padding: '4px 8px', border: '1px solid var(--acc)' }}>
+            From Scout
+          </span>
+          <SrcPill src="cached" age={scout.analyzedAt || 'scouted'} />
           <button className="btn-icon" onClick={onClose}><Icon name="close" size={14} /></button>
         </div>
         <div className="modal-body">
           <div className="dd-result-header">
             <div>
-              <div className="dd-ticker">{dd.ticker}</div>
-              <div className="dd-conf">CONF: {dd.confidence}</div>
+              <div className="dd-ticker">{scout.tk}</div>
+              {scout.conf && <div className="dd-conf">CONF: {scout.conf}</div>}
             </div>
             <div style={{ flex: 1 }} />
             <div style={{ textAlign: 'right' }}>
-              <div className="dd-score">{(+dd.score).toFixed(1)}<span className="denom"> / 10</span></div>
-              <div className={`dd-grade ${dd.grade.toLowerCase().replace(/\s+/g, '-')}`}>{dd.grade}</div>
+              <div className="dd-score">{(+scout.score).toFixed(1)}<span className="denom"> / 10</span></div>
+              <div className={`dd-grade ${gradeClass}`}>{gradeLabel}</div>
             </div>
           </div>
+
+          {banger && (
+            <div className="dd-section" style={{ color: 'var(--acc)' }}>
+              <div className="dd-section-label">🔥 Banger</div>
+              <div className="dd-thesis">{banger.reason || 'Flagged as a high-conviction asymmetric setup.'}</div>
+            </div>
+          )}
+
           <div className="dd-section">
             <div className="dd-section-label">Thesis</div>
-            <div className="dd-thesis">{dd.thesis}</div>
+            <div className="dd-thesis">{scout.thesis || scout.rationale || 'No thesis recorded for this scout pick.'}</div>
           </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-            <div>
-              <div className="dd-section-label">Key Swing Factor</div>
-              <div className="dd-swing">{dd.swing}</div>
-            </div>
-            {dd.dissent && (
+            {scout.keySwing && (
               <div>
-                <div className="dd-section-label">Dissent</div>
-                <div className="dd-dissent">{dd.dissent}</div>
+                <div className="dd-section-label">Key Swing Factor</div>
+                <div className="dd-swing">{scout.keySwing}</div>
+              </div>
+            )}
+            {scout.catalyst && (
+              <div>
+                <div className="dd-section-label">Catalyst</div>
+                <div className="dd-dissent">{scout.catalyst}</div>
               </div>
             )}
           </div>
-          {dd.agents?.length > 0 && (
+
+          {(scout.asymmetry || pos || cycle) && (
             <div className="dd-section">
-              <div className="dd-section-label">Agent Votes</div>
-              <div className="dd-agents">
-                {dd.agents.map(a => (
-                  <div key={a.name} className="dd-agent">
-                    <div className="ag-name">{a.name}</div>
-                    <div className={`ag-vote ${(a.vote || '').toLowerCase()}`}>{a.vote}</div>
-                    <div className="ag-rationale">{a.rationale}</div>
-                  </div>
-                ))}
+              <div className="dd-section-label">Setup</div>
+              <div className="dd-thesis" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
+                {scout.asymmetry && <span><b>Asymmetry:</b> {scout.asymmetry}</span>}
+                {pos && pos.range && <span><b>Position:</b> {pos.range}{pos.reasoning ? ` — ${pos.reasoning}` : ''}</span>}
+                {cycle && <span><b>Cycle:</b> {cycle.regime ? `${cycle.regime} — ` : ''}{cycle.phase}</span>}
+              </div>
+            </div>
+          )}
+
+          {Array.isArray(scout.filters) && scout.filters.length > 0 && (
+            <div className="dd-section">
+              <div className="dd-section-label">Matched Filters{scout.valPath && scout.valPath !== '—' ? ` · Path ${scout.valPath}` : ''}</div>
+              <div className="scout-chips">
+                {scout.filters.map((f, j) => <span className="chip" key={f + '-' + j}>{f}</span>)}
               </div>
             </div>
           )}
         </div>
         <div className="modal-footer">
-          <span className="mono dim" style={{ fontSize: 11 }}>Re-run analysis to refresh with latest agent debate</span>
+          <span className="mono dim" style={{ fontSize: 11 }}>Consensus from the scout debate · run a full DD to refresh</span>
           <span style={{ flex: 1 }} />
           <button className="btn" onClick={onClose}>Close</button>
         </div>

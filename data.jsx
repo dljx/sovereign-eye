@@ -139,33 +139,9 @@ function computeTotals(positions, quotes) {
   };
 }
 
-// ── DD FOR TICKER ───────────────────────────────────────────────
-function ddForTicker(tk) {
-  if (window.DD_RESULT && window.DD_RESULT.ticker === tk) return window.DD_RESULT;
-  const scout = (window.SCOUTS || []).find(s => s.tk === tk);
-  if (!scout) return null;
-  const bull = scout.score >= 8.0;
-  return {
-    ticker: scout.tk, score: scout.score, grade: scout.grade,
-    confidence: scout.score >= 8.0 ? 'HIGH' : scout.score >= 7.0 ? 'MEDIUM' : 'LOW',
-    asOf: 'Scouted',
-    thesis: `${scout.rationale} Screened via Path ${scout.valPath}: ${scout.filters.join(' · ')}.`,
-    swing: `If ${scout.filters[0]} sustains through next two quarters, multiple re-rates toward sector leaders.`,
-    dissent: bull ? 'TechAnalysis flags momentum extension; wait for pullback if sizing up.' : 'Macro neutral; entry timing matters.',
-    agents: [
-      { name: 'Valuation',       vote: bull ? 'BULL' : 'NEUTRAL', rationale: `Multiple supports thesis given ${scout.filters.find(f => f.includes('GM')) || 'strong margins'}.` },
-      { name: 'Macro',           vote: 'NEUTRAL', rationale: `${scout.sector} sector pace constructive but variable.` },
-      { name: 'TechAnalysis',    vote: bull ? 'BULL' : 'NEUTRAL', rationale: 'Setup constructive on weekly. Watch volume on breakout.' },
-      { name: 'FundForensics',   vote: 'BULL',    rationale: `${scout.filters[0]} corroborated by filings; no quality flags.` },
-      { name: 'MarketStructure', vote: bull ? 'BULL' : 'NEUTRAL', rationale: 'Crowding low. No anomalies in OI.' },
-    ],
-    fromScout: true,
-  };
-}
-
   Object.assign(window, {
     POSITIONS, QUOTES, SYNTHESIS,
     SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS,
-    computeTotals, ddForTicker, API_HEALTH,
+    computeTotals, API_HEALTH,
   });
 })();
