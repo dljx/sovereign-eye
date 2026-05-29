@@ -6,6 +6,263 @@
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // =============================================================
+// SHARED DD HELPERS (mirror desktop-panels.jsx — mobile.html does not load it)
+// =============================================================
+function _fmtElapsed(s) {
+  if (s < 60) return s + 's';
+  return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
+}
+
+const _AGENT_KINDS = {
+  Valuation: 'valuation', Macro: 'macro', TechAnalysis: 'techanalysis',
+  FundForensics: 'fundforensics', MarketStructure: 'marketstructure',
+};
+const _DESIGN_AGENTS = [
+  { name: 'Valuation', k: 'valuation' },
+  { name: 'Macro', k: 'macro' },
+  { name: 'TechAnalysis', k: 'techanalysis' },
+  { name: 'FundForensics', k: 'fundforensics' },
+  { name: 'MarketStructure', k: 'marketstructure' },
+];
+// Real sovereign-dd agent names → design agent names
+const _AGENT_NAME_MAP = {
+  StructuralEdge: 'Valuation', FundamentalForensics: 'FundForensics',
+  ValuationEngine: 'Macro', CatalystHunter: 'TechAnalysis',
+  MarketStructure: 'MarketStructure',
+  MOAT: 'Valuation', FUND: 'FundForensics', VAL: 'Macro',
+  CATL: 'TechAnalysis', MKT: 'MarketStructure',
+};
+
+function DDTranscriptEntry({ t }) {
+  const r = String(t.round);
+  const roundLabel = t.round === 1 ? 'R1 · Initial'
+    : r.startsWith('2') ? 'R2 · Challenge'
+    : r.startsWith('3') ? 'R3 · Rebuttal'
+    : t.round === 'synthesis' ? 'Synthesis'
+    : `R${t.round}`;
+  const score = t.revised_score != null ? t.revised_score : t.score;
+  return (
+    <div className="dd-turn">
+      <div className="dd-turn-head">
+        <span className="dd-turn-agent">{t.agent}</span>
+        <span className="dd-turn-round">{roundLabel}</span>
+        {t.target_agent && <span className="dd-turn-target">→ {t.target_agent}</span>}
+        {score != null && (
+          <span className="dd-turn-score">
+            {(+score).toFixed(1)}{t.score_delta != null ? ` (${t.score_delta > 0 ? '+' : ''}${t.score_delta})` : ''}
+          </span>
+        )}
+      </div>
+      {t.thesis && <div className="dd-turn-body">{t.thesis}</div>}
+      {t.challenge && <div className="dd-turn-body">{t.challenge}</div>}
+      {t.rebuttal && <div className="dd-turn-body">{t.rebuttal}</div>}
+      {t.concessions && <div className="dd-turn-body dd-turn-concede"><b>Concedes:</b> {t.concessions}</div>}
+      {t.final_thesis && <div className="dd-turn-body"><b>Final:</b> {t.final_thesis}</div>}
+      {t.key_risk && <div className="dd-turn-risk">Risk: {t.key_risk}</div>}
+    </div>
+  );
+}
+
+// Rich dossier body — shared by the DD screen (result phase) and the DD popup.
+function DDResultFull({ data }) {
+  const [showTranscript, setShowTranscript] = useState(false);
+  const gradeClass = g => (g || '').toLowerCase().replace(/[\s_-]+/g, '-');
+  const scoreColor = s => s >= 7 ? 'bull' : s <= 5 ? 'bear' : 'neutral';
+  const pos = data.position_guidance || null;
+  return (
+    <>
+      <div className="dd-result-header">
+        <div>
+          <div className="dd-ticker">{data.ticker}</div>
+          <div className="dd-conf">CONF: {data.confidence || '—'}</div>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div style={{ textAlign: 'right' }}>
+          <div className="dd-score">{Number(data.consensus_score ?? data.score ?? 0).toFixed(1)}<span className="denom"> / 10</span></div>
+          <div className={`dd-grade ${gradeClass(data.consensus_grade ?? data.grade)}`}>{data.consensus_grade ?? data.grade}</div>
+        </div>
+      </div>
+      <div className="dd-chips">
+        {data.entry_assessment && <span className="dd-chip">Entry: {String(data.entry_assessment).replace(/_/g, ' ')}</span>}
+        {data.fair_value_composite != null && <span className="dd-chip">Fair value: ${data.fair_value_composite}</span>}
+        {data.asymmetry_ratio && <span className="dd-chip">Asymmetry: {data.asymmetry_ratio}</span>}
+        {data.moat_composite != null && <span className="dd-chip">Moat: {data.moat_composite}/10</span>}
+        {pos?.range && <span className="dd-chip">Size: {pos.range}</span>}
+        {data.cycle_position?.regime && <span className="dd-chip">{data.cycle_position.regime} · {data.cycle_position.phase}</span>}
+        {data.banger?.is_banger && <span className="dd-chip dd-chip-hot">BANGER</span>}
+      </div>
+      <div className="dd-section">
+        <div className="dd-section-label">Majority Thesis</div>
+        <div className="dd-thesis">{data.majority_thesis ?? data.thesis}</div>
+      </div>
+      {data.catalyst && (
+        <div className="dd-section">
+          <div className="dd-section-label">Catalyst</div>
+          <div className="dd-thesis">{data.catalyst}</div>
+        </div>
+      )}
+      {(data.key_swing_factor ?? data.swing) && (
+        <div className="dd-section">
+          <div className="dd-section-label">Key Swing Factor</div>
+          <div className="dd-swing">{data.key_swing_factor ?? data.swing}</div>
+        </div>
+      )}
+      {data.dissent && (
+        <div className="dd-section">
+          <div className="dd-section-label">Dissent</div>
+          <div className="dd-dissent">{data.dissent}</div>
+        </div>
+      )}
+      {data.agent_final_scores && (
+        <div className="dd-section">
+          <div className="dd-section-label">Agent Scores (R1 → final)</div>
+          <div className="dd-agents">
+            {Object.entries(data.agent_final_scores).map(([name, fin]) => {
+              const r1 = data.agent_r1_scores?.[name];
+              return (
+                <div key={name} className="dd-agent">
+                  <div className="ag-name">{name}</div>
+                  <div className={`ag-vote ${scoreColor(fin)}`}>{Number(fin).toFixed(1)}</div>
+                  <div className="ag-rationale">{r1 != null ? `R1 ${Number(r1).toFixed(1)} → ${Number(fin).toFixed(1)}` : `Final ${Number(fin).toFixed(1)}`}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {Array.isArray(data.transcript) && data.transcript.length > 0 && (
+        <div className="dd-section">
+          <div className="dd-section-label dd-transcript-toggle" onClick={() => setShowTranscript(v => !v)}>
+            {showTranscript ? '▼' : '▶'} Full Debate Transcript ({data.transcript.length} turns)
+          </div>
+          {showTranscript && (
+            <div className="dd-transcript">
+              {data.transcript.filter(t => t.round !== 'synthesis').map((t, i) => <DDTranscriptEntry key={i} t={t} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+// Full-screen DD popup. Fetches the real dossier from /api/dd/{ticker}; if there
+// is none yet (scout picks aren't stored per-ticker), falls back to the scout
+// consensus object carried by the tapped card.
+function MobileDDModal({ ticker, fallbackScout, onClose }) {
+  const [data, setData] = useState(null);
+  const [state, setState] = useState('loading'); // loading | ready | scout | empty | error
+
+  useEffect(() => {
+    if (!ticker) return;
+    setState('loading'); setData(null); setShowTranscript(false);
+    let cancelled = false;
+    fetch(`/api/dd/${ticker.toLowerCase()}`)
+      .then(r => r.status === 404 ? { __empty: true } : (r.ok ? r.json() : Promise.reject()))
+      .then(d => {
+        if (cancelled) return;
+        const result = d && !d.__empty ? (d.result || d) : null;
+        if (result && result.ticker) { setData(result); setState('ready'); }
+        else if (fallbackScout) { setState('scout'); }
+        else { setState('empty'); }
+      })
+      .catch(() => { if (!cancelled) setState(fallbackScout ? 'scout' : 'error'); });
+    return () => { cancelled = true; };
+  }, [ticker]);
+
+  if (!ticker) return null;
+  const gradeClass = g => (g || '').toLowerCase().replace(/[\s_-]+/g, '-');
+  const s = fallbackScout || {};
+  const pos = s.position || null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="modal-header">
+          <Icon name="research" size={16} />
+          <div className="modal-title">Sovereign DD — {ticker}</div>
+          <div style={{ flex: 1 }} />
+          {state === 'scout' && (
+            <span className="mono" style={{ fontSize: 9, letterSpacing: '0.12em', color: 'var(--acc)', padding: '3px 6px', border: '1px solid var(--acc)' }}>From Scout</span>
+          )}
+          <button className="btn-icon" onClick={onClose}><Icon name="close" size={14} /></button>
+        </div>
+        <div className="modal-body" style={{ overflowY: 'auto' }}>
+          {state === 'loading' && <div className="news-loading"><div className="news-spinner" /><span>Loading dossier…</span></div>}
+          {state === 'empty' && <div className="news-loading"><span>No dossier yet for {ticker}. Run a full DD from the DD tab.</span></div>}
+          {state === 'error' && <div className="news-loading"><span>Could not load dossier — try again.</span></div>}
+
+          {state === 'ready' && data && <DDResultFull data={data} />}
+
+          {state === 'scout' && (
+            <>
+              <div className="dd-result-header">
+                <div>
+                  <div className="dd-ticker">{s.tk || ticker}</div>
+                  {s.conf && <div className="dd-conf">CONF: {s.conf}</div>}
+                </div>
+                <div style={{ flex: 1 }} />
+                <div style={{ textAlign: 'right' }}>
+                  <div className="dd-score">{(+(s.score || 0)).toFixed(1)}<span className="denom"> / 10</span></div>
+                  <div className={`dd-grade ${gradeClass(s.grade)}`}>{(s.grade || 'HOLD').replace(/-/g, ' ')}</div>
+                </div>
+              </div>
+              <div className="news-loading" style={{ padding: '8px 0', fontSize: 11 }}>
+                <span>Scout consensus — run a full DD from the DD tab for the agent transcript.</span>
+              </div>
+              {s.banger?.is_banger && (
+                <div className="dd-section" style={{ color: 'var(--acc)' }}>
+                  <div className="dd-section-label">🔥 Banger</div>
+                  <div className="dd-thesis">{s.banger.reason || 'High-conviction asymmetric setup.'}</div>
+                </div>
+              )}
+              <div className="dd-section">
+                <div className="dd-section-label">Thesis</div>
+                <div className="dd-thesis">{s.thesis || s.rationale || 'No thesis recorded.'}</div>
+              </div>
+              {s.keySwing && (
+                <div className="dd-section">
+                  <div className="dd-section-label">Key Swing Factor</div>
+                  <div className="dd-swing">{s.keySwing}</div>
+                </div>
+              )}
+              {s.catalyst && (
+                <div className="dd-section">
+                  <div className="dd-section-label">Catalyst</div>
+                  <div className="dd-dissent">{s.catalyst}</div>
+                </div>
+              )}
+              {(s.asymmetry || pos || s.cycle) && (
+                <div className="dd-section">
+                  <div className="dd-section-label">Setup</div>
+                  <div className="dd-thesis" style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+                    {s.asymmetry && <span><b>Asymmetry:</b> {s.asymmetry}</span>}
+                    {pos?.range && <span><b>Position:</b> {pos.range}</span>}
+                    {s.cycle?.phase && <span><b>Cycle:</b> {s.cycle.regime ? `${s.cycle.regime} — ` : ''}{s.cycle.phase}</span>}
+                  </div>
+                </div>
+              )}
+              {Array.isArray(s.filters) && s.filters.length > 0 && (
+                <div className="dd-section">
+                  <div className="dd-section-label">Matched Filters{s.valPath && s.valPath !== '—' ? ` · Path ${s.valPath}` : ''}</div>
+                  <div className="scout-chips">
+                    {s.filters.map((f, j) => <span className="chip" key={f + '-' + j}>{f}</span>)}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="modal-footer">
+          <span style={{ flex: 1 }} />
+          <button className="btn" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// =============================================================
 // LIVE DATA HOOK — fetches KV positions + Finnhub quotes
 // =============================================================
 function useLiveData() {
@@ -131,7 +388,7 @@ function MobileTabbar({ active, onChange }) {
 // =============================================================
 // PORTFOLIO SCREEN
 // =============================================================
-function MobilePortfolio({ positions, quotes }) {
+function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency }) {
   const totals = useMemo(() => {
     let nlv = 0, cost = 0, dayPnl = 0;
     positions.forEach(p => {
@@ -159,7 +416,17 @@ function MobilePortfolio({ positions, quotes }) {
       <div className="mscreen-header" style={{ paddingBottom: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="mscreen-title">Portfolio NLV</div>
-          <SrcPill src="live" age="now" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {onToggleCurrency && (
+              <div className="ccy-toggle">
+                {['USD','SGD'].map(c => (
+                  <button key={c} className={`ccy-btn ${currency === c ? 'active' : ''}`}
+                    onClick={() => onToggleCurrency(c)}>{c}</button>
+                ))}
+              </div>
+            )}
+            <SrcPill src="live" age="now" />
+          </div>
         </div>
         <div className="mscreen-bignum tabular">{fmtMoney(totals.nlv)}</div>
         <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', marginTop: 4 }}>
@@ -191,7 +458,10 @@ function MobilePortfolio({ positions, quotes }) {
 
       <div>
         {enriched.map(p => (
-          <div key={p.ticker} className="m-position">
+          <div key={p.ticker} className="m-position"
+            onClick={() => onPick && p.ticker !== 'USD' && onPick(p.ticker)}
+            title={`Open DD for ${p.ticker}`}
+            style={{ cursor: 'pointer' }}>
             <div className="m-pos-left">
               <div className="m-pos-tk">
                 <span className={`broker-dot ${(p.broker || '') === 'Tiger' ? 'tiger' : ''}`} />
@@ -453,7 +723,7 @@ function MobileIntel() {
 // =============================================================
 // SCOUT SCREEN — live from /api/dd/scouts
 // =============================================================
-function MobileScout() {
+function MobileScout({ onPick }) {
   const [scouts, setScouts] = useState(window.SCOUTS || []);
   const [src, setSrc] = useState((window.SCOUTS || []).length ? 'seed' : 'loading');
 
@@ -462,6 +732,7 @@ function MobileScout() {
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (Array.isArray(d) && d.length) {
+          // Keep the rich agent consensus so a tapped card can show the real DD.
           setScouts(d.map(s => ({
             tk: s.ticker || s.tk || '—',
             score: s.score ?? 0,
@@ -470,6 +741,14 @@ function MobileScout() {
             valPath: s.path || '—',
             rationale: s.gemma_rationale || s.rationale || s.thesis || '—',
             filters: s.matched_filters || [],
+            conf: s.conf || s.confidence || '',
+            thesis: s.thesis || s.majority_thesis || '',
+            keySwing: s.key_swing || s.key_swing_factor || '',
+            catalyst: s.catalyst || '',
+            asymmetry: s.asymmetry_ratio || '',
+            position: s.position_guidance || null,
+            banger: s.banger || null,
+            cycle: s.cycle_position || null,
           })));
           setSrc('live');
         } else if (src === 'loading') {
@@ -506,7 +785,11 @@ function MobileScout() {
       ) : (
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {display.map((s, i) => (
-            <div key={s.tk + '-' + i} className={`scout-card ${(s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}>
+            <div key={s.tk + '-' + i}
+              className={`scout-card ${(s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}
+              onClick={() => onPick && onPick(s)}
+              title={`Open DD for ${s.tk}`}
+              style={{ cursor: 'pointer' }}>
               <div className="scout-card-top">
                 <span className="scout-tk">{s.tk}</span>
                 <span className="scout-score">{(+s.score).toFixed(1)}<span className="denom"> /10</span></span>
@@ -530,91 +813,106 @@ function MobileScout() {
 // =============================================================
 // DETAIL / DD SCREEN — loads from KV, triggers real analysis
 // =============================================================
-function MobileDetail() {
-  const [input, setInput] = useState('AVGO');
-  const [phase, setPhase] = useState('result'); // idle | running | result | error
-  const [result, setResult] = useState(null);
+function MobileDetail({ initialTicker }) {
+  const [input, setInput] = useState(initialTicker || '');
+  const [phase, setPhase] = useState('idle'); // idle | running | result
+  const [result, setResult] = useState(null); // raw dd result object
   const [elapsed, setElapsed] = useState(0);
-  const [ticker, setTicker] = useState('AVGO');
+  const [ticker, setTicker] = useState(initialTicker || '');
+  const [agentStates, setAgentStates] = useState({});
+  const [log, setLog] = useState([]);
   const pollRef = useRef(null);
   const elapsedRef = useRef(null);
+  const livePollRef = useRef(null);
+  const liveCountRef = useRef(0);
+  const logRef = useRef(null);
 
-  function mapResult(data) {
-    if (!data) return null;
-    const d = data.result || data;
-    const score = d.consensus_score ?? d.score ?? 0;
-    const grade = (d.consensus_grade ?? d.grade ?? 'HOLD').toUpperCase();
-    return {
-      ticker: d.ticker || ticker,
-      score, grade,
-      confidence: d.confidence ?? 'MEDIUM',
-      asOf: d.asOf || 'now',
-      thesis: d.majority_thesis ?? d.thesis ?? '',
-      swing: d.key_swing_factor ?? d.swing ?? '',
-      dissent: d.dissent ?? '',
-      agents: (d.agents || []).map(a => ({
-        name: a.role ?? a.agent ?? a.name ?? 'Agent',
-        vote: ['BUY','BULL','STRONG BUY'].includes((a.signal ?? a.vote ?? '').toUpperCase()) ? 'BULL'
-          : ['SELL','BEAR'].includes((a.signal ?? a.vote ?? '').toUpperCase()) ? 'BEAR' : 'NEUTRAL',
-        rationale: a.rationale ?? a.text ?? '',
-      })),
-    };
-  }
+  const stopAll = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null; }
+    if (livePollRef.current) { clearInterval(livePollRef.current); livePollRef.current = null; }
+  }, []);
 
-  // Load KV result for initial ticker
+  useEffect(() => () => stopAll(), [stopAll]);
+  useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log]);
+
+  // Read-only load of an existing dossier (used when launched with a ticker)
+  const loadFromKV = useCallback(async (tk) => {
+    try {
+      const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
+      if (!r.ok) return;
+      const data = await r.json();
+      const d = data?.result || data;
+      if (data && (d.consensus_score != null || d.score != null)) {
+        setResult(d); setTicker(d.ticker || tk); setPhase('result');
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
-    fetch('/api/dd/avgo')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        const mapped = mapResult(d);
-        if (mapped) { setResult(mapped); setPhase('result'); }
-        else if (!window.DD_RESULT) { setPhase('idle'); }
-        else { setResult(mapResult(window.DD_RESULT)); setPhase('result'); }
-      })
-      .catch(() => {
-        if (window.DD_RESULT) { setResult(mapResult(window.DD_RESULT)); setPhase('result'); }
-        else setPhase('idle');
-      });
-  }, []);
+    if (initialTicker) { setInput(initialTicker); loadFromKV(initialTicker); }
+  }, [initialTicker, loadFromKV]);
 
-  useEffect(() => () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    if (elapsedRef.current) clearInterval(elapsedRef.current);
-  }, []);
-
-  async function analyze() {
+  const analyze = useCallback(async () => {
     const tk = input.trim().toUpperCase();
     if (!tk) return;
+    stopAll();
     setTicker(tk);
     setPhase('running');
     setElapsed(0);
-    if (pollRef.current) clearInterval(pollRef.current);
-    if (elapsedRef.current) clearInterval(elapsedRef.current);
+    setResult(null);
+    setAgentStates({});
+    setLog([{ who: 'SYSTEM', text: `[${tk}] Initializing 5-agent debate room.`, dim: true }]);
+    liveCountRef.current = 0;
 
     const start = Date.now();
     elapsedRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
 
     try { await fetch('/api/dd/trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker: tk }) }); } catch {}
 
-    const poll = async () => {
+    const doPoll = async () => {
       try {
         const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
         if (r.ok) {
           const data = await r.json();
           const d = data?.result || data;
           if (data && (d.consensus_score != null || d.score != null)) {
-            clearInterval(pollRef.current); clearInterval(elapsedRef.current);
-            const mapped = mapResult(data);
-            if (mapped) { setResult(mapped); setPhase('result'); }
+            stopAll();
+            setResult(d); setPhase('result');
           }
         }
       } catch {}
     };
-    setTimeout(() => { poll(); pollRef.current = setInterval(poll, 15_000); }, 5_000);
-  }
+    setTimeout(() => { doPoll(); pollRef.current = setInterval(doPoll, 15_000); }, 5_000);
 
-  const display = result || (window.DD_RESULT ? mapResult(window.DD_RESULT) : null);
-  const agentKinds = ['valuation','macro','techanalysis','fundforensics','marketstructure'];
+    // Live debate stream — real agent states + log lines from /api/dd/live
+    const doLivePoll = async () => {
+      try {
+        const r = await fetch(`/api/dd/live/${tk.toLowerCase()}?after=${liveCountRef.current}`);
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data.events?.length) {
+          liveCountRef.current += data.events.length;
+          data.events.forEach(ev => {
+            const agentId = ev.agent || ev.who || '';
+            const designName = _AGENT_NAME_MAP[agentId] || agentId;
+            const text = ev.text || ev.message || ev.content || '';
+            if (ev.type === 'CONSENSUS' || ev.type === 'DOSSIER_START' || ev.type === 'START') {
+              if (text) setLog(L => [...L, { who: 'SYSTEM', text, dim: true }]);
+            } else if (designName && _AGENT_KINDS[designName]) {
+              if (text) setLog(L => [...L, { who: designName, text }]);
+              setAgentStates(s => ({ ...s, [designName]: 'thinking' }));
+            } else if (ev.type === 'R3_DELTA' || ev.type === 'FETCH_DONE') {
+              Object.keys(_AGENT_KINDS).forEach(n =>
+                setAgentStates(s => ({ ...s, [n]: s[n] === 'thinking' ? 'done' : s[n] })));
+            }
+          });
+          if (data.done) { clearInterval(livePollRef.current); livePollRef.current = null; doPoll(); }
+        }
+      } catch {}
+    };
+    livePollRef.current = setInterval(doLivePoll, 5_000);
+  }, [input, stopAll]);
 
   return (
     <div className="mobile-screen">
@@ -630,20 +928,9 @@ function MobileDetail() {
             style={{ flex: 1, padding: '8px 10px', background: 'var(--bg-2)', border: '1px solid var(--border-2)', color: 'var(--fg-0)', fontFamily: 'var(--mono)', fontSize: 13, letterSpacing: '0.1em' }}
           />
           <button className="btn btn-primary" onClick={analyze} disabled={phase === 'running' || !input.trim()} style={{ padding: '8px 16px' }}>
-            {phase === 'running' ? `${elapsed}s…` : 'Analyze'}
+            {phase === 'running' ? `${_fmtElapsed(elapsed)}…` : 'Analyze'}
           </button>
         </div>
-        {display && phase !== 'running' && (
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 12 }}>
-            <div className="mscreen-bignum">{display.ticker}</div>
-            <div style={{ textAlign: 'right' }}>
-              <div className="mono" style={{ fontSize: 28, fontWeight: 700, color: 'var(--fg-0)', lineHeight: 1 }}>
-                {(+display.score).toFixed(1)}<span style={{ fontSize: 14, color: 'var(--fg-3)' }}> /10</span>
-              </div>
-              <div className={`dd-grade ${display.grade.toLowerCase().replace(/\s+/g,'-')}`} style={{ marginTop: 6 }}>{display.grade}</div>
-            </div>
-          </div>
-        )}
       </div>
 
       {phase === 'running' && (
@@ -653,64 +940,49 @@ function MobileDetail() {
               ▶ debate · {ticker}
             </div>
             <div className="debate-grid" style={{ gap: 6 }}>
-              {agentKinds.map((k, i) => (
-                <div key={k} className={`agent ${i < Math.floor(elapsed * 0.3) ? 'thinking' : ''}`}>
-                  <AgentPixel kind={k} talking={i < Math.floor(elapsed * 0.3)} />
-                  <div className="agent-name">{k}</div>
-                </div>
+              {_DESIGN_AGENTS.map(a => {
+                const st = agentStates[a.name];
+                return (
+                  <div key={a.name} className={`agent ${st || ''}`}>
+                    <AgentPixel kind={a.k} talking={st === 'thinking'} />
+                    <div className="agent-name">{a.name}</div>
+                    <div className="agent-status">{st === 'thinking' ? 'thinking…' : st === 'done' ? '✓' : 'waiting'}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <div ref={logRef} className="debate-log" style={{ maxHeight: 160, overflow: 'auto', marginTop: 10 }}>
+              {log.map((l, i) => (
+                <span key={i} className={`log-line ${l.dim ? 'dim' : ''}`}>
+                  <span className={l.who === 'SYSTEM' ? 'you' : 'who'}>[{l.who}]</span> {l.text}
+                </span>
               ))}
             </div>
             <div className="debate-progress" style={{ marginTop: 12 }}>
               <i style={{ width: `${Math.min(100, (elapsed / 600) * 100)}%` }} />
             </div>
             <div className="mono dim" style={{ fontSize: 10, textAlign: 'center', marginTop: 8 }}>
-              Running via GitHub Actions · 5–10 min
+              elapsed {_fmtElapsed(elapsed)} · via GitHub Actions · 5–10 min
             </div>
           </div>
         </div>
       )}
 
-      {(phase === 'result' || (phase === 'idle' && display)) && display && (
+      {phase === 'result' && result && (
         <div style={{ padding: 16 }}>
-          <div className="dd-section">
-            <div className="dd-section-label">Thesis</div>
-            <div className="dd-thesis">{display.thesis}</div>
-          </div>
-          {display.swing && (
-            <div className="dd-section">
-              <div className="dd-section-label">Key Swing Factor</div>
-              <div className="dd-swing">{display.swing}</div>
-            </div>
-          )}
-          {display.dissent && (
-            <div className="dd-section">
-              <div className="dd-section-label">Dissent</div>
-              <div className="dd-dissent">{display.dissent}</div>
-            </div>
-          )}
-          {display.agents?.length > 0 && (
-            <div className="dd-section">
-              <div className="dd-section-label">Agent Votes</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {display.agents.map((a, i) => (
-                  <div key={i} className="dd-agent" style={{ display: 'grid', gridTemplateColumns: 'auto 60px 1fr', gap: 10, alignItems: 'start' }}>
-                    <div style={{ width: 28, height: 28 }}><AgentPixel kind={agentKinds[i % agentKinds.length]} /></div>
-                    <div>
-                      <div className="ag-name">{a.name}</div>
-                      <div className={`ag-vote ${(a.vote || '').toLowerCase()}`}>{a.vote}</div>
-                    </div>
-                    <div className="ag-rationale">{a.rationale}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <DDResultFull data={result} />
         </div>
       )}
 
-      {phase === 'idle' && !display && (
-        <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 12 }}>
-          Enter a ticker above and press Analyze.
+      {phase === 'idle' && (
+        <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-3)' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 14 }}>
+            {_DESIGN_AGENTS.map(a => (
+              <div key={a.k} style={{ opacity: 0.4 }}><AgentPixel kind={a.k} /></div>
+            ))}
+          </div>
+          <div className="mono uppercase" style={{ fontSize: 11, color: 'var(--fg-2)' }}>5 agents standing by</div>
+          <div style={{ marginTop: 8, fontSize: 12 }}>Enter a ticker and press Analyze to convene the debate.</div>
         </div>
       )}
     </div>
@@ -740,7 +1012,16 @@ function MobileSettings({ positions, setPositions }) {
   const [partial, setPartial] = useState(false);
   const [errMsg, setErrMsg] = useState('');
   const [checked, setChecked] = useState({});
+  const [health, setHealth] = useState(null);
   const fileRef = useRef(null);
+
+  // Live API health (falls back to static window.API_HEALTH if the fetch fails)
+  useEffect(() => {
+    fetch('/api/health')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (Array.isArray(d) && d.length) setHealth(d); })
+      .catch(() => {});
+  }, []);
 
   function computeDiff(current, inc) {
     const curMap = new Map((current || []).map(p => [p.ticker, p]));
@@ -924,21 +1205,23 @@ function MobileSettings({ positions, setPositions }) {
       {/* System health */}
       <SettingsGroup title="System Health">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {(window.API_HEALTH || []).map(api => {
-            const pct = api.quota ? Math.min(100, (api.used / api.quota) * 100) : 0;
+          {(health || window.API_HEALTH || []).map(api => {
+            const pct = (api.quota && api.used != null) ? Math.min(100, (api.used / api.quota) * 100) : 0;
+            const statusLabel = api.status === 'ok' ? '● OK'
+              : api.status === 'degraded' ? '◐ DEGR'
+              : api.status === 'unknown' || api.status === 'no-data' ? '○ N/A'
+              : '✕ DOWN';
             return (
               <div key={api.id} className={`api-card ${api.status}`} style={{ padding: '10px 12px' }}>
                 <div className="api-card-top">
                   <span className="api-card-name">{api.name}</span>
-                  <span className={`api-card-status ${api.status}`}>
-                    {api.status === 'ok' ? '● OK' : api.status === 'degraded' ? '◐ DEGR' : '✕ DOWN'}
-                  </span>
+                  <span className={`api-card-status ${api.status}`}>{statusLabel}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--fg-3)', marginTop: 2 }}>
                   <span>{api.scope}</span>
-                  <span className="mono" style={{ fontSize: 10 }}>{api.latency > 0 ? api.latency + 'ms' : ''}</span>
+                  <span className="mono" style={{ fontSize: 10 }}>{api.latency > 0 ? api.latency + 'ms' : (api.lastOk || '')}</span>
                 </div>
-                {api.quota > 0 && (
+                {api.quota > 0 && api.used != null && (
                   <div className={`api-quota-bar ${pct > 75 ? 'warn' : ''}`} style={{ marginTop: 6 }}>
                     <i style={{ width: pct + '%' }} />
                   </div>
@@ -987,16 +1270,35 @@ function MobileSettings({ positions, setPositions }) {
 function MobileApp() {
   const [screen, setScreen] = useState('portfolio');
   const { positions, setPositions, quotes } = useLiveData();
+  const [ddModal, setDdModal] = useState(null); // { ticker, scout } | null
+
+  // Reporting currency (USD/SGD) — mirrors desktop. Set window.__CCY in render so
+  // child fmtMoney/fmtUSDC calls format with the current currency on this pass.
+  const [currency, setCurrency] = useState((window.__CCY?.ccy) || 'USD');
+  const [sgdRate, setSgdRate] = useState(window.CCY_RATES?.SGD || 1.35);
+  useEffect(() => {
+    fetch('/api/sgd-rate').then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.rate) setSgdRate(d.rate); }).catch(() => {});
+  }, []);
+  window.__CCY = {
+    ccy: currency,
+    rate: currency === 'SGD' ? sgdRate : 1,
+    sym: currency === 'SGD' ? 'S$' : '$',
+  };
+
+  const openHolding = tk => setDdModal({ ticker: tk, scout: null });
+  const openScout   = s  => setDdModal({ ticker: s.tk, scout: s });
 
   return (
     <>
       <MobileStatusbar />
-      {screen === 'portfolio' && <MobilePortfolio positions={positions} quotes={quotes} />}
+      {screen === 'portfolio' && <MobilePortfolio positions={positions} quotes={quotes} onPick={openHolding} currency={currency} onToggleCurrency={setCurrency} />}
       {screen === 'intel'     && <MobileIntel />}
-      {screen === 'scout'     && <MobileScout />}
+      {screen === 'scout'     && <MobileScout onPick={openScout} />}
       {screen === 'detail'    && <MobileDetail />}
       {screen === 'settings'  && <MobileSettings positions={positions} setPositions={setPositions} />}
       <MobileTabbar active={screen} onChange={setScreen} />
+      {ddModal && <MobileDDModal ticker={ddModal.ticker} fallbackScout={ddModal.scout} onClose={() => setDdModal(null)} />}
     </>
   );
 }
