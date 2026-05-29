@@ -24,14 +24,6 @@ const fmtMoney = (n, dec = 0) => {
   return sym + v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 };
 const fmtPct = (n, dec = 2) => (n >= 0 ? '+' : '') + n.toFixed(dec) + '%';
-const fmtAbs = (n, dec = 2) => (n >= 0 ? '+' : '') + n.toFixed(dec);
-const fmtVol = (n) => {
-  if (n == null) return '—';
-  if (n >= 1e9) return (n/1e9).toFixed(1) + 'B';
-  if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return (n/1e3).toFixed(0) + 'K';
-  return n.toString();
-};
 const sign = (n) => n >= 0 ? 'pos' : 'neg';
 
 // Normalize Finnhub quote format {c,dp,d,v} to design format {px,dPct,dAbs,vol}
@@ -307,7 +299,7 @@ function Treemap({ items, width, height }) {
 }
 
 Object.assign(window, {
-  fmtUSD, fmtUSDC, fmtMoney, fmtPct, fmtAbs, fmtVol, sign, normQ,
+  fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
   CCY_RATES, CCY_SYMS,
   Icon, SrcPill, Sparkline, heatColor, AgentPixel, MacroChart, Treemap,
 });

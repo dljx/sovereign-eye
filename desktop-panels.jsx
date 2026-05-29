@@ -1,6 +1,6 @@
 /* global React, window, Icon, SrcPill, Sparkline, AgentPixel, MacroChart, Treemap,
-   fmtUSD, fmtUSDC, fmtMoney, fmtPct, fmtAbs, fmtVol, sign, normQ,
-   POSITIONS, QUOTES, SYNTHESIS, NEWS_PORTFOLIO, NEWS_WIRE, SEC_FILINGS,
+   fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
+   POSITIONS, QUOTES, SYNTHESIS, SEC_FILINGS,
    DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals, ddForTicker, API_HEALTH */
 (function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -1024,7 +1024,7 @@ function ScoutPanel({ onPick }) {
           <div className="scout-grid">
             {display.map((s, i) => (
               <div
-                key={s.tk}
+                key={s.tk + '-' + i}
                 className={`scout-card ${s.grade.toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}
                 onClick={() => onPick && onPick(s.tk)}
                 title={`Open DD for ${s.tk}`}
@@ -1037,7 +1037,7 @@ function ScoutPanel({ onPick }) {
                 <div className="scout-rationale">{s.rationale}</div>
                 <div className="scout-chips">
                   {(s.filters || []).map((f, j) => (
-                    <span className={`chip ${j === s.filters.length - 1 ? 'acc' : ''}`} key={f}>{f}</span>
+                    <span className={`chip ${j === s.filters.length - 1 ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>
                   ))}
                 </div>
                 <div className="scout-meta">

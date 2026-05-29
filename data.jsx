@@ -52,15 +52,6 @@ const SYNTHESIS = {
   age: 'seed',
 };
 
-// ── NEWS ────────────────────────────────────────────────────────
-const NEWS_PORTFOLIO = (window.SE_SEED?.portfolioNews || []).map(n => ({
-  tk: n.tk, headline: n.headline, src: n.src, t: n.when || n.t || '', macro: false,
-}));
-
-const NEWS_WIRE = (window.SE_SEED?.newsWire || []).map(n => ({
-  tk: n.tk, headline: n.headline, src: n.src, t: n.when || n.t || '', macro: true,
-}));
-
 // ── SEC FILINGS ─────────────────────────────────────────────────
 const SEC_FILINGS = (window.SE_SEED?.secFilings || []).map(f => ({
   form: f.form,
@@ -83,23 +74,10 @@ const SCOUTS = window.SE_SEED?.scouts || [];
 // ── DD RESULT ───────────────────────────────────────────────────
 const _ddCache = window.SE_SEED?.ddCache || {};
 const _ddKeys = Object.keys(_ddCache);
-const DD_RESULT = _ddKeys.length ? _ddCache[_ddKeys[0]] : {
-  ticker: 'AVGO',
-  score: 8.4,
-  grade: 'STRONG BUY',
-  confidence: 'HIGH',
-  asOf: 'Seed data',
-  thesis: "Broadcom's AI accelerator franchise remains a structural hyperscaler ASIC beneficiary with three confirmed XPU customers and a fourth in negotiation. VMware integration tracking ahead of plan on FCF conversion.",
-  swing: 'Fourth hyperscaler XPU contract confirmation would lift FY26 AI revenue estimate 22% above consensus and re-rate the multiple toward NVDA-comp territory.',
-  dissent: 'TechAnalysis flags momentum extension at current levels. Macro agent neutral on near-term rate path uncertainty.',
-  agents: [
-    { name: 'Valuation',       vote: 'BULL',    rationale: 'PEG sub-1.0 on AI segment; 22× FY26E FCF vs 30%+ grower peers.' },
-    { name: 'Macro',           vote: 'NEUTRAL', rationale: 'Rate path uncertainty; tariff overhang caps near-term multiple expansion.' },
-    { name: 'TechAnalysis',    vote: 'BULL',    rationale: 'Breakout from 6-month base; volume expansion. Watch $230 retest.' },
-    { name: 'FundForensics',   vote: 'BULL',    rationale: 'AI segment GM 72% vs blended 65%. Working cap clean; no revenue pull-forward.' },
-    { name: 'MarketStructure', vote: 'BULL',    rationale: 'Hedge fund crowding low. Buyback adds bid. Options skew flat.' },
-  ],
-};
+// No fabricated fallback: when there's no real cached DD, leave this null so the DD
+// panel shows its idle "enter a ticker" state instead of a fake STRONG BUY rating
+// that could be mistaken for real analysis.
+const DD_RESULT = _ddKeys.length ? _ddCache[_ddKeys[0]] : null;
 
 // ── SPARKS (synthetic sparklines per ticker) ────────────────────
 // Proxy generates on demand so it works even when positions load async from KV
@@ -185,11 +163,9 @@ function ddForTicker(tk) {
   };
 }
 
-const PARSED_IMPORT = { broker: 'IBKR', positions: [] };
-
   Object.assign(window, {
-    POSITIONS, QUOTES, SYNTHESIS, NEWS_PORTFOLIO, NEWS_WIRE,
+    POSITIONS, QUOTES, SYNTHESIS,
     SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS,
-    computeTotals, PARSED_IMPORT, ddForTicker, API_HEALTH,
+    computeTotals, ddForTicker, API_HEALTH,
   });
 })();

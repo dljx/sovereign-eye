@@ -1,6 +1,6 @@
 /* global React, ReactDOM, window, Icon, SrcPill, Sparkline, AgentPixel, MacroChart,
    fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
-   POSITIONS, QUOTES, SYNTHESIS, NEWS_PORTFOLIO, NEWS_WIRE,
+   POSITIONS, QUOTES, SYNTHESIS,
    SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals */
 (function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
@@ -506,7 +506,7 @@ function MobileScout() {
       ) : (
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {display.map((s, i) => (
-            <div key={s.tk} className={`scout-card ${(s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}>
+            <div key={s.tk + '-' + i} className={`scout-card ${(s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}>
               <div className="scout-card-top">
                 <span className="scout-tk">{s.tk}</span>
                 <span className="scout-score">{(+s.score).toFixed(1)}<span className="denom"> /10</span></span>
@@ -515,7 +515,7 @@ function MobileScout() {
               <div className="scout-rationale">{s.rationale}</div>
               <div className="scout-chips">
                 {(s.filters || []).map((f, j) => (
-                  <span className={`chip ${j === (s.filters.length - 1) ? 'acc' : ''}`} key={f}>{f}</span>
+                  <span className={`chip ${j === (s.filters.length - 1) ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>
                 ))}
               </div>
               <div className="scout-meta"><span>{s.sector}</span><span>Path {s.valPath}</span></div>
