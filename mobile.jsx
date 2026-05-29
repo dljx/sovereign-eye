@@ -526,9 +526,45 @@ function MobileIntel() {
   const [livePortfolio, setLivePortfolio] = useState(null);
   const [liveWire, setLiveWire] = useState(null);
   const [newsSrc, setNewsSrc] = useState('loading');
+  const [liveSynth, setLiveSynth] = useState(null);
+  const [synthSrc, setSynthSrc] = useState('seed');
   const tabs = ['synthesis','news','filings','macro'];
-  const synthesis = window.SYNTHESIS || { catalysts: [], risks: [], macro: [] };
   const ms = window.MACRO_SERIES || { nav: [], spx: [] };
+
+  // Normalize live (or seeded) synthesis into {tag, body, meta} items per bucket.
+  const synthesis = useMemo(() => {
+    const norm = (arr, k) => (arr || []).map(item =>
+      typeof item === 'string'
+        ? { tag: k.slice(0, 4).toUpperCase(), body: item, meta: '' }
+        : { tag: item.tag || k.slice(0, 4).toUpperCase(), body: item.body || item.text || '', meta: item.meta || '' });
+    const src = liveSynth || window.SYNTHESIS || {};
+    return { catalysts: norm(src.catalysts, 'catalysts'), risks: norm(src.risks, 'risks'), macro: norm(src.macro, 'macro') };
+  }, [liveSynth]);
+
+  // Live portfolio synthesis (catalysts/risks/macro) — mirrors desktop IntelPanel.
+  useEffect(() => {
+    let interval = null;
+    const start = () => {
+      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      if (!tickers.length) return;
+      const qs = tickers.join(',');
+      const load = () =>
+        fetch(`/api/synthesis?tickers=${qs}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d && (d.catalysts || d.risks || d.macro)) {
+              setLiveSynth(d);
+              setSynthSrc(d.cached ? 'cached' : 'live');
+            }
+          })
+          .catch(() => {});
+      load();
+      interval = setInterval(load, 5 * 60 * 1000);
+    };
+    start();
+    window.addEventListener('se:positions', start, { once: true });
+    return () => { window.removeEventListener('se:positions', start); if (interval) clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     let iv = null;
@@ -598,7 +634,9 @@ function MobileIntel() {
           <div className="mscreen-bignum" style={{ fontSize: 22 }}>
             {tab === 'synthesis' ? 'Synthesis' : tab === 'news' ? 'News' : tab === 'filings' ? 'Filings' : 'Macro'}
           </div>
-          <SrcPill src={tab === 'news' ? (newsSrc === 'loading' ? 'seed' : newsSrc) : 'seed'} age={tab === 'news' && newsSrc === 'live' ? 'now' : 'seed'} />
+          <SrcPill
+            src={tab === 'news' ? (newsSrc === 'loading' ? 'seed' : newsSrc) : tab === 'synthesis' ? synthSrc : 'seed'}
+            age={tab === 'news' ? (newsSrc === 'live' ? 'now' : 'seed') : tab === 'synthesis' ? (synthSrc === 'live' ? 'now' : synthSrc) : 'seed'} />
         </div>
       </div>
       <div className="m-tabs">
