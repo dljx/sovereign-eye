@@ -31,7 +31,9 @@ export async function geminiFetch(env, modelPath, body, opts = {}) {
   const keys = geminiKeys(env);
   if (!keys.length) throw new Error("No Gemini API key configured");
 
-  const timeoutMs = opts.timeoutMs || 0; // 0 = no per-request timeout
+  // Default to a 20s per-request timeout so a hung fetch can't run out the Worker's
+  // wall-clock budget with no error. Callers may override via opts.timeoutMs.
+  const timeoutMs = opts.timeoutMs || 20000;
   const start = Math.floor(Math.random() * keys.length);
   const payload = JSON.stringify(body);
   let lastRes = null;
@@ -58,5 +60,10 @@ export async function geminiFetch(env, modelPath, body, opts = {}) {
     // be fixed by a different key, so return immediately.
     if (res.status !== 429 && res.status < 500) return res;
   }
-  return lastRes;
+  // Every key failed. If they all threw (network/timeout) lastRes is null — return a
+  // synthetic 502 so callers can always rely on a Response (res.ok / res.status).
+  return lastRes || new Response(
+    JSON.stringify({ error: "All Gemini keys failed (network/timeout)" }),
+    { status: 502, headers: { "Content-Type": "application/json" } }
+  );
 }

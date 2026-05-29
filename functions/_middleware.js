@@ -1,6 +1,9 @@
-// Paths where Bearer tokens are accepted — each handler re-validates the token itself.
-// All other paths require Basic Auth from the dashboard user.
-const BEARER_PATHS = ["/api/dd/upload", "/api/dd/live", "/api/dd/trigger", "/api/dd/history"];
+// EXACT paths where a Bearer token is accepted — each handler re-validates the token
+// against DD_UPLOAD_SECRET itself. Matched exactly (not by prefix) so:
+//   - GET /api/dd/live/:ticker (the debate-event reader) is NOT exposed to any Bearer
+//   - /api/dd/trigger (which does NOT re-validate a token, see trigger.js) is no longer
+//     reachable with an arbitrary Bearer — it now requires the dashboard's Basic auth.
+const BEARER_PATHS = ["/api/dd/upload", "/api/dd/live", "/api/dd/history"];
 
 async function handleRequest(context) {
   const auth = context.request.headers.get("Authorization");
@@ -14,7 +17,12 @@ async function handleRequest(context) {
       if (!storedPass) {
         return new Response("DASHBOARD_PASSWORD env var not configured", { status: 500 });
       }
-      const decoded = atob(encoded || "");
+      let decoded = "";
+      try {
+        decoded = atob(encoded || "");
+      } catch {
+        decoded = "";  // malformed base64 — treat as failed auth, not an unhandled 500
+      }
       const colonIdx = decoded.indexOf(":");
       const user = colonIdx >= 0 ? decoded.slice(0, colonIdx) : decoded;
       const pass = colonIdx >= 0 ? decoded.slice(colonIdx + 1) : "";
@@ -27,7 +35,7 @@ async function handleRequest(context) {
     // Prevents any Bearer value from bypassing Basic Auth on other routes (e.g. /api/positions).
     if (scheme === "Bearer") {
       const pathname = new URL(context.request.url).pathname;
-      if (BEARER_PATHS.some(p => pathname.startsWith(p))) {
+      if (BEARER_PATHS.includes(pathname)) {
         return await context.next();
       }
     }

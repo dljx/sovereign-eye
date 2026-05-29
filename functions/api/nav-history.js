@@ -62,11 +62,21 @@ export async function onRequestGet(context) {
     const spyClose = quotes['SPY'];
 
     if (portfolioNav > 0 && spyClose) {
-      snaps.push({ date: today, nav: portfolioNav, spy: spyClose });
-      if (snaps.length > MAX_SNAPS) snaps = snaps.slice(-MAX_SNAPS);
+      // Re-read immediately before writing to narrow the read-modify-write race
+      // (two same-day GETs both appending), then dedupe by date so a concurrent
+      // writer can't leave two snapshots for `today`.
       try {
-        await kv.put(SNAP_KEY, JSON.stringify(snaps));
+        const latest = await kv.get(SNAP_KEY, 'json');
+        if (Array.isArray(latest)) snaps = latest;
       } catch (_) {}
+      const haveToday = snaps.length > 0 && snaps[snaps.length - 1].date === today;
+      if (!haveToday) {
+        snaps.push({ date: today, nav: portfolioNav, spy: spyClose });
+        if (snaps.length > MAX_SNAPS) snaps = snaps.slice(-MAX_SNAPS);
+        try {
+          await kv.put(SNAP_KEY, JSON.stringify(snaps));
+        } catch (_) {}
+      }
     }
   }
 

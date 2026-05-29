@@ -67,13 +67,13 @@ export async function onRequestGet(context) {
     },
     {
       id: 'tavily', name: 'Tavily', scope: 'News wire', endpoint: 'api.tavily.com',
-      status:  'ok',
+      status:  kvMap['tavily'] ? 'ok' : 'no-data',
       latency: null,
       lastOk:  kvMap['tavily'] ? 'recently' : 'no data yet',
     },
     {
       id: 'gh', name: 'GH Actions', scope: 'DD agent runs', endpoint: 'api.github.com',
-      status:  'ok',
+      status:  kvMap['gh'] ? 'ok' : 'no-data',
       latency: null,
       lastOk:  kvMap['gh'] ? 'recently' : 'no data yet',
     },
