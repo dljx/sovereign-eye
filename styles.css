@@ -1438,33 +1438,21 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 }
 .mobile-shell {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   height: 100%;
   min-height: 0;
 }
-/* Standalone (real phone) — fill the viewport, cap width on large screens */
+/* Standalone (real phone) — fill the viewport, cap width on large screens.
+   The fake OS status bar was removed, so clear the notch/safe-area inset here. */
 .mobile-shell-standalone {
   height: 100dvh;
   width: 100%;
   max-width: 540px;
   margin: 0 auto;
+  padding-top: env(safe-area-inset-top);
   background: var(--bg-0);
   overflow: hidden;
 }
-.mobile-statusbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 22px;
-  height: 44px;
-  padding-top: env(safe-area-inset-top);
-  box-sizing: content-box;
-  font-family: var(--mono);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--fg-0);
-}
-.mobile-statusbar .si { display: flex; gap: 4px; align-items: center; }
 .mobile-screen {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
