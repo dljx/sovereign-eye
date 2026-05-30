@@ -41,4 +41,4 @@ wrangler kv namespace create "sovereign-dd-results"   # paste id into wrangler.t
 
 Configured as Cloudflare Pages environment variables (see `.dev.vars.example` for the list):
 `DASHBOARD_PASSWORD`, `DD_UPLOAD_SECRET`, `GEMINI_API_KEYS`, `FINNHUB_API_KEY`,
-`TAVILY_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `GH_REPO`, `GH_TOKEN`.
+`TAVILY_API_KEY` (+ optional `TAVILY_API_KEYS` fallbacks), `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `GH_REPO`, `GH_TOKEN`.

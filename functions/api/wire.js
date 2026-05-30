@@ -29,26 +29,48 @@ async function fetchFinnhubGeneralNews(apiKey) {
   } catch { return []; }
 }
 
-async function fetchTavilyItems(tickers, apiKey) {
+// Tavily keys, tried in order. Merges the legacy single TAVILY_API_KEY (kept as
+// primary) with any extra/backup keys in the comma-separated TAVILY_API_KEYS, so
+// adding a fallback is just setting one env var — no need to touch the primary.
+function tavilyKeys(env) {
+  const out = [];
+  const push = k => { k = (k || "").trim(); if (k && !out.includes(k)) out.push(k); };
+  push(env.TAVILY_API_KEY);
+  (env.TAVILY_API_KEYS || "").split(",").forEach(push);
+  return out;
+}
+
+// One Tavily search with key failover: try each key in order until one returns a
+// usable (res.ok) response. Returns parsed JSON, or null if every key failed.
+async function tavilySearch(keys, body) {
+  for (const key of keys) {
+    try {
+      const r = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, api_key: key }),
+      });
+      if (r.ok) return await r.json();
+      // non-ok (401/403/429/5xx) — fall through to the next key
+    } catch { /* network error — try next key */ }
+  }
+  return null;
+}
+
+async function fetchTavilyItems(tickers, keys) {
   const raw = [];
 
   // Query top 5 tickers in parallel
   const tickerQueries = tickers.slice(0, 5).map(ticker =>
-    fetch("https://api.tavily.com/search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query: `${ticker} earnings revenue analyst guidance 2026`,
-        topic: "news",
-        search_depth: "basic",
-        max_results: 3,
-        include_answer: false,
-        include_raw_content: false,
-        exclude_domains: ["finance.yahoo.com", "marketwatch.com", "robinhood.com", "wsj.com/market-data", "google.com"],
-      }),
+    tavilySearch(keys, {
+      query: `${ticker} earnings revenue analyst guidance 2026`,
+      topic: "news",
+      search_depth: "basic",
+      max_results: 3,
+      include_answer: false,
+      include_raw_content: false,
+      exclude_domains: ["finance.yahoo.com", "marketwatch.com", "robinhood.com", "wsj.com/market-data", "google.com"],
     })
-    .then(r => r.ok ? r.json() : null)
     .then(data => {
       if (!data?.results) return;
       data.results.forEach(r => {
@@ -70,21 +92,15 @@ async function fetchTavilyItems(tickers, apiKey) {
   );
 
   // One macro query
-  const macroQuery = fetch("https://api.tavily.com/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query: "Federal Reserve interest rates earnings recession GDP inflation 2026",
-      topic: "news",
-      search_depth: "basic",
-      max_results: 4,
-      include_answer: false,
-      include_raw_content: false,
-      exclude_domains: ["finance.yahoo.com", "marketwatch.com", "robinhood.com"],
-    }),
+  const macroQuery = tavilySearch(keys, {
+    query: "Federal Reserve interest rates earnings recession GDP inflation 2026",
+    topic: "news",
+    search_depth: "basic",
+    max_results: 4,
+    include_answer: false,
+    include_raw_content: false,
+    exclude_domains: ["finance.yahoo.com", "marketwatch.com", "robinhood.com"],
   })
-  .then(r => r.ok ? r.json() : null)
   .then(data => {
     if (!data?.results) return;
     data.results.forEach(r => {
@@ -194,7 +210,7 @@ export async function onRequestGet(context) {
   const tickers = tickerParam.split(",").map(t => t.trim()).filter(Boolean).filter(t => t !== "USD");
 
   const fhKey = context.env.FINNHUB_API_KEY;
-  const tvKey = context.env.TAVILY_API_KEY;
+  const tvKeys = tavilyKeys(context.env);
   const hasGemini = geminiKeys(context.env).length > 0;
 
   // Workers edge cache (URL-only key — auth already validated by middleware)
