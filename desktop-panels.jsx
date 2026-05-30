@@ -956,9 +956,12 @@ function DDPanel({ onTickerSelect }) {
 function ScoutPanel({ onPick }) {
   const [cards, setCards] = useState(null);
   const [src, setSrc] = useState('loading');
+  const [mode, setMode] = useState('scouts'); // scouts | gems
 
   useEffect(() => {
-    fetch('/api/dd/scouts')
+    setCards(null);
+    setSrc('loading');
+    fetch(mode === 'gems' ? '/api/dd/gems' : '/api/dd/scouts')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (Array.isArray(d) && d.length) {
@@ -990,9 +993,9 @@ function ScoutPanel({ onPick }) {
         }
       })
       .catch(() => setSrc('seed'));
-  }, []);
+  }, [mode]);
 
-  const display = cards || (window.SCOUTS || []);
+  const display = cards || (mode === 'scouts' ? (window.SCOUTS || []) : []);
   const age = src === 'live' ? 'now' : src === 'loading' ? '…' : 'seed';
 
   const nextRun = (() => {
@@ -1003,7 +1006,12 @@ function ScoutPanel({ onPick }) {
   return (
     <>
       <div className="panel-header">
-        <div className="panel-title"><span className="num">08</span> Sovereign Scout</div>
+        <div className="panel-title"><span className="num">08</span> Sovereign {mode === 'gems' ? 'Gems' : 'Scout'}</div>
+        <div className="tabs">
+          {[['scouts', 'Scout'], ['gems', 'Gems']].map(([m, label]) => (
+            <span key={m} className={`tab ${mode === m ? 'active' : ''}`} onClick={() => setMode(m)}>{label}</span>
+          ))}
+        </div>
         <div className="panel-actions">
           <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>
             {display.length} BUY SIGNALS
@@ -1014,9 +1022,9 @@ function ScoutPanel({ onPick }) {
       <div className="panel-body">
         {src === 'loading' || (src === 'seed' && display.length === 0) ? (
           <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
-            <div className="mono uppercase" style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 8 }}>Scout is hunting</div>
-            <div style={{ fontSize: 12 }}>Nightly screener · next run {nextRun}</div>
-            <div style={{ marginTop: 6, fontSize: 11 }}>6 FMP lenses → Gemini triage → 5-agent debate</div>
+            <div className="mono uppercase" style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 8 }}>{mode === 'gems' ? 'Gems' : 'Scout'} is hunting</div>
+            <div style={{ fontSize: 12 }}>Screened on a schedule · next run {nextRun}</div>
+            <div style={{ marginTop: 6, fontSize: 11 }}>screener → Gemini triage → 5-agent debate</div>
           </div>
         ) : (
           <div className="scout-grid">

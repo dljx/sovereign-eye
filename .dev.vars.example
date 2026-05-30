@@ -1,0 +1,20 @@
+# sovereign-eye local dev vars (Cloudflare Pages Functions). Copy to .dev.vars
+# and fill in. .dev.vars is gitignored. In production these are set in the
+# Cloudflare Pages dashboard (Settings -> Environment variables), NOT here.
+
+# ── Auth ─────────────────────────────────────────────────────────
+DASHBOARD_PASSWORD=your_dashboard_password   # HTTP Basic auth (user: daryl)
+DD_UPLOAD_SECRET=your_shared_secret          # must match sovereign-dd
+
+# ── Data APIs ────────────────────────────────────────────────────
+GEMINI_API_KEYS=key1,key2                    # comma-separated; or GEMINI_API_KEY
+FINNHUB_API_KEY=your_key
+TAVILY_API_KEY=your_key                       # news wire
+
+# ── Supabase (history archives) ──────────────────────────────────
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_KEY=your_service_role_key    # keep secret
+
+# ── GitHub (on-demand DD trigger) ────────────────────────────────
+GH_REPO=your-username/sovereign-dd
+GH_TOKEN=github_pat_...                        # fine-grained PAT: Actions R/W

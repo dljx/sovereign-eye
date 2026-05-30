@@ -738,9 +738,12 @@ function MobileIntel() {
 function MobileScout({ onPick }) {
   const [scouts, setScouts] = useState(window.SCOUTS || []);
   const [src, setSrc] = useState((window.SCOUTS || []).length ? 'seed' : 'loading');
+  const [mode, setMode] = useState('scouts'); // scouts | gems
 
   useEffect(() => {
-    fetch('/api/dd/scouts')
+    setScouts([]);
+    setSrc('loading');
+    fetch(mode === 'gems' ? '/api/dd/gems' : '/api/dd/scouts')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (Array.isArray(d) && d.length) {
@@ -763,14 +766,14 @@ function MobileScout({ onPick }) {
             cycle: s.cycle_position || null,
           })));
           setSrc('live');
-        } else if (src === 'loading') {
+        } else {
           setSrc('seed');
         }
       })
-      .catch(() => { if (src === 'loading') setSrc('seed'); });
-  }, []);
+      .catch(() => setSrc('seed'));
+  }, [mode]);
 
-  const display = scouts.length ? scouts : (window.SCOUTS || []);
+  const display = scouts.length ? scouts : (mode === 'scouts' ? (window.SCOUTS || []) : []);
   const nextRun = (() => {
     const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
     return et.getHours() < 6 ? '06:00 ET today' : '06:00 ET tomorrow';
@@ -780,18 +783,22 @@ function MobileScout({ onPick }) {
     <div className="mobile-screen">
       <div className="mscreen-header">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="mscreen-title">Scout</div>
+          <div className="mscreen-title">{mode === 'gems' ? 'Gems' : 'Scout'}</div>
           <SrcPill src={src === 'loading' ? 'cached' : src} age={src === 'loading' ? '…' : 'now'} />
         </div>
-        <div className="mscreen-bignum" style={{ fontSize: 22 }}>BUY Signals</div>
-        <div className="mono dim" style={{ fontSize: 11, marginTop: 4, letterSpacing: '0.06em' }}>
-          {display.length} tickers · screened nightly
+        <div className="m-tabs" style={{ marginTop: 8 }}>
+          {[['scouts', 'Scout'], ['gems', 'Gems']].map(([m, label]) => (
+            <div key={m} className={`m-tab ${mode === m ? 'active' : ''}`} onClick={() => setMode(m)}>{label}</div>
+          ))}
+        </div>
+        <div className="mono dim" style={{ fontSize: 11, marginTop: 8, letterSpacing: '0.06em' }}>
+          {display.length} tickers · screened on a schedule
         </div>
       </div>
 
       {!display.length ? (
         <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-3)' }}>
-          <div className="mono uppercase" style={{ fontSize: 11, marginBottom: 8 }}>Scout is hunting</div>
+          <div className="mono uppercase" style={{ fontSize: 11, marginBottom: 8 }}>{mode === 'gems' ? 'Gems' : 'Scout'} is hunting</div>
           <div style={{ fontSize: 12 }}>Next run {nextRun}</div>
         </div>
       ) : (

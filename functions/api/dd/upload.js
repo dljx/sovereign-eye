@@ -2,10 +2,11 @@ async function purgeCdnCache(request, writtenKeys) {
   const origin = new URL(request.url).origin;
   const cache = caches.default;
   const urls = writtenKeys
-    .filter(k => k === "dd:index" || k === "dd:scouts" || (k.startsWith("dd:") && !k.startsWith("dd:live:")))
+    .filter(k => k === "dd:index" || k === "dd:scouts" || k === "dd:gems" || (k.startsWith("dd:") && !k.startsWith("dd:live:")))
     .map(k => {
       if (k === "dd:index") return `${origin}/api/dd/index`;
       if (k === "dd:scouts") return `${origin}/api/dd/scouts`;
+      if (k === "dd:gems") return `${origin}/api/dd/gems`;
       return `${origin}/api/dd/${k.slice(3).toLowerCase()}`;
     });
   await Promise.allSettled(urls.map(url => cache.delete(new Request(url))));
@@ -40,7 +41,7 @@ export async function onRequestPost(context) {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { results = [], index, scouts } = body;
+  const { results = [], index, scouts, gems } = body;
   const written = [];
   const failed = [];
 
@@ -87,6 +88,25 @@ export async function onRequestPost(context) {
       written.push("dd:scouts");
     } catch (e) {
       failed.push({ key: "dd:scouts", error: e.message });
+    }
+  }
+
+  // Merge new gems into the accumulated dd:gems list — same dedup-by-ticker /
+  // sort-by-score / cap-100 contract as dd:scouts above.
+  if (Array.isArray(gems) && gems.length > 0) {
+    try {
+      let existing = [];
+      const raw = await context.env.DD_KV.get("dd:gems");
+      if (raw) {
+        try { existing = JSON.parse(raw); } catch {}
+      }
+      const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
+      for (const s of gems) map.set(s.ticker, s);
+      const merged = [...map.values()].sort((a, b) => b.score - a.score).slice(0, 100);
+      await context.env.DD_KV.put("dd:gems", JSON.stringify(merged));
+      written.push("dd:gems");
+    } catch (e) {
+      failed.push({ key: "dd:gems", error: e.message });
     }
   }
 
