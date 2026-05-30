@@ -1,20 +1,34 @@
 /**
  * GET /api/health
  *
- * Real-time API health. Pings Finnhub live; checks KV key existence for
- * others (key present = successfully written within TTL = ok).
- * Defaults to ok/no-data rather than degraded when a service hasn't been
- * exercised yet.
+ * Real-time API health. Pings Finnhub live; for the others, infers "recently ok"
+ * from the presence of a recently-written KV key.
+ *
+ * IMPORTANT: these are matched by PREFIX (via KV list), not exact key, because the
+ * cache keys are version-suffixed (e.g. wire:feed:v7, news:tk:v15:*) and bumping a
+ * version must NOT silently break the health check — which is exactly what made
+ * Tavily show "down" (health looked for wire:feed:v2 while wire.js wrote v7).
  */
 
 import { geminiKeys } from "./_gemini.js";
 
 const KV_CHECKS = [
-  { key: 'news:feed:v3',  apiId: 'finnhub' },
-  { key: 'dd:synthesis',  apiId: 'gemini'  },
-  { key: 'wire:feed:v2',  apiId: 'tavily'  },
-  { key: 'dd:scouts',     apiId: 'gh'      },
+  { prefix: 'news:tk:',  apiId: 'finnhub' },  // news.js per-ticker scored cache
+  { prefix: 'dd:synthesis', apiId: 'gemini' },
+  { prefix: 'wire:feed:', apiId: 'tavily'  },  // wire.js Tavily news wire
+  { prefix: 'dd:scouts',  apiId: 'gh'      },
 ];
+
+// True if at least one KV key with this prefix exists (service wrote recently).
+async function kvHasPrefix(kv, prefix) {
+  if (!kv) return false;
+  try {
+    const { keys } = await kv.list({ prefix, limit: 1 });
+    return Array.isArray(keys) && keys.length > 0;
+  } catch {
+    return false;
+  }
+}
 
 async function pingFinnhub(apiKey) {
   if (!apiKey) return { ok: false, latency: null };
@@ -38,11 +52,7 @@ export async function onRequestGet(context) {
   // Run all checks in parallel
   const [fhPing, ...kvResults] = await Promise.all([
     pingFinnhub(fhKey),
-    ...KV_CHECKS.map(({ key }) =>
-      kv
-        ? kv.get(key, 'text').then(v => v !== null).catch(() => false)
-        : Promise.resolve(false)
-    ),
+    ...KV_CHECKS.map(({ prefix }) => kvHasPrefix(kv, prefix)),
   ]);
 
   const kvMap = {};
