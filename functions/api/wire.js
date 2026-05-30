@@ -239,7 +239,7 @@ export async function onRequestGet(context) {
   // Fetch raw items in parallel
   const [finnhubItems, tavilyItems] = await Promise.all([
     fhKey ? fetchFinnhubGeneralNews(fhKey) : Promise.resolve([]),
-    tvKey && tickers.length > 0 ? fetchTavilyItems(tickers, tvKey) : Promise.resolve([]),
+    tvKeys.length && tickers.length > 0 ? fetchTavilyItems(tickers, tvKeys) : Promise.resolve([]),
   ]);
 
   // Deduplicate by headline prefix before sending to Gemma
