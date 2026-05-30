@@ -12,6 +12,7 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
+import { timeAgo, salvageArray, postNewsArchive } from "./_util.js";
 
 const KEY_PREFIX = "news:tk:v15:";       // per-ticker KV key
 const TICKER_TTL_MS = 45 * 60 * 1000;    // a ticker's scores are fresh for 45m
@@ -20,26 +21,7 @@ const MAX_TICKERS = 15;
 
 const PREFLIGHT_NOISE = /^dow jones|^nasdaq|^s&p 500|futures (fall|rise|drop|surge)|week in review|weekly recap|top \d+ stocks?|best stocks? to buy|should you buy|buy or sell\??|is .{3,40} a (top|good) (stock|buy|invest)|small.cap|mid.cap|etf (could|may|might|is|are)|a (top|major|big) .{0,20}etf|ethereum|bitcoin|\bcrypto\b|market (wrap|recap|roundup|update)|premarket|pre-market|after.?hours|opening bell|closing bell/i;
 
-function timeAgo(ts) {
-  const diff = Date.now() - ts * 1000;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
-}
-
 const tkKey = sym => KEY_PREFIX + sym;
-
-function salvageArray(str) {
-  let s = (str || "").replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-  try { return JSON.parse(s); } catch {}
-  const lastBrace = s.lastIndexOf("}");
-  if (lastBrace > 0) {
-    try { return JSON.parse(s.slice(0, lastBrace + 1) + "]"); } catch {}
-  }
-  return null;
-}
 
 // Fetch + pre-filter + de-dup one ticker's Finnhub news
 async function fetchTickerNews(sym, apiKey) {
@@ -145,8 +127,7 @@ async function scoreBatch(env, tickers) {
 }
 
 async function archiveToSupabase(env, items) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY || !items?.length) return;
-  const rows = items.map(n => ({
+  const rows = (items || []).map(n => ({
     ticker:       n.ticker ?? null,
     tag:          'TICKER',
     source:       n.source ?? null,
@@ -156,20 +137,8 @@ async function archiveToSupabase(env, items) {
     severity:     n.severity ?? null,
     url:          n.url ?? null,
     published_at: n.datetime ? new Date(n.datetime * 1000).toISOString() : null,
-  })).filter(r => r.headline);
-  if (!rows.length) return;
-  try {
-    await fetch(`${env.SUPABASE_URL}/rest/v1/news_archive`, {
-      method: 'POST',
-      headers: {
-        'apikey': env.SUPABASE_SERVICE_KEY,
-        'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'resolution=ignore-duplicates',
-      },
-      body: JSON.stringify(rows),
-    });
-  } catch {}
+  }));
+  await postNewsArchive(env, rows);
 }
 
 function jsonResponse(items, status) {

@@ -7,18 +7,10 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
+import { timeAgo, postNewsArchive } from "./_util.js";
 
 const CACHE_KEY = "wire:feed:v7";
 const CACHE_TTL_MS = 20 * 60 * 1000;
-
-function timeAgo(dateStr) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  return `${Math.floor(hrs / 24)}d`;
-}
 
 async function fetchFinnhubGeneralNews(apiKey) {
   try {
@@ -182,8 +174,7 @@ ${numbered}`;
 }
 
 async function archiveToSupabase(env, items) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY || !items?.length) return;
-  const rows = items.map(n => ({
+  const rows = (items || []).map(n => ({
     ticker:       n.tag === 'TICKER' ? (n.ticker_or_sector ?? null) : null,
     tag:          n.tag ?? 'MACRO',
     source:       n.source ?? null,
@@ -193,18 +184,8 @@ async function archiveToSupabase(env, items) {
     severity:     n.severity ?? null,
     url:          n.url ?? null,
     published_at: n.datetime ? new Date(n.datetime * 1000).toISOString() : null,
-  })).filter(r => r.headline);
-  if (!rows.length) return;
-  await fetch(`${env.SUPABASE_URL}/rest/v1/news_archive`, {
-    method: 'POST',
-    headers: {
-      'apikey': env.SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'resolution=ignore-duplicates',
-    },
-    body: JSON.stringify(rows),
-  });
+  }));
+  await postNewsArchive(env, rows);
 }
 
 export async function onRequestGet(context) {

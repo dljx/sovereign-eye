@@ -18,15 +18,15 @@ const handler = onRequest[0];
 
 const ENV = { DASHBOARD_PASSWORD: "secret" };
 const b64 = s => Buffer.from(s).toString("base64");
-const ctx = (auth, path) => ({
+const ctx = (auth, path, env = ENV) => ({
   request: { headers: { get: k => (k === "Authorization" ? auth : null) }, url: `https://x${path}` },
-  env: ENV,
+  env,
   next: async () => new Response("NEXT", { status: 200 }),
 });
 
 let failed = 0;
-async function check(name, auth, path, expected) {
-  const r = await handler(ctx(auth, path));
+async function check(name, auth, path, expected, env = ENV) {
+  const r = await handler(ctx(auth, path, env));
   const ok = r.status === expected;
   if (!ok) failed++;
   console.log(`${ok ? "PASS" : "FAIL"}  ${name} -> ${r.status} (want ${expected})`);
@@ -46,6 +46,11 @@ await check("Basic daryl -> /api/dd/trigger ok", basic, "/api/dd/trigger", 200);
 await check("Basic wrong pass -> 401", "Basic " + b64("daryl:nope"), "/api/positions", 401);
 await check("no auth -> 401", null, "/api/positions", 401);
 await check("malformed base64 -> 401 (not 500)", "Basic !!!notb64", "/api/positions", 401);
+// DASHBOARD_USERS: default allows only daryl; extra user works when configured.
+const MULTI = { DASHBOARD_PASSWORD: "secret", DASHBOARD_USERS: "daryl,wife" };
+await check("unknown user bob -> 401 (default)", "Basic " + b64("bob:secret"), "/api/positions", 401);
+await check("wife with DASHBOARD_USERS -> 200", "Basic " + b64("wife:secret"), "/api/positions", 200, MULTI);
+await check("wife wrong pass -> 401", "Basic " + b64("wife:nope"), "/api/positions", 401, MULTI);
 
 rmSync(tmp, { recursive: true, force: true });
 console.log(failed === 0 ? "\nALL AUTH TESTS PASSED" : `\n${failed} FAILED`);

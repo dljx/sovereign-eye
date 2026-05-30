@@ -4,6 +4,8 @@
  * Returns archived news items from Supabase news_archive table.
  * Ordered by importance desc, then published_at desc.
  */
+import { TICKER_RE } from "./_util.js";
+
 export async function onRequestGet(context) {
   const { SUPABASE_URL, SUPABASE_SERVICE_KEY } = context.env;
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
@@ -23,7 +25,7 @@ export async function onRequestGet(context) {
     published_at:   `gte.${cutoff}`,
     select:         'ticker,tag,source,headline,why,importance,severity,url,published_at',
   };
-  if (ticker && /^[A-Z]{1,10}$/.test(ticker)) {
+  if (ticker && TICKER_RE.test(ticker)) {
     params.ticker = `eq.${ticker}`;
   }
 

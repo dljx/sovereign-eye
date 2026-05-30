@@ -1,7 +1,8 @@
 /* global React, window, Icon, SrcPill, Sparkline, AgentPixel, MacroChart, Treemap,
    fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
    POSITIONS, QUOTES, SYNTHESIS, SEC_FILINGS,
-   DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals, API_HEALTH */
+   DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals, API_HEALTH,
+   _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry */
 (function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
@@ -559,36 +560,8 @@ function FilingsPanel() {
 // =============================================================
 // SOVEREIGN DD PANEL — real SSE polling + design visuals
 // =============================================================
-function _fmtElapsed(s) {
-  if (s < 60) return s + 's';
-  return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
-}
-
-// Map real agent labels/ids → design agent kinds for AgentPixel
-const _AGENT_KINDS = {
-  Valuation:       'valuation',
-  Macro:           'macro',
-  TechAnalysis:    'techanalysis',
-  FundForensics:   'fundforensics',
-  MarketStructure: 'marketstructure',
-};
-
-const _DESIGN_AGENTS = [
-  { name: 'Valuation',       k: 'valuation' },
-  { name: 'Macro',           k: 'macro' },
-  { name: 'TechAnalysis',    k: 'techanalysis' },
-  { name: 'FundForensics',   k: 'fundforensics' },
-  { name: 'MarketStructure', k: 'marketstructure' },
-];
-
-// Map real sovereign-dd agent names → design agent names
-const _AGENT_NAME_MAP = {
-  StructuralEdge: 'Valuation', FundamentalForensics: 'FundForensics',
-  ValuationEngine: 'Macro', CatalystHunter: 'TechAnalysis',
-  MarketStructure: 'MarketStructure',
-  MOAT: 'Valuation', FUND: 'FundForensics', VAL: 'Macro',
-  CATL: 'TechAnalysis', MKT: 'MarketStructure',
-};
+// _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry
+// now live in dd-shared.jsx (loaded before this script).
 
 function _mapDDResult(data) {
   if (!data) return null;
@@ -1241,36 +1214,7 @@ function ScoutDDModal({ scout, onClose }) {
 }
 
 // ── Holding dossier popup — fetches the real daily-screen DD for a ticker ──
-function DDTranscriptEntry({ t }) {
-  const r = String(t.round);
-  const roundLabel = t.round === 1 ? 'R1 · Initial'
-    : r.startsWith('2') ? 'R2 · Challenge'
-    : r.startsWith('3') ? 'R3 · Rebuttal'
-    : t.round === 'synthesis' ? 'Synthesis'
-    : `R${t.round}`;
-  const score = t.revised_score != null ? t.revised_score : t.score;
-  return (
-    <div className="dd-turn">
-      <div className="dd-turn-head">
-        <span className="dd-turn-agent">{t.agent}</span>
-        <span className="dd-turn-round">{roundLabel}</span>
-        {t.target_agent && <span className="dd-turn-target">→ {t.target_agent}</span>}
-        {score != null && (
-          <span className="dd-turn-score">
-            {(+score).toFixed(1)}{t.score_delta != null ? ` (${t.score_delta > 0 ? '+' : ''}${t.score_delta})` : ''}
-          </span>
-        )}
-      </div>
-      {t.thesis && <div className="dd-turn-body">{t.thesis}</div>}
-      {t.challenge && <div className="dd-turn-body">{t.challenge}</div>}
-      {t.rebuttal && <div className="dd-turn-body">{t.rebuttal}</div>}
-      {t.concessions && <div className="dd-turn-body dd-turn-concede"><b>Concedes:</b> {t.concessions}</div>}
-      {t.final_thesis && <div className="dd-turn-body"><b>Final:</b> {t.final_thesis}</div>}
-      {t.direct_question && <div className="dd-turn-q">Q: {t.direct_question}</div>}
-      {t.key_risk && <div className="dd-turn-risk">Risk: {t.key_risk}</div>}
-    </div>
-  );
-}
+// (DDTranscriptEntry now lives in dd-shared.jsx)
 
 function HoldingDDModal({ ticker, onClose }) {
   const [data, setData] = useState(null);

@@ -26,7 +26,11 @@ async function handleRequest(context) {
       const colonIdx = decoded.indexOf(":");
       const user = colonIdx >= 0 ? decoded.slice(0, colonIdx) : decoded;
       const pass = colonIdx >= 0 ? decoded.slice(colonIdx + 1) : "";
-      if (user === "daryl" && pass === storedPass) {
+      // Allowed usernames from env (comma-separated), default "daryl". Single
+      // shared DASHBOARD_PASSWORD. Lets you add a viewer without a code change.
+      const allowed = (context.env.DASHBOARD_USERS || "daryl")
+        .split(",").map(u => u.trim()).filter(Boolean);
+      if (allowed.includes(user) && pass === storedPass) {
         return await context.next();
       }
     }
