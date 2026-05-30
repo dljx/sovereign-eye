@@ -13,6 +13,7 @@ The implicit JSON contract between `sovereign-dd/upload_kv.py` (producer) and
                   "catalyst", "asymmetry_ratio", "banger", "position_guidance",
                   "cycle_position", "matched_filters", "path", "analyzed_at" } ],
   "gems":     [ /* same shape as a scout discovery */ ],
+  "reconcile_remove": [ "<TICKER>", ... ],   // tickers re-analyzed below threshold
   "scout_history":  { "<TICKER>": { "ts", "score", "grade" } },
   "scout_notified": { "<TICKER>": { "ts", "score", "grade" } }
 }
@@ -20,7 +21,14 @@ The implicit JSON contract between `sovereign-dd/upload_kv.py` (producer) and
 
 Consumer behaviour: `results` → individual `dd:<TICKER>` keys (+ deletes `dd:live:<TICKER>`);
 `index` → `dd:index`; `scouts`/`gems` → merged into `dd:scouts`/`dd:gems` (dedupe by
-ticker, sort by score desc, cap 100); `scout_history`/`scout_notified` → `scout:history`/`scout:notified`.
+ticker, sort by score desc, cap 100); `reconcile_remove` → those tickers are deleted
+from BOTH `dd:scouts` and `dd:gems` (applied AFTER the upserts, so a same-run
+qualifying result is never undone); `scout_history`/`scout_notified` → `scout:history`/`scout:notified`.
+
+**Scout-card freshness rule:** any analyzed ticker (scout/gems screener OR a manual
+`analyze` trigger OR a `--portfolio` run) scoring ≥ `BUY_THRESHOLD` upserts/refreshes
+its `dd:scouts` card with that run's data; scoring below threshold removes the card.
+So the Scout board always reflects the latest analysis of each ticker.
 
 > **Any field the consumer doesn't destructure is silently dropped.** If you add a field
 > in `upload_kv.py`, add it in `upload.js` too. (This is exactly how `gems` was a dead path.)

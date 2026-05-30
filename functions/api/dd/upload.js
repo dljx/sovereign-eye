@@ -41,7 +41,7 @@ export async function onRequestPost(context) {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { results = [], index, scouts, gems } = body;
+  const { results = [], index, scouts, gems, reconcile_remove } = body;
   const written = [];
   const failed = [];
 
@@ -107,6 +107,30 @@ export async function onRequestPost(context) {
       written.push("dd:gems");
     } catch (e) {
       failed.push({ key: "dd:gems", error: e.message });
+    }
+  }
+
+  // Reconcile: remove below-threshold tickers (re-analyzed this run and no longer
+  // qualifying) from both dd:scouts and dd:gems, so Scout stays a clean board and
+  // a downgrade drops the stale card. Runs AFTER the upserts above so a same-run
+  // qualifying result is never undone.
+  if (Array.isArray(reconcile_remove) && reconcile_remove.length > 0) {
+    const drop = new Set(reconcile_remove.map(t => String(t).toUpperCase()));
+    for (const kvKey of ["dd:scouts", "dd:gems"]) {
+      try {
+        const raw = await context.env.DD_KV.get(kvKey);
+        if (!raw) continue;
+        let list;
+        try { list = JSON.parse(raw); } catch { continue; }
+        if (!Array.isArray(list)) continue;
+        const filtered = list.filter(s => !drop.has(String(s.ticker || "").toUpperCase()));
+        if (filtered.length !== list.length) {
+          await context.env.DD_KV.put(kvKey, JSON.stringify(filtered));
+          if (!written.includes(kvKey)) written.push(kvKey);
+        }
+      } catch (e) {
+        failed.push({ key: `${kvKey} (reconcile)`, error: e.message });
+      }
     }
   }
 
