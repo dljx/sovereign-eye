@@ -3,7 +3,7 @@
 //   - GET /api/dd/live/:ticker (the debate-event reader) is NOT exposed to any Bearer
 //   - /api/dd/trigger (which does NOT re-validate a token, see trigger.js) is no longer
 //     reachable with an arbitrary Bearer — it now requires the dashboard's Basic auth.
-const BEARER_PATHS = ["/api/dd/upload", "/api/dd/live", "/api/dd/history"];
+const BEARER_PATHS = ["/api/dd/upload", "/api/dd/live", "/api/dd/history", "/api/dd/positions"];
 
 async function handleRequest(context) {
   const auth = context.request.headers.get("Authorization");

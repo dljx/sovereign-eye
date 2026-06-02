@@ -43,12 +43,21 @@ So the Scout board always reflects the latest analysis of each ticker.
 | `dd:gems` | upload.js | `/api/dd/gems` | accumulated gems BUY list, cap 100 |
 | `dd:live:<TICKER>` | `/api/dd/live` POST | `/api/dd/live/:ticker` | live debate events, TTL 1h |
 | `scout:history` / `scout:notified` | upload.js | `/api/dd/history` | CI cold-cache recovery |
-| `positions:daryl` | `/api/positions` PUT | `/api/positions`, nav, sparks, news | portfolio |
+| `positions:daryl` | `/api/positions` PUT | `/api/positions`, nav, sparks, news, **`/api/dd/positions`** | portfolio (source of truth for the pre-market screen) |
 | `nav:snapshots:v1` | `/api/nav-history` | same | daily NAV vs SPY |
 | `sparks:v1` | `/api/sparks` | same | sparkline cache, TTL 30m |
 | `news:tk:v15:<SYM>` | `/api/news` | same | per-ticker scored news |
 | `wire:feed:v7` | `/api/wire` | same | editorial wire, TTL 20m |
 | `dd:synthesis` | `/api/synthesis` | same | portfolio synthesis, TTL 30m |
+
+## Pre-market screen ticker source
+
+`sovereign-dd` `main.py._portfolio_tickers()` fetches **`GET /api/dd/positions`**
+(Bearer `DD_UPLOAD_SECRET`) → `{ "tickers": [...] }`, derived from `positions:daryl`.
+That live list is the source of truth for `--portfolio` and the portfolio-aware
+scout path. The hardcoded `PORTFOLIO_TICKERS` env (in `analyze.yml` / `scout.yml`)
+is only a **fallback** used when the endpoint is unconfigured / unreachable / empty.
+So editing holdings on the dashboard changes what the next pre-market screen analyzes.
 
 ## Supabase tables (written by sovereign-dd `upload_kv.py`)
 

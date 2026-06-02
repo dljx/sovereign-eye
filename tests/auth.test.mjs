@@ -41,6 +41,9 @@ await check("Bearer -> /api/dd/live/GOOG reader blocked", "Bearer x", "/api/dd/l
 await check("Bearer -> /api/dd/upload allowed", "Bearer x", "/api/dd/upload", 200);
 await check("Bearer -> /api/dd/live (POST) allowed", "Bearer x", "/api/dd/live", 200);
 await check("Bearer -> /api/dd/history allowed", "Bearer x", "/api/dd/history", 200);
+await check("Bearer -> /api/dd/positions allowed", "Bearer x", "/api/dd/positions", 200);
+// /api/positions (Basic-only) must NOT be reachable with a Bearer.
+await check("Bearer -> /api/positions blocked", "Bearer x", "/api/positions", 401);
 // Dashboard Basic auth.
 await check("Basic daryl -> /api/dd/trigger ok", basic, "/api/dd/trigger", 200);
 await check("Basic wrong pass -> 401", "Basic " + b64("daryl:nope"), "/api/positions", 401);
