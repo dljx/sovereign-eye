@@ -16,8 +16,17 @@ const KV_CHECKS = [
   { prefix: 'news:tk:',  apiId: 'finnhub' },  // news.js per-ticker scored cache
   { prefix: 'dd:synthesis', apiId: 'gemini' },
   { prefix: 'wire:feed:', apiId: 'tavily'  },  // wire.js Tavily news wire
-  { prefix: 'dd:scouts',  apiId: 'gh'      },
+  // NB: 'gh' (the DD screen) is handled by ddScreenHealth() below, NOT here —
+  // presence of dd:scouts/dd:index can't distinguish a live cron from a dead one
+  // (those keys never expire). Freshness needs the dd:meta heartbeat.
 ];
+
+// The daily DD cron runs Mon–Fri ~06:00 ET. A successful upload is at most ~24h
+// old on a weekday; over a weekend the last run is Friday, so the heartbeat can
+// legitimately read 1–3 days old. 26h flags a weekday cron that silently died by
+// the next morning; weekend staleness is real ("this is Friday's data"), not a
+// false alarm — the age string makes that self-evident.
+const DD_STALE_MS = 26 * 60 * 60 * 1000;
 
 // True if at least one KV key with this prefix exists (service wrote recently).
 async function kvHasPrefix(kv, prefix) {
@@ -28,6 +37,39 @@ async function kvHasPrefix(kv, prefix) {
   } catch {
     return false;
   }
+}
+
+// Human-readable age, e.g. "12m ago", "5h ago", "2d ago".
+function relAge(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
+// DD-screen freshness via the dd:meta upload heartbeat (written by upload.js on
+// every cron upload). Falls back to dd:scouts/dd:index presence when no heartbeat
+// exists yet (pre-heartbeat state) so this never regresses below the old check.
+async function ddScreenHealth(kv) {
+  if (!kv) return { status: 'degraded', lastOk: 'no KV' };
+  try {
+    const meta = await kv.get('dd:meta', 'json');
+    if (meta && meta.lastUploadAt) {
+      const ageMs = Date.now() - new Date(meta.lastUploadAt).getTime();
+      if (Number.isFinite(ageMs) && ageMs >= 0) {
+        return {
+          status: ageMs < DD_STALE_MS ? 'ok' : 'degraded',
+          lastOk: relAge(ageMs),
+        };
+      }
+    }
+  } catch { /* fall through to presence check */ }
+  // No usable heartbeat yet — degrade gracefully to the legacy presence signal.
+  const present = (await kvHasPrefix(kv, 'dd:scouts')) || (await kvHasPrefix(kv, 'dd:index'));
+  return present
+    ? { status: 'ok', lastOk: 'recently' }
+    : { status: 'no-data', lastOk: 'no data yet' };
 }
 
 async function pingFinnhub(apiKey) {
@@ -50,8 +92,9 @@ export async function onRequestGet(context) {
   const gemKeyCount = geminiKeys(context.env).length;
 
   // Run all checks in parallel
-  const [fhPing, ...kvResults] = await Promise.all([
+  const [fhPing, ddHealth, ...kvResults] = await Promise.all([
     pingFinnhub(fhKey),
+    ddScreenHealth(kv),
     ...KV_CHECKS.map(({ prefix }) => kvHasPrefix(kv, prefix)),
   ]);
 
@@ -83,9 +126,9 @@ export async function onRequestGet(context) {
     },
     {
       id: 'gh', name: 'GH Actions', scope: 'DD agent runs', endpoint: 'api.github.com',
-      status:  kvMap['gh'] ? 'ok' : 'no-data',
+      status:  ddHealth.status,
       latency: null,
-      lastOk:  kvMap['gh'] ? 'recently' : 'no data yet',
+      lastOk:  ddHealth.lastOk,
     },
     {
       id: 'cf-kv', name: 'CF KV', scope: 'Portfolio store', endpoint: 'kv.cloudflare.com',

@@ -154,6 +154,22 @@ export async function onRequestPost(context) {
 
   await purgeCdnCache(context.request, written);
 
+  // Heartbeat: record when the screen last uploaded. This is the ONLY reliable
+  // signal that the daily cron actually ran — stale dd:scouts/dd:index keys
+  // persist indefinitely, so /api/health can't tell a dead cron from a live one
+  // by key presence alone. Written AFTER purge (health reads KV directly, so it
+  // needs no cache invalidation) and never fails the upload.
+  try {
+    await context.env.DD_KV.put("dd:meta", JSON.stringify({
+      lastUploadAt: new Date().toISOString(),
+      keysWritten:  written.length,
+      ok:           failed.length === 0,
+    }));
+    written.push("dd:meta");
+  } catch (e) {
+    failed.push({ key: "dd:meta", error: e.message });
+  }
+
   return Response.json({
     ok: failed.length === 0,
     written,
