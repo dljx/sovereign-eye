@@ -39,10 +39,14 @@ export function salvageArray(str) {
  */
 export async function postNewsArchive(env, rows) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return;
-  const valid = (rows || []).filter(r => r && r.headline);
+  // ticker '' (not null) for MACRO rows — NULLs are distinct in Postgres, so the
+  // (ticker, headline) unique constraint only dedupes when ticker is non-null.
+  const valid = (rows || [])
+    .filter(r => r && r.headline)
+    .map(r => ({ ...r, ticker: r.ticker ?? "" }));
   if (!valid.length) return;
   try {
-    await fetch(`${env.SUPABASE_URL}/rest/v1/news_archive`, {
+    await fetch(`${env.SUPABASE_URL}/rest/v1/news_archive?on_conflict=ticker,headline`, {
       method: "POST",
       headers: {
         apikey: env.SUPABASE_SERVICE_KEY,

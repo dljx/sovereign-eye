@@ -86,15 +86,32 @@ async function pingFinnhub(apiKey) {
   }
 }
 
+// Live Supabase ping — a paused/broken project was invisible for weeks because
+// every caller fails silent by design. One cheap HEAD-equivalent REST read.
+async function pingSupabase(env) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return { ok: false, latency: null, configured: false };
+  const t0 = Date.now();
+  try {
+    const r = await fetch(`${env.SUPABASE_URL}/rest/v1/dd_history?select=id&limit=1`, {
+      headers: { apikey: env.SUPABASE_SERVICE_KEY },
+      signal: AbortSignal.timeout(4000),
+    });
+    return { ok: r.ok, latency: Date.now() - t0, configured: true };
+  } catch {
+    return { ok: false, latency: null, configured: true };
+  }
+}
+
 export async function onRequestGet(context) {
   const kv      = context.env.DD_KV;
   const fhKey   = (context.env.FINNHUB_API_KEY || '').trim();
   const gemKeyCount = geminiKeys(context.env).length;
 
   // Run all checks in parallel
-  const [fhPing, ddHealth, ...kvResults] = await Promise.all([
+  const [fhPing, ddHealth, sbPing, ...kvResults] = await Promise.all([
     pingFinnhub(fhKey),
     ddScreenHealth(kv),
+    pingSupabase(context.env),
     ...KV_CHECKS.map(({ prefix }) => kvHasPrefix(kv, prefix)),
   ]);
 
@@ -135,6 +152,12 @@ export async function onRequestGet(context) {
       status:  kv ? 'ok' : 'degraded',
       latency: null,
       lastOk:  kv ? 'just now' : 'never',
+    },
+    {
+      id: 'supabase', name: 'Supabase', scope: 'History archives', endpoint: 'supabase.co',
+      status:  sbPing.ok ? 'ok' : (sbPing.configured ? 'degraded' : 'no-data'),
+      latency: sbPing.latency,
+      lastOk:  sbPing.ok ? 'just now' : (sbPing.configured ? 'unreachable' : 'not configured'),
     },
     {
       id: 'sec', name: 'SEC EDGAR', scope: 'Filings', endpoint: 'data.sec.gov',

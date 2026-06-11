@@ -147,6 +147,7 @@ export async function onRequestPost(context) {
   for (const [field, kvKey] of [
     ["scout_history",  "scout:history"],
     ["scout_notified", "scout:notified"],
+    ["gems_history",   "gems:history"],
   ]) {
     const data = body[field];
     if (data && typeof data === "object" && Object.keys(data).length > 0) {
