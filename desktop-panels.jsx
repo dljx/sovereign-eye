@@ -2,9 +2,26 @@
    fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
    POSITIONS, QUOTES, SYNTHESIS, SEC_FILINGS,
    DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals, API_HEALTH,
-   _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry */
+   _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry, RRChip */
 (function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+// Hold-mode label translation. The sovereign-dd portfolio screen now runs in
+// hold-mode (mode === 'hold' on the dd payload) and emits the ADD/HOLD/TRIM/EXIT
+// ladder directly in consensus_grade. We re-derive from the score so the
+// dashboard stays correct even on older payloads that still carry BUY/SELL.
+function holdLabel(score) {
+  const s = Number(score);
+  if (!isFinite(s)) return 'HOLD';
+  if (s >= 7.0) return 'ADD';
+  if (s >= 5.5) return 'HOLD';
+  if (s >= 3.5) return 'TRIM';
+  return 'EXIT';
+}
+function gradeForResult(d) {
+  if (d && d.mode === 'hold') return holdLabel(d.consensus_score ?? d.score);
+  return (d?.consensus_grade ?? d?.grade ?? 'HOLD').toString().trim();
+}
 
 // =============================================================
 // HOLDINGS PANEL
@@ -612,8 +629,8 @@ function DDTrendChart({ rows, currentPrice }) {
 
   const gradeColor = g => {
     const gl = (g || '').toLowerCase();
-    if (gl.includes('buy')) return '#a78bfa';
-    if (gl.includes('sell')) return '#f87171';
+    if (gl.includes('buy') || gl === 'add') return '#a78bfa';
+    if (gl.includes('sell') || gl === 'exit' || gl === 'trim') return '#f87171';
     return '#6b7280';
   };
 
@@ -957,6 +974,8 @@ function ScoutPanel({ onPick }) {
             position: s.position_guidance || null,
             banger: s.banger || null,
             cycle: s.cycle_position || null,
+            rr: s.rr ?? null,
+            risk: s.risk || null,
             analyzedAt: s.analyzed_at || '',
           }));
           setCards(norm);
@@ -1015,6 +1034,7 @@ function ScoutPanel({ onPick }) {
                 <div className="scout-grade">{s.grade}</div>
                 <div className="scout-rationale">{s.rationale}</div>
                 <div className="scout-chips">
+                  {s.rr != null && <span className="chip rr">R/R {(+s.rr).toFixed(1)}</span>}
                   {(s.filters || []).map((f, j) => (
                     <span className={`chip ${j === s.filters.length - 1 ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>
                   ))}
@@ -1183,10 +1203,11 @@ function ScoutDDModal({ scout, onClose }) {
             )}
           </div>
 
-          {(scout.asymmetry || pos || cycle) && (
+          {(scout.asymmetry || pos || cycle || scout.rr != null) && (
             <div className="dd-section">
               <div className="dd-section-label">Setup</div>
               <div className="dd-thesis" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
+                {scout.rr != null && <span><b>R/R:</b> {(+scout.rr).toFixed(1)}:1{scout.risk ? ` (${scout.risk} risk)` : ''}</span>}
                 {scout.asymmetry && <span><b>Asymmetry:</b> {scout.asymmetry}</span>}
                 {pos && pos.range && <span><b>Position:</b> {pos.range}{pos.reasoning ? ` — ${pos.reasoning}` : ''}</span>}
                 {cycle && <span><b>Cycle:</b> {cycle.regime ? `${cycle.regime} — ` : ''}{cycle.phase}</span>}
@@ -1266,13 +1287,17 @@ function HoldingDDModal({ ticker, onClose }) {
                 <div style={{ flex: 1 }} />
                 <div style={{ textAlign: 'right' }}>
                   <div className="dd-score">{Number(data.consensus_score).toFixed(1)}<span className="denom"> / 10</span></div>
-                  <div className={`dd-grade ${gradeClass(data.consensus_grade)}`}>{data.consensus_grade}</div>
+                  {(() => {
+                    const lbl = gradeForResult(data);
+                    return <div className={`dd-grade ${gradeClass(lbl)}`}>{lbl}</div>;
+                  })()}
                 </div>
               </div>
 
               <div className="dd-chips">
                 {data.entry_assessment && <span className="dd-chip">Entry: {String(data.entry_assessment).replace(/_/g, ' ')}</span>}
                 {data.fair_value_composite != null && <span className="dd-chip">Fair value: ${data.fair_value_composite}</span>}
+                <RRChip rr={data.risk_reward} />
                 {data.asymmetry_ratio && <span className="dd-chip">Asymmetry: {data.asymmetry_ratio}</span>}
                 {data.moat_composite != null && <span className="dd-chip">Moat: {data.moat_composite}/10</span>}
                 {data.position_guidance?.range && <span className="dd-chip">Size: {data.position_guidance.range}</span>}

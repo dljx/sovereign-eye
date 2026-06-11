@@ -970,6 +970,10 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 .dd-grade.buy { color: var(--pos); background: var(--pos-dim); border: 1px solid var(--pos); }
 .dd-grade.hold { color: var(--warn); background: var(--warn-dim); border: 1px solid var(--warn); }
 .dd-grade.sell { color: var(--neg); background: var(--neg-dim); border: 1px solid var(--neg); }
+/* Hold-mode labels (portfolio screen). HOLD reuses the existing yellow style above. */
+.dd-grade.add { color: var(--pos); background: var(--pos-dim); border: 1px solid var(--pos); }
+.dd-grade.trim { color: #f59e0b; background: rgba(245, 158, 11, 0.12); border: 1px solid #f59e0b; }
+.dd-grade.exit { color: var(--neg); background: var(--neg-dim); border: 1px solid var(--neg); }
 .dd-conf {
   font-family: var(--mono);
   font-size: 10px;
@@ -1053,6 +1057,10 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
   border: 1px solid var(--border-1); padding: 3px 8px; border-radius: 3px;
 }
 .dd-chip-hot { color: var(--acc); border-color: var(--acc); background: rgba(99,102,241,.12); font-weight: 600; }
+/* Quantified risk/reward quadrant chips */
+.dd-chip.rr-good  { color: var(--pos); border-color: var(--pos); background: rgba(74,222,128,.10); font-weight: 600; }
+.dd-chip.rr-mixed { color: var(--warn); border-color: var(--warn); background: rgba(251,191,36,.10); }
+.dd-chip.rr-bad   { color: var(--neg); border-color: var(--neg); background: rgba(248,113,113,.10); font-weight: 600; }
 
 /* DD debate transcript */
 .dd-transcript-toggle { cursor: pointer; user-select: none; }
@@ -1159,6 +1167,7 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
   text-transform: uppercase;
 }
 .chip.acc { color: var(--acc); background: var(--acc-dim); }
+.chip.rr { color: var(--pos); background: rgba(74,222,128,.10); }
 .scout-meta {
   display: flex;
   justify-content: space-between;

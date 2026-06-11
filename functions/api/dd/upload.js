@@ -60,10 +60,17 @@ export async function onRequestPost(context) {
     }
   }
 
-  // Write master index
-  if (index && typeof index === "object") {
+  // Merge into the master index (never replace wholesale — a scout-only run
+  // POSTs an empty {} index and a manual single-ticker run POSTs one entry;
+  // either would otherwise wipe the portfolio's entries).
+  if (index && typeof index === "object" && Object.keys(index).length > 0) {
     try {
-      await context.env.DD_KV.put("dd:index", JSON.stringify(index));
+      let existing = {};
+      const raw = await context.env.DD_KV.get("dd:index");
+      if (raw) {
+        try { existing = JSON.parse(raw) || {}; } catch {}
+      }
+      await context.env.DD_KV.put("dd:index", JSON.stringify({ ...existing, ...index }));
       written.push("dd:index");
     } catch (e) {
       failed.push({ key: "dd:index", error: e.message });

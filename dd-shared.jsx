@@ -61,5 +61,18 @@ function DDTranscriptEntry({ t }) {
   );
 }
 
-Object.assign(window, { _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry });
+// Quantified risk/reward chip (results may predate the rr layer → render nothing).
+function RRChip({ rr }) {
+  if (!rr || !rr.applied || rr.rr_ratio == null) return null;
+  const cls = rr.quadrant === 'LOW_RISK_HIGH_REWARD' ? 'rr-good'
+    : rr.quadrant === 'HIGH_RISK_LOW_REWARD' ? 'rr-bad'
+    : 'rr-mixed';
+  return (
+    <span className={`dd-chip ${cls}`}>
+      R/R {(+rr.rr_ratio).toFixed(1)}:1 · {rr.risk_tier || '?'} RISK
+    </span>
+  );
+}
+
+Object.assign(window, { _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry, RRChip });
 })();
