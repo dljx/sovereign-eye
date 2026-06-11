@@ -16,18 +16,21 @@ export async function onRequestGet(context) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [historyRaw, notifiedRaw, gemsRaw] = await Promise.all([
+  const [historyRaw, notifiedRaw, gemsRaw, seenRaw] = await Promise.all([
     context.env.DD_KV.get("scout:history"),
     context.env.DD_KV.get("scout:notified"),
     context.env.DD_KV.get("gems:history"),
+    context.env.DD_KV.get("scout:seen"),
   ]);
 
   let history  = {};
   let notified = {};
   let gems     = {};
+  let seen     = {};
   try { if (historyRaw)  history  = JSON.parse(historyRaw);  } catch {}
   try { if (notifiedRaw) notified = JSON.parse(notifiedRaw); } catch {}
   try { if (gemsRaw)     gems     = JSON.parse(gemsRaw);     } catch {}
+  try { if (seenRaw)     seen     = JSON.parse(seenRaw);     } catch {}
 
-  return Response.json({ history, notified, gems });
+  return Response.json({ history, notified, gems, seen });
 }
