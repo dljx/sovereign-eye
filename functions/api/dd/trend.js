@@ -14,7 +14,7 @@ export async function onRequestGet(context) {
   const ticker = (url.searchParams.get('ticker') || '').toUpperCase().trim();
   const limit  = Math.min(parseInt(url.searchParams.get('limit') || '30', 10), 90);
 
-  if (!ticker || !/^[A-Z]{1,10}$/.test(ticker)) {
+  if (!ticker || !/^[A-Z0-9.\-]{1,10}$/.test(ticker)) {
     return Response.json({ error: 'ticker required' }, { status: 400 });
   }
 
