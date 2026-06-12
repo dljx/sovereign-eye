@@ -9,7 +9,7 @@
 import { geminiFetch, geminiKeys } from "./_gemini.js";
 import { timeAgo, postNewsArchive } from "./_util.js";
 
-const CACHE_VERSION = "wire:feed:v7";
+const CACHE_VERSION = "wire:feed:v8";
 const CACHE_TTL_MS = 20 * 60 * 1000;
 
 function cacheKey(tickers) {
@@ -122,6 +122,26 @@ async function fetchTavilyItems(tickers, keys) {
   return raw;
 }
 
+// Keyword-based scoring used both as fallback and to sanity-check Gemma output.
+function heuristicScore(headline) {
+  const h = headline.toLowerCase();
+  if (/earnings|beat|miss|revenue|guidance|raised guidance|lowered guidance|eps/.test(h)) return 84;
+  if (/analyst|upgrade|downgrade|price target|overweight|underweight|outperform/.test(h)) return 74;
+  if (/merger|acquisition|buyout|takeover|ipo|buyback|dividend/.test(h)) return 70;
+  if (/ceo|cfo|chief executive|exec.*resign|exec.*appoint/.test(h)) return 66;
+  if (/federal reserve|interest rate|inflation|cpi|gdp|jobs report|nonfarm/.test(h)) return 62;
+  if (/regulation|lawsuit|investigation|fine|penalty|probe|sec\b/.test(h)) return 60;
+  if (/product launch|partnership|contract|deal worth/.test(h)) return 52;
+  return 36;
+}
+
+function heuristicSentiment(headline) {
+  const h = headline.toLowerCase();
+  if (/beats?|exceeds?|surges?|soars?|jumps?|raises? (guidance|outlook|forecast)|upgraded|record (high|revenue|profit)|strong (earnings|results)|growth/.test(h)) return 'bull';
+  if (/misses?|falls?|drops?|cuts? (guidance|forecast|jobs)|downgrades?|loss|decline|concern|weak|slump|layoff|below (estimates?|expectations?)/.test(h)) return 'bear';
+  return 'neutral';
+}
+
 async function filterWithGemma(rawItems, tickers, env) {
   if (rawItems.length === 0) return [];
 
@@ -152,7 +172,7 @@ For each item you keep:
     routine / low signal                  → 10–39
 - "why": ≤10 word phrase — the single most investor-relevant fact
 
-Return ONLY a JSON array (no markdown, no explanation). If nothing qualifies, return [].
+Return ONLY a valid JSON array. No markdown fences, no explanation before or after. If nothing qualifies, return [].
 
 Headlines to evaluate:
 ${numbered}`;
@@ -166,9 +186,14 @@ ${numbered}`;
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
-    const jsonStr = raw.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-    const parsed = JSON.parse(jsonStr);
+
+    // Extract JSON array robustly — works even if Gemma adds preamble/postamble text
+    // or wraps in markdown code fences. Greedily match from first [ to last ].
+    const arrayMatch = raw.match(/\[[\s\S]*\]/);
+    if (!arrayMatch) return null;
+    const parsed = JSON.parse(arrayMatch[0]);
     if (!Array.isArray(parsed)) return null;
+
     // Merge back the source/ago from the original items by matching headline prefix
     return parsed.map(item => {
       // Match by source (Gemma preserves it) + hint. Headline prefix is unreliable
@@ -178,15 +203,23 @@ ${numbered}`;
           (r.hint === item.ticker_or_sector || r.hint === "MACRO")
         ) || rawItems.find(r => r.source?.toLowerCase() === (item.source || "").toLowerCase())
           || rawItems.find(r => r.hint === item.ticker_or_sector || r.hint === "MACRO");
+
+      const headline = (item.headline || "").slice(0, 110);
+      // Use Gemma's score if it's a real value; fall back to heuristic if Gemma skipped it
+      const rawScore = parseInt(item.importance, 10);
+      const importance = !isNaN(rawScore) ? Math.min(100, Math.max(0, rawScore)) : heuristicScore(headline);
+      const sentRaw = (item.sentiment || "").toLowerCase();
+      const sentiment = ['bull','bear','neutral'].includes(sentRaw) ? sentRaw : heuristicSentiment(headline);
+
       return {
         tag: item.tag || "TICKER",
         ticker_or_sector: item.ticker_or_sector || "—",
         source: orig?.source || "—",
         ago: orig?.ago || "?",
         datetime: orig?.datetime || 0,
-        headline: (item.headline || "").slice(0, 110),
-        sentiment: (['bull','bear','neutral'].includes((item.sentiment||'').toLowerCase()) ? (item.sentiment||'').toLowerCase() : 'neutral'),
-        importance: (() => { const v = parseInt(item.importance, 10); return isNaN(v) ? 50 : Math.min(100, Math.max(0, v)); })(),
+        headline,
+        sentiment,
+        importance,
         why: (item.why || "").slice(0, 80),
         url: orig?.url || null,
       };
@@ -260,20 +293,28 @@ export async function onRequestGet(context) {
   // Run Gemma editorial filter
   let items = hasGemini ? await filterWithGemma(allRaw, tickers, context.env) : null;
 
-  // Fallback: basic keyword filter if Gemma fails
+  // Fallback: keyword filter + heuristic scoring when Gemma is unavailable
   if (!items) {
     const NOISE = /stock price|quote|buy or sell|market data|at a glance|weekly recap|week that was|today.*dow.*nasdaq|live updates/i;
     items = allRaw
       .filter(r => !NOISE.test(r.headline))
-      .slice(0, 8)
-      .map(r => ({
-        tag: r.hint === "MACRO" ? "MACRO" : "TICKER",
-        ticker_or_sector: r.hint,
-        source: r.source,
-        ago: r.ago,
-        headline: r.headline.slice(0, 110),
-        severity: "info",
-      }));
+      .slice(0, 12)
+      .map(r => {
+        const headline = r.headline.slice(0, 110);
+        return {
+          tag: r.hint === "MACRO" ? "MACRO" : "TICKER",
+          ticker_or_sector: r.hint,
+          source: r.source,
+          ago: r.ago,
+          datetime: r.datetime || 0,
+          headline,
+          importance: heuristicScore(headline),
+          sentiment: heuristicSentiment(headline),
+          why: "",
+          url: r.url || null,
+        };
+      })
+      .sort((a, b) => b.importance - a.importance);
   }
 
   // Cache result

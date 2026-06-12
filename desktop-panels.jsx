@@ -267,8 +267,8 @@ function applyNewsFilters(items, period, sortMode) {
     : [...filtered].sort((a, b) => b._ts - a._ts);
 }
 
-const _mapPortfolioItem = d => ({ tk: d.tk||d.ticker, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' });
-const _mapWireItem      = d => ({ tk: d.tk||d.ticker_or_sector, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: d.macro!==false && d.tag!=='TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' });
+const _mapPortfolioItem = d => ({ tk: d.tk||d.ticker, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' });
+const _mapWireItem      = d => ({ tk: d.tk||d.ticker_or_sector, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: d.macro!==false && d.tag!=='TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' });
 
 function NewsPanel() {
   const [tab, setTab]               = useState('portfolio');
@@ -302,7 +302,7 @@ function NewsPanel() {
 
       // Restore from localStorage immediately
       const hadP = restoreLS(`se:news:v3:${qs}`, _mapPortfolioItem, setLivePortfolio);
-      const hadW = restoreLS(`se:wire:v3:${qs}`, _mapWireItem, setLiveWire);
+      const hadW = restoreLS(`se:wire:v4:${qs}`, _mapWireItem, setLiveWire);
       if (hadP || hadW) setSrc('cached');
 
       // The news API scores tickers progressively (a few per request) and returns
@@ -314,20 +314,20 @@ function NewsPanel() {
         const newsP = fetch(`/api/news?tickers=${qs}&v=15`)
           .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
           .catch(() => ({ items: null, status: null }));
-        const wireP = fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null);
+        const wireP = fetch(`/api/wire?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null);
         Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
           const news = newsRes.items;
           if (Array.isArray(news) && news.length) {
-            const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+            const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' }));
             setLivePortfolio(mapped);
             try { localStorage.setItem(`se:news:v3:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
           if (Array.isArray(wire) && wire.length) {
-            const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+            const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime??0, sentiment: d.sentiment??'neutral' }));
             setLiveWire(mapped);
-            try { localStorage.setItem(`se:wire:v3:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
+            try { localStorage.setItem(`se:wire:v4:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(wire)) {
             setLiveWire([]);
           }

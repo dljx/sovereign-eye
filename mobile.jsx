@@ -520,7 +520,7 @@ function MobileIntel() {
       if (!tickers.length) return;
       const qs = tickers.join(',');
       const hadP = restoreLS(`se:news:v3:${qs}`, setLivePortfolio);
-      const hadW = restoreLS(`se:wire:v3:${qs}`, setLiveWire);
+      const hadW = restoreLS(`se:wire:v4:${qs}`, setLiveWire);
       if (hadP || hadW) setNewsSrc('cached');
       let scoreAttempts = 0;
       const load = (isRescore) => {
@@ -528,20 +528,20 @@ function MobileIntel() {
         const newsP = fetch(`/api/news?tickers=${qs}&v=15`)
           .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
           .catch(() => ({ items: null, status: null }));
-        const wireP = fetch(`/api/wire?tickers=${qs}&v=7`).then(r => r.ok ? r.json() : null).catch(() => null);
+        const wireP = fetch(`/api/wire?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null);
         Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
           const news = newsRes.items;
           if (Array.isArray(news) && news.length) {
-            const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+            const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' }));
             setLivePortfolio(m);
             try { localStorage.setItem(`se:news:v3:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
           if (Array.isArray(wire) && wire.length) {
-            const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance||50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment||'neutral' }));
+            const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' }));
             setLiveWire(m);
-            try { localStorage.setItem(`se:wire:v3:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+            try { localStorage.setItem(`se:wire:v4:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(wire)) {
             setLiveWire([]);
           }
