@@ -117,7 +117,7 @@ function MobileDDModal({ ticker, fallbackScout, onClose }) {
 
   useEffect(() => {
     if (!ticker) return;
-    setState('loading'); setData(null); setShowTranscript(false);
+    setState('loading'); setData(null);
     let cancelled = false;
     fetch(`/api/dd/${ticker.toLowerCase()}`)
       .then(r => r.status === 404 ? { __empty: true } : (r.ok ? r.json() : Promise.reject()))
@@ -139,7 +139,7 @@ function MobileDDModal({ ticker, fallbackScout, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal modal-lg" onClick={e => e.stopPropagation()} style={{ maxHeight: '90dvh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <Icon name="research" size={16} />
           <div className="modal-title">Sovereign DD — {ticker}</div>
@@ -882,9 +882,9 @@ function MobileDetail({ initialTicker }) {
             const designName = _AGENT_NAME_MAP[agentId] || agentId;
             const text = ev.text || ev.message || ev.content || '';
             if (ev.type === 'CONSENSUS' || ev.type === 'DOSSIER_START' || ev.type === 'START') {
-              if (text) setLog(L => [...L, { who: 'SYSTEM', text, dim: true }]);
+              if (text) setLog(L => [...L, { who: 'SYSTEM', text, dim: true }].slice(-100));
             } else if (designName && _AGENT_KINDS[designName]) {
-              if (text) setLog(L => [...L, { who: designName, text }]);
+              if (text) setLog(L => [...L, { who: designName, text }].slice(-100));
               setAgentStates(s => ({ ...s, [designName]: 'thinking' }));
             } else if (ev.type === 'R3_DELTA' || ev.type === 'FETCH_DONE') {
               Object.keys(_AGENT_KINDS).forEach(n =>

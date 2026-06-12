@@ -11,7 +11,8 @@
 /* Phone shell — full viewport on real device */
 .m-app {
   position: relative;
-  width: 100vw;
+  width: 100%;
+  max-width: 100vw;
   height: 100dvh;
   background: var(--bg-0);
   display: grid;
@@ -99,7 +100,7 @@ button { font-family: inherit; cursor: pointer; }
 }
 .m-stat { padding: 12px 14px; border-right: 1px solid var(--line); }
 .m-stat:last-child { border-right: none; }
-.m-stat-lbl { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.12em; color: var(--fg-3); }
+.m-stat-lbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em; color: var(--fg-3); }
 .m-stat-val { font-family: var(--mono); font-size: 16px; color: var(--fg-0); margin-top: 4px; font-weight: 500; }
 
 /* Sections */
@@ -310,7 +311,7 @@ button { font-family: inherit; cursor: pointer; }
   text-align: center; padding: 18px;
 }
 .m-beta-val { font-family: var(--mono); font-size: 36px; color: var(--fg-0); }
-.m-beta-lbl { font-family: var(--mono); font-size: 10px; color: var(--fg-3); letter-spacing: 0.12em; margin-top: 6px; }
+.m-beta-lbl { font-family: var(--mono); font-size: 11px; color: var(--fg-3); letter-spacing: 0.06em; margin-top: 6px; }
 
 /* Storage sync badge */
 .m-sync-badge {
@@ -328,17 +329,27 @@ button { font-family: inherit; cursor: pointer; }
 }
 .m-tab {
   background: transparent; border: none; color: var(--fg-3);
-  padding: 10px 0 8px;
+  padding: 12px 0 10px;
+  min-height: 44px;
   display: flex; flex-direction: column; align-items: center; gap: 3px;
   border-top: 2px solid transparent;
   border-radius: 0 !important;
 }
 .m-tab.on { color: var(--fg-0); border-top-color: var(--fg-0); }
 .m-tab-ic { font-size: 18px; line-height: 1; }
-.m-tab-lbl { font-family: var(--mono); font-size: 9px; letter-spacing: 0.1em; }
+.m-tab-lbl { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; }
 
 /* Empty state */
 .m-empty {
   padding: 40px 20px; text-align: center;
   font-family: var(--mono); font-size: 11px; color: var(--fg-3);
+}
+
+/* Mobile touch target overrides — shared filter/sort buttons need 44px tap area */
+.news-filter-btn,
+.news-sort-btn {
+  padding: 10px 10px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
 }

@@ -70,7 +70,7 @@ function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, on
           <Sort k="qty">Qty</Sort>
           <Sort k="avg">Avg</Sort>
           <Sort k="px">Last</Sort>
-          <Sort k="dPct">Day%</Sort>
+          <Sort k="dPct" title="Today's price change — not your total return">Today%</Sort>
           <th>Spark</th>
           <Sort k="mv">Value</Sort>
           <Sort k="upnlPct">U/PnL%</Sort>
@@ -687,7 +687,7 @@ function DDPanel({ onTickerSelect }) {
   const logRef = useRef(null);
 
   const stopAll = useCallback(() => {
-    if (pollRef.current)    { clearInterval(pollRef.current);    pollRef.current = null; }
+    if (pollRef.current)    { clearTimeout(pollRef.current);     pollRef.current = null; }
     if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null; }
     if (livePollRef.current){ clearInterval(livePollRef.current); livePollRef.current = null; }
   }, []);
@@ -722,24 +722,37 @@ function DDPanel({ onTickerSelect }) {
       });
     } catch { /* trigger may fail; still poll */ }
 
+    let pollFailCount = 0;
+    let pollDelay = 15_000;
+    const scheduleNextPoll = () => {
+      pollRef.current = setTimeout(doPoll, pollDelay);
+    };
     const doPoll = async () => {
       try {
         const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
         if (r.ok) {
+          pollFailCount = 0;
+          pollDelay = 15_000;
           const data = await r.json();
           const d = data?.result || data;
           if (data && (d.consensus_score != null || d.score != null)) {
             stopAll();
             const mapped = _mapDDResult(data);
-            if (mapped) { setResult(mapped); setState('result'); }
+            if (mapped) { setResult(mapped); setState('result'); return; }
           }
+        } else {
+          pollFailCount++;
+          pollDelay = Math.min(15_000 * Math.pow(2, pollFailCount), 5 * 60_000);
         }
-      } catch {}
+      } catch {
+        pollFailCount++;
+        pollDelay = Math.min(15_000 * Math.pow(2, pollFailCount), 5 * 60_000);
+      }
+      scheduleNextPoll();
     };
 
     setTimeout(() => {
       doPoll();
-      pollRef.current = setInterval(doPoll, 15_000);
     }, 5_000);
 
     const doLivePoll = async () => {

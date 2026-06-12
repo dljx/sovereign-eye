@@ -9,12 +9,17 @@
 import { geminiFetch, geminiKeys } from "./_gemini.js";
 import { timeAgo, postNewsArchive } from "./_util.js";
 
-const CACHE_KEY = "wire:feed:v7";
+const CACHE_VERSION = "wire:feed:v7";
 const CACHE_TTL_MS = 20 * 60 * 1000;
+
+function cacheKey(tickers) {
+  return `${CACHE_VERSION}:${tickers.slice().sort().join(',')}`;
+}
 
 async function fetchFinnhubGeneralNews(apiKey) {
   try {
-    const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${apiKey}`);
+    const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${apiKey}`,
+      { signal: AbortSignal.timeout(6000) });
     if (!res.ok) return [];
     const data = await res.json();
     if (!Array.isArray(data)) return [];
@@ -214,22 +219,23 @@ export async function onRequestGet(context) {
   const hasGemini = geminiKeys(context.env).length > 0;
 
   // Workers edge cache (URL-only key — auth already validated by middleware)
-  const cacheKey = new Request(url.toString());
+  const edgeCacheKey = new Request(url.toString());
   const cache = caches.default;
-  const edgeCached = await cache.match(cacheKey);
+  const edgeCached = await cache.match(edgeCacheKey);
   if (edgeCached) return edgeCached;
 
   // Check KV cache
+  const kvKey = cacheKey(tickers);
   if (context.env.DD_KV) {
     try {
-      const cached = await context.env.DD_KV.get(CACHE_KEY, "json");
+      const cached = await context.env.DD_KV.get(kvKey, "json");
       if (cached?.items && cached.updatedAt) {
         const age = Date.now() - new Date(cached.updatedAt).getTime();
         if (age < CACHE_TTL_MS) {
           const kvHit = new Response(JSON.stringify(cached.items), {
             headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=600, stale-while-revalidate=180" },
           });
-          context.waitUntil(cache.put(cacheKey, kvHit.clone()));
+          context.waitUntil(cache.put(edgeCacheKey,kvHit.clone()));
           return kvHit;
         }
       }
@@ -273,14 +279,14 @@ export async function onRequestGet(context) {
   // Cache result
   if (context.env.DD_KV && items.length > 0) {
     try {
-      await context.env.DD_KV.put(CACHE_KEY, JSON.stringify({ items, updatedAt: new Date().toISOString() }), { expirationTtl: 3600 });
+      await context.env.DD_KV.put(kvKey, JSON.stringify({ items, updatedAt: new Date().toISOString() }), { expirationTtl: 3600 });
     } catch {}
   }
 
   const freshResponse = new Response(JSON.stringify(items), {
     headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=600, stale-while-revalidate=180" },
   });
-  context.waitUntil(cache.put(cacheKey, freshResponse.clone()));
+  context.waitUntil(cache.put(edgeCacheKey,freshResponse.clone()));
   context.waitUntil(archiveToSupabase(context.env, items));
   return freshResponse;
 }

@@ -40,11 +40,19 @@ function getRefreshMs(session) {
 // SGD RATE HOOK
 // =============================================================
 function useSGD() {
-  const [rate, setRate] = useState(1.35);
+  const [rate, setRate] = useState(() => {
+    const stored = parseFloat(localStorage.getItem('sgd_rate') || '');
+    return isFinite(stored) && stored > 0 ? stored : 1.35;
+  });
   useEffect(() => {
     fetch('/api/sgd-rate')
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.rate) setRate(d.rate); })
+      .then(d => {
+        if (d?.rate) {
+          setRate(d.rate);
+          localStorage.setItem('sgd_rate', String(d.rate));
+        }
+      })
       .catch(() => {});
   }, []);
   return rate;
@@ -199,9 +207,9 @@ function Header({ totals, onImport, onToggleMobile, mobileOpen, route, onRoute, 
 
       <div className="header-spacer" />
 
-      <div className="header-search">
+      <div className="header-search" title="Ticker search — coming soon" style={{ opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
         <Icon name="search" size={13} />
-        <input placeholder="symbol or command…" />
+        <input placeholder="symbol or command…" readOnly tabIndex={-1} />
         <span className="header-search-kbd">⌘K</span>
       </div>
 
@@ -215,7 +223,7 @@ function Header({ totals, onImport, onToggleMobile, mobileOpen, route, onRoute, 
       <button className="btn" onClick={onImport} title="Import portfolio from screenshot">
         <Icon name="upload" size={12} /> Import
       </button>
-      <button className="btn-icon" title="Notifications"><Icon name="bell" size={14} /></button>
+      <button className="btn-icon" title="Notifications — coming soon" disabled style={{ opacity: 0.4 }}><Icon name="bell" size={14} /></button>
       <button
         className="btn-icon"
         onClick={onToggleMobile}

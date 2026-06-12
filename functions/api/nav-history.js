@@ -47,7 +47,7 @@ export async function onRequestGet(context) {
     const quotes = {};
     await Promise.all(
       allSyms.map(sym =>
-        fetch(qUrl.replace('PLACEHOLDER', sym))
+        fetch(qUrl.replace('PLACEHOLDER', sym), { signal: AbortSignal.timeout(5000) })
           .then(r => r.ok ? r.json() : null)
           .then(q => { if (q?.c) quotes[sym] = q.c; })
           .catch(() => {})
@@ -62,21 +62,21 @@ export async function onRequestGet(context) {
     const spyClose = quotes['SPY'];
 
     if (portfolioNav > 0 && spyClose) {
-      // Re-read immediately before writing to narrow the read-modify-write race
-      // (two same-day GETs both appending), then dedupe by date so a concurrent
-      // writer can't leave two snapshots for `today`.
+      // Re-read immediately before writing to narrow the race window, then
+      // always dedup by date so concurrent writers can't leave duplicate rows.
       try {
         const latest = await kv.get(SNAP_KEY, 'json');
         if (Array.isArray(latest)) snaps = latest;
       } catch (_) {}
-      const haveToday = snaps.length > 0 && snaps[snaps.length - 1].date === today;
-      if (!haveToday) {
-        snaps.push({ date: today, nav: portfolioNav, spy: spyClose });
-        if (snaps.length > MAX_SNAPS) snaps = snaps.slice(-MAX_SNAPS);
-        try {
-          await kv.put(SNAP_KEY, JSON.stringify(snaps));
-        } catch (_) {}
-      }
+      snaps.push({ date: today, nav: portfolioNav, spy: spyClose });
+      // Dedup: last writer wins for the same date
+      const byDate = new Map();
+      snaps.forEach(s => byDate.set(s.date, s));
+      snaps = [...byDate.values()];
+      if (snaps.length > MAX_SNAPS) snaps = snaps.slice(-MAX_SNAPS);
+      try {
+        await kv.put(SNAP_KEY, JSON.stringify(snaps));
+      } catch (_) {}
     }
   }
 

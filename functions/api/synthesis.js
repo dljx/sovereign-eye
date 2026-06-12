@@ -12,8 +12,12 @@
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
 
-const CACHE_KEY = "dd:synthesis";
+const CACHE_VERSION = "dd:synthesis";
 const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function cacheKey(tickers) {
+  return `${CACHE_VERSION}:${tickers.slice().sort().join(',')}`;
+}
 
 async function fetchHeadlines(tickers, fhKey) {
   const today = new Date().toISOString().slice(0, 10);
@@ -22,7 +26,8 @@ async function fetchHeadlines(tickers, fhKey) {
 
   // Finnhub general market news
   try {
-    const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${fhKey}`);
+    const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${fhKey}`,
+      { signal: AbortSignal.timeout(6000) });
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data)) {
@@ -38,7 +43,8 @@ async function fetchHeadlines(tickers, fhKey) {
   for (const sym of top) {
     try {
       const res = await fetch(
-        `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${weekAgo}&to=${today}&token=${fhKey}`
+        `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${weekAgo}&to=${today}&token=${fhKey}`,
+        { signal: AbortSignal.timeout(6000) }
       );
       if (res.ok) {
         const data = await res.json();
@@ -111,22 +117,24 @@ export async function onRequestGet(context) {
   }
 
   // 0. Workers edge cache (URL-only key — auth already validated by middleware)
-  const cacheKey = new Request(url.toString());
+  const edgeCacheKey = new Request(url.toString());
   const cache = caches.default;
-  const edgeCached = await cache.match(cacheKey);
+  const edgeCached = await cache.match(edgeCacheKey);
   if (edgeCached) return edgeCached;
+
+  const kvKey = cacheKey(tickers);
 
   // 1. Try KV cache
   if (context.env.DD_KV) {
     try {
-      const cached = await context.env.DD_KV.get(CACHE_KEY, "json");
+      const cached = await context.env.DD_KV.get(kvKey, "json");
       if (cached && cached.updatedAt) {
         const age = Date.now() - new Date(cached.updatedAt).getTime();
         if (age < CACHE_TTL_MS) {
           const kvHit = new Response(JSON.stringify({ ...cached, cached: true }), {
             headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=1800, stale-while-revalidate=900" },
           });
-          context.waitUntil(cache.put(cacheKey, kvHit.clone()));
+          context.waitUntil(cache.put(edgeCacheKey,kvHit.clone()));
           return kvHit;
         }
       }
@@ -156,13 +164,13 @@ export async function onRequestGet(context) {
   // 3. Store in KV
   if (context.env.DD_KV) {
     try {
-      await context.env.DD_KV.put(CACHE_KEY, JSON.stringify(result), { expirationTtl: 3600 });
+      await context.env.DD_KV.put(kvKey, JSON.stringify(result), { expirationTtl: 3600 });
     } catch { /* non-fatal */ }
   }
 
   const freshResponse = new Response(JSON.stringify(result), {
     headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=1800, stale-while-revalidate=900" },
   });
-  context.waitUntil(cache.put(cacheKey, freshResponse.clone()));
+  context.waitUntil(cache.put(edgeCacheKey,freshResponse.clone()));
   return freshResponse;
 }

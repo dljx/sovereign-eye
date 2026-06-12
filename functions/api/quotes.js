@@ -12,6 +12,7 @@ async function finnhubQuote(ticker, key) {
   try {
     const r = await fetch(`https://finnhub.io/api/v1/quote?symbol=${ticker}&token=${key}`, {
       headers: { "User-Agent": "sovereign-eye" },
+      signal: AbortSignal.timeout(6000),
     });
     if (!r.ok) return null;
     const q = await r.json();
@@ -25,7 +26,7 @@ async function yahooQuote(ticker) {
   try {
     const r = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" } }
+      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(6000) }
     );
     if (!r.ok) return null;
     const data = await r.json();
@@ -53,7 +54,7 @@ async function fxToUsd(ccy) {
   try {
     const r = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${ccy}USD=X?interval=1d&range=1d`,
-      { headers: { "User-Agent": "Mozilla/5.0" } }
+      { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(6000) }
     );
     if (r.ok) {
       const p = (await r.json())?.chart?.result?.[0]?.meta?.regularMarketPrice;
