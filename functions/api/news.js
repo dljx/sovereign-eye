@@ -12,9 +12,9 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
-import { timeAgo, salvageArray, postNewsArchive } from "./_util.js";
+import { timeAgo, salvageArray, postNewsArchive, heuristicScore, heuristicSentiment } from "./_util.js";
 
-const KEY_PREFIX = "news:tk:v15:";       // per-ticker KV key
+const KEY_PREFIX = "news:tk:v16:";       // per-ticker KV key — bump to evict bad scores
 const TICKER_TTL_MS = 45 * 60 * 1000;    // a ticker's scores are fresh for 45m
 const SCORE_BATCH = 3;                    // tickers scored per request (fits <30s)
 const MAX_TICKERS = 15;
@@ -72,11 +72,15 @@ async function scoreTicker(sym, companyName, items, env) {
   if (!items || !items.length) return [];
   const who = companyName ? `${companyName} (ticker ${sym})` : sym;
   const numbered = items.map((it, i) => `${i + 1}. ${it.headline}`).join("\n");
-  const prompt = `Score news for ${who}. The headlines below come from ${sym}'s news feed, but some may actually be about OTHER companies.
-The ticker ${sym} refers specifically to ${who} — do NOT keep articles about other companies that merely share a similar name or ticker.
-Keep ONLY headlines whose PRIMARY subject is ${who} itself. Drop anything mainly about another company, an ETF, crypto, or a market roundup.
-Output ONLY a JSON array. Each item: {"n":<line number>,"s":"bull|bear|neutral","i":<importance 0-100>,"w":"<why, max 6 words>"}
-importance guide: earnings/guidance 88-98, analyst rating w/ PT 72-85, M&A/exec 70-82, product/regulatory 60-72, general 40-60, routine 10-39.
+  const prompt = `Score news headlines for ${who}. Headlines come from ${sym}'s feed but some may be about other companies.
+Keep ONLY headlines whose PRIMARY subject is ${who} (${sym}). Drop articles about other companies, ETFs, crypto, or market roundups.
+
+Output ONLY a valid JSON array, no markdown, no explanation. Each kept item must have exactly these keys:
+{"line": <1-based line number>, "sentiment": "bull" or "bear" or "neutral", "importance": <integer 0-100>, "why": "<max 6 words>"}
+
+importance scale: earnings beat/miss or guidance change 88-98 | analyst upgrade/downgrade with price target 72-85 | M&A or exec change 70-82 | product launch or regulatory 60-72 | general positive/negative 40-60 | routine low-signal 10-39
+
+Headlines:
 ${numbered}`;
   try {
     const res = await geminiFetch(env, "gemma-4-31b-it:generateContent", {
@@ -89,18 +93,23 @@ ${numbered}`;
     const txt = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
     const scored = salvageArray(txt) || [];
     return scored.map(sc => {
-      const orig = items[(sc.n || 0) - 1];
+      // Accept both full key names (what Gemma actually returns) and short aliases
+      const lineNum = sc.line ?? sc.n ?? sc.number;
+      const orig = items[(lineNum || 0) - 1];
       if (!orig) return null;
-      const imp = parseInt(sc.i, 10);
+      const impRaw = sc.importance ?? sc.i;
+      const imp = parseInt(impRaw, 10);
+      const sentRaw = (sc.sentiment || sc.s || '').toLowerCase();
+      const why = (sc.why || sc.w || '').slice(0, 60);
       return {
         ticker: sym,
         source: orig.source,
         ago: orig.ago,
         datetime: orig.datetime,
         headline: orig.headline,
-        sentiment: ['bull', 'bear', 'neutral'].includes((sc.s || '').toLowerCase()) ? (sc.s || '').toLowerCase() : 'neutral',
-        importance: isNaN(imp) ? 50 : Math.min(100, Math.max(0, imp)),
-        why: (sc.w || '').slice(0, 60),
+        sentiment: ['bull', 'bear', 'neutral'].includes(sentRaw) ? sentRaw : heuristicSentiment(orig.headline),
+        importance: !isNaN(imp) ? Math.min(100, Math.max(0, imp)) : heuristicScore(orig.headline),
+        why,
         url: orig.url,
       };
     }).filter(Boolean);

@@ -2,6 +2,25 @@
  * Shared helpers for the API endpoints. Underscore-prefixed: NOT a route.
  */
 
+export function heuristicScore(headline) {
+  const h = headline.toLowerCase();
+  if (/earnings|beat|miss|revenue|guidance|raised guidance|lowered guidance|eps/.test(h)) return 84;
+  if (/analyst|upgrade|downgrade|price target|overweight|underweight|outperform/.test(h)) return 74;
+  if (/merger|acquisition|buyout|takeover|ipo|buyback|dividend/.test(h)) return 70;
+  if (/ceo|cfo|chief executive|exec.*resign|exec.*appoint/.test(h)) return 66;
+  if (/federal reserve|interest rate|inflation|cpi|gdp|jobs report|nonfarm/.test(h)) return 62;
+  if (/regulation|lawsuit|investigation|fine|penalty|probe|sec\b/.test(h)) return 60;
+  if (/product launch|partnership|contract|deal worth/.test(h)) return 52;
+  return 36;
+}
+
+export function heuristicSentiment(headline) {
+  const h = headline.toLowerCase();
+  if (/beats?|exceeds?|surges?|soars?|jumps?|raises? (guidance|outlook|forecast)|upgraded|record (high|revenue|profit)|strong (earnings|results)|growth/.test(h)) return 'bull';
+  if (/misses?|falls?|drops?|cuts? (guidance|forecast|jobs)|downgrades?|loss|decline|concern|weak|slump|layoff|below (estimates?|expectations?)/.test(h)) return 'bear';
+  return 'neutral';
+}
+
 // Canonical ticker regex — allows exchange suffixes + digits (AAPL, BRK.B, HPQ.V).
 export const TICKER_RE = /^[A-Z0-9.\-]{1,12}$/;
 

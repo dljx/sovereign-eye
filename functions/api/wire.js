@@ -7,7 +7,7 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
-import { timeAgo, postNewsArchive } from "./_util.js";
+import { timeAgo, postNewsArchive, heuristicScore, heuristicSentiment } from "./_util.js";
 
 const CACHE_VERSION = "wire:feed:v8";
 const CACHE_TTL_MS = 20 * 60 * 1000;
@@ -120,26 +120,6 @@ async function fetchTavilyItems(tickers, keys) {
 
   await Promise.all([...tickerQueries, macroQuery]);
   return raw;
-}
-
-// Keyword-based scoring used both as fallback and to sanity-check Gemma output.
-function heuristicScore(headline) {
-  const h = headline.toLowerCase();
-  if (/earnings|beat|miss|revenue|guidance|raised guidance|lowered guidance|eps/.test(h)) return 84;
-  if (/analyst|upgrade|downgrade|price target|overweight|underweight|outperform/.test(h)) return 74;
-  if (/merger|acquisition|buyout|takeover|ipo|buyback|dividend/.test(h)) return 70;
-  if (/ceo|cfo|chief executive|exec.*resign|exec.*appoint/.test(h)) return 66;
-  if (/federal reserve|interest rate|inflation|cpi|gdp|jobs report|nonfarm/.test(h)) return 62;
-  if (/regulation|lawsuit|investigation|fine|penalty|probe|sec\b/.test(h)) return 60;
-  if (/product launch|partnership|contract|deal worth/.test(h)) return 52;
-  return 36;
-}
-
-function heuristicSentiment(headline) {
-  const h = headline.toLowerCase();
-  if (/beats?|exceeds?|surges?|soars?|jumps?|raises? (guidance|outlook|forecast)|upgraded|record (high|revenue|profit)|strong (earnings|results)|growth/.test(h)) return 'bull';
-  if (/misses?|falls?|drops?|cuts? (guidance|forecast|jobs)|downgrades?|loss|decline|concern|weak|slump|layoff|below (estimates?|expectations?)/.test(h)) return 'bear';
-  return 'neutral';
 }
 
 async function filterWithGemma(rawItems, tickers, env) {
