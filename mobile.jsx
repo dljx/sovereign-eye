@@ -519,13 +519,13 @@ function MobileIntel() {
       const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
       if (!tickers.length) return;
       const qs = tickers.join(',');
-      const hadP = restoreLS(`se:news:v3:${qs}`, setLivePortfolio);
+      const hadP = restoreLS(`se:news:v4:${qs}`, setLivePortfolio);
       const hadW = restoreLS(`se:wire:v4:${qs}`, setLiveWire);
       if (hadP || hadW) setNewsSrc('cached');
       let scoreAttempts = 0;
       const load = (isRescore) => {
         if (!isRescore) scoreAttempts = 0;
-        const newsP = fetch(`/api/news?tickers=${qs}&v=15`)
+        const newsP = fetch(`/api/news?tickers=${qs}&v=16`)
           .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
           .catch(() => ({ items: null, status: null }));
         const wireP = fetch(`/api/wire?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null);
@@ -534,8 +534,8 @@ function MobileIntel() {
           if (Array.isArray(news) && news.length) {
             const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLivePortfolio(m);
-            try { localStorage.setItem(`se:news:v3:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
-          } else if (Array.isArray(news)) {
+            try { localStorage.setItem(`se:news:v4:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
+          } else if (Array.isArray(news) && newsRes.status !== 'scoring') {
             setLivePortfolio([]);
           }
           if (Array.isArray(wire) && wire.length) {
@@ -546,10 +546,10 @@ function MobileIntel() {
             setLiveWire([]);
           }
           setNewsSrc('live');
-          if (newsRes.status === 'scoring' && scoreAttempts < 8) {
+          if (newsRes.status === 'scoring' && scoreAttempts < 2) {
             scoreAttempts++;
             if (rescore) clearTimeout(rescore);
-            rescore = setTimeout(() => load(true), 30000);
+            rescore = setTimeout(() => load(true), 60000);
           }
         }).catch(() => setNewsSrc('live'));
       };
