@@ -4,7 +4,8 @@
 //
 //   npm install esbuild --no-save    # once
 //   node build.mjs
-//   wrangler pages deploy dist --project-name=sovereign-eye --branch=<branch>
+//   wrangler pages deploy dist --project-name sovereign-eye --branch main   ← PRODUCTION
+//   wrangler pages deploy dist --project-name sovereign-eye                 ← preview only (master.*)
 //
 // Per-file transform (bundle:false-style): each .jsx stays its own IIFE attaching
 // to window in the same load order — identical runtime model, just precompiled.
