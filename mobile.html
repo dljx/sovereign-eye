@@ -42,5 +42,10 @@
 <script type="text/babel" src="dd-shared.jsx?v=202606111230"></script>
 <script type="text/babel" src="debate-room.jsx?v=202606111230"></script>
 <script type="text/babel" src="mobile.jsx?v=202606111230"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+</script>
 </body>
 </html>

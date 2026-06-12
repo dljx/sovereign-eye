@@ -631,12 +631,19 @@ input:focus, select:focus, textarea:focus {
 }
 .heatmap-tile .hm-tk.small { font-size: 11px; }
 .heatmap-tile .hm-tk.medium { font-size: 13px; }
+.heatmap-tile .hm-tk.micro { font-size: 9px; text-align: center; }
 .heatmap-tile .hm-pct {
   font-size: 12px;
   font-weight: 600;
   color: rgba(255,255,255,0.92);
 }
 .heatmap-tile .hm-pct.small { font-size: 10px; }
+.heatmap-tile .hm-pct.micro { display: none; }
+.heatmap-tile.micro {
+  padding: 3px;
+  align-items: center;
+  justify-content: center;
+}
 .heatmap-tile .hm-nm {
   font-family: var(--sans);
   font-size: 10px;

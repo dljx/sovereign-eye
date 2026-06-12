@@ -60,30 +60,38 @@ function ImportModal({ open, positions, onClose, onSave }) {
     setProgress(0);
     setErrMsg('');
 
-    // Animate progress bar while waiting for API
-    let prog = 0;
-    const progTimer = setInterval(() => {
-      prog = Math.min(prog + 4 + Math.random() * 5, 90);
-      setProgress(prog);
-    }, 200);
-
+    let progTimer = null;
     try {
+      // Phase 1: Read files (0 → 20%)
+      setProgress(5);
       const images = await Promise.all(files.map(f => new Promise((res, rej) => {
         const reader = new FileReader();
         reader.onload = () => res({ imageData: reader.result.split(',')[1], mimeType: f.type || 'image/jpeg' });
         reader.onerror = rej;
         reader.readAsDataURL(f);
       })));
+      setProgress(20);
+
+      // Phase 2: API call — animate 20 → 82% smoothly while waiting
+      let prog = 20;
+      progTimer = setInterval(() => {
+        prog = Math.min(prog + 2, 82);
+        setProgress(prog);
+      }, 200);
 
       const r = await fetch('/api/portfolio/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ images }),
       });
+      clearInterval(progTimer);
+      progTimer = null;
+      setProgress(90);
+
+      // Phase 3: Parse result
       const result = await r.json();
       if (!r.ok || !result.ok) throw new Error(result.error || `HTTP ${r.status}`);
 
-      clearInterval(progTimer);
       setProgress(100);
 
       const d = computeDiff(positions || [], result.positions || []);
@@ -101,7 +109,7 @@ function ImportModal({ open, positions, onClose, onSave }) {
 
       setTimeout(() => setStep('diff'), 400);
     } catch (e) {
-      clearInterval(progTimer);
+      if (progTimer) clearInterval(progTimer);
       setErrMsg(e.message || 'Parse failed');
       setStep('error');
     }

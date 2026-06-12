@@ -281,14 +281,16 @@ function Treemap({ items, width, height }) {
   return (
     <div className="heatmap" style={{ width, height, position: 'relative', background: 'var(--bg-0)' }}>
       {tiles.map((t) => {
-        const sizeClass = t.w * t.h < 4000 ? 'small' : (t.w * t.h < 9000 ? 'medium' : '');
+        const area = t.w * t.h;
+        const sizeClass = area < 1600 ? 'micro' : area < 4000 ? 'small' : area < 9000 ? 'medium' : '';
+        const isMicro = sizeClass === 'micro';
         return (
-          <div key={t.tk} className="heatmap-tile"
+          <div key={t.tk} className={`heatmap-tile${isMicro ? ' micro' : ''}`}
             title={`${t.tk} ${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(2)}%`}
             style={{ position: 'absolute', left: t.x + 1, top: t.y + 1, width: t.w - 2, height: t.h - 2, background: heatColor(t.pct) }}>
             <div>
               <div className={`hm-tk ${sizeClass}`}>{t.tk}</div>
-              {t.w * t.h > 6000 && <div className="hm-nm">{t.name}</div>}
+              {area > 6000 && <div className="hm-nm">{t.name}</div>}
             </div>
             <div className={`hm-pct ${sizeClass}`}>{t.pct >= 0 ? '+' : ''}{t.pct.toFixed(2)}%</div>
           </div>

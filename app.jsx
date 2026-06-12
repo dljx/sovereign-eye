@@ -554,5 +554,23 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error('[sovereign-eye] render error:', error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: '48px 32px', fontFamily: 'var(--mono, monospace)', color: 'var(--neg, #e05)', textAlign: 'center', background: 'var(--bg, #0d0d0d)', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+          <div style={{ fontSize: 13, letterSpacing: '0.1em' }}>RENDER ERROR</div>
+          <div style={{ fontSize: 11, color: 'var(--fg-3, #555)', maxWidth: 480 }}>{this.state.error.message}</div>
+          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 8, padding: '6px 16px', fontSize: 11, fontFamily: 'inherit', background: 'transparent', border: '1px solid var(--border, #333)', color: 'var(--fg, #ccc)', cursor: 'pointer', letterSpacing: '0.08em' }}>RETRY</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App /></ErrorBoundary>);
 })();

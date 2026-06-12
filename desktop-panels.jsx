@@ -403,7 +403,7 @@ function NewsPanel() {
               const tier = n.importance >= 80 ? 'top' : n.importance >= 60 ? 'mid' : 'low';
               const isTop = i === 0 && sortMode === 'rank';
               const isOpen = expandedIdx === i;
-              const exactDate = n._ts ? new Date(n._ts * 1000).toLocaleString('en-SG', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Singapore' }) : null;
+              const exactDate = n._ts ? new Date(n._ts * 1000).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
               return (
                 <React.Fragment key={i}>
                   <div
@@ -549,7 +549,7 @@ function FilingsPanel() {
         <div className="panel-title"><span className="num">06</span> SEC Tracker</div>
         <div className="panel-actions">
           <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>{display.length} RECENT</span>
-          <SrcPill src={src === 'loading' ? 'cached' : src} age={src === 'loading' ? '…' : 'now'} />
+          <SrcPill src={src === 'loading' ? 'cached' : src} age={src === 'loading' ? '…' : src === 'live' ? 'now' : undefined} />
         </div>
       </div>
       <div className="panel-body">

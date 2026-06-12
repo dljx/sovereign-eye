@@ -27,7 +27,7 @@ const JSX = [
 ];
 const PLAIN_JS = ["positions.js", "seed.js"];
 const CSS = ["styles.css", "mobile.css"];
-const STATIC = ["manifest.json", "icon-192.png", "icon-512.png"];
+const STATIC = ["manifest.json", "icon-192.png", "icon-512.png", "sw.js"];
 const HTML = ["index.html", "mobile.html"];
 
 function copyDir(src, dst) {
