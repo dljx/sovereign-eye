@@ -443,13 +443,17 @@ function _effectiveTs(n) {
   if (age > 0) return Math.floor(Date.now() / 1000) - age;
   return Math.floor(Date.now() / 1000);
 }
+function _decayImp(importance, ts) {
+  const ageDays = (Date.now() / 1000 - (ts || 0)) / 86400;
+  return Math.round((importance || 0) * Math.max(0.4, 1 - ageDays / 20));
+}
 function _applyNewsFilters(items, period, sortMode) {
   const cutoff = _NEWS_PERIOD_SECS[period] || _NEWS_PERIOD_SECS['1W'];
   const nowSec = Date.now() / 1000;
   const withTs = items.map(n => ({ ...n, _ts: _effectiveTs(n) }));
   const filtered = withTs.filter(n => (nowSec - n._ts) < cutoff);
   return sortMode === 'rank'
-    ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
+    ? [...filtered].sort((a, b) => _decayImp(b.importance, b._ts) - _decayImp(a.importance, a._ts))
     : [...filtered].sort((a, b) => b._ts - a._ts);
 }
 
@@ -639,13 +643,14 @@ function MobileIntel() {
             ) : mobileList.length === 0 ? (
               <div className="news-loading" style={{ height: 120 }}><span>No items in this period</span></div>
             ) : mobileList.map((n, i) => {
-              const tier = n._scoring ? 'low' : (n.importance ?? 50) >= 80 ? 'top' : (n.importance ?? 50) >= 60 ? 'mid' : 'low';
+              const disp = n._scoring ? null : _decayImp(n.importance, n._ts);
+              const tier = n._scoring ? 'low' : disp >= 80 ? 'top' : disp >= 60 ? 'mid' : 'low';
               return (
                 <div className={`news-item news-tier-${tier}`} key={i}
                      style={{ gridTemplateColumns: '28px 40px 1fr 32px', padding: '10px 0' }}>
                   {n._scoring
                     ? <div className="news-score news-score-scoring" title="AI scoring in progress">···</div>
-                    : <div className="news-score">{n.importance ?? 50}</div>
+                    : <div className="news-score">{disp}</div>
                   }
                   <div className={`news-tk${n.macro ? ' macro' : ''}`}>{n.tk}</div>
                   <div className="news-body">

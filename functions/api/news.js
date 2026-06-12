@@ -63,6 +63,7 @@ async function fetchTickerNews(sym, apiKey) {
         seen.add(key);
         return true;
       })
+      .sort((a, b) => heuristicScore(b.headline) - heuristicScore(a.headline))
       .slice(0, MAX_PER_TICKER);
   } catch { return []; }
 }

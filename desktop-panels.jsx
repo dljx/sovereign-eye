@@ -257,13 +257,17 @@ function _effectiveTs(n) {
   if (age > 0) return Math.floor(Date.now() / 1000) - age;
   return Math.floor(Date.now() / 1000); // unknown → treat as now
 }
+function decayImp(importance, ts) {
+  const ageDays = (Date.now() / 1000 - (ts || 0)) / 86400;
+  return Math.round((importance || 0) * Math.max(0.4, 1 - ageDays / 20));
+}
 function applyNewsFilters(items, period, sortMode) {
   const cutoff = NEWS_PERIOD_SECS[period] || NEWS_PERIOD_SECS['1W'];
   const nowSec = Date.now() / 1000;
   const withTs = items.map(n => ({ ...n, _ts: _effectiveTs(n) }));
   const filtered = withTs.filter(n => (nowSec - n._ts) < cutoff);
   return sortMode === 'rank'
-    ? [...filtered].sort((a, b) => (b.importance || 0) - (a.importance || 0))
+    ? [...filtered].sort((a, b) => decayImp(b.importance, b._ts) - decayImp(a.importance, a._ts))
     : [...filtered].sort((a, b) => b._ts - a._ts);
 }
 
@@ -400,7 +404,8 @@ function NewsPanel() {
         ) : (
           <div className="news-list">
             {list.map((n, i) => {
-              const tier = n.importance >= 80 ? 'top' : n.importance >= 60 ? 'mid' : 'low';
+              const disp = n._scoring ? null : decayImp(n.importance, n._ts);
+              const tier = n._scoring ? 'low' : disp >= 80 ? 'top' : disp >= 60 ? 'mid' : 'low';
               const isTop = i === 0 && sortMode === 'rank';
               const isOpen = expandedIdx === i;
               const exactDate = n._ts ? new Date(n._ts * 1000).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : null;
@@ -413,7 +418,7 @@ function NewsPanel() {
                     <div className="news-importance-bar" />
                     {n._scoring
                       ? <div className="news-score news-score-scoring" title="AI scoring in progress">···</div>
-                      : <div className="news-score">{n.importance}</div>
+                      : <div className="news-score">{disp}</div>
                     }
                     <div
                       className={`news-tk${n.macro ? ' macro' : ''}${tickerFilter === n.tk ? ' news-tk-active' : ''}`}
