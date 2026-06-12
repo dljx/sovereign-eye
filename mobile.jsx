@@ -532,14 +532,14 @@ function MobileIntel() {
         Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
           const news = newsRes.items;
           if (Array.isArray(news) && news.length) {
-            const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' }));
+            const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLivePortfolio(m);
             try { localStorage.setItem(`se:news:v3:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
           if (Array.isArray(wire) && wire.length) {
-            const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' }));
+            const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLiveWire(m);
             try { localStorage.setItem(`se:wire:v4:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(wire)) {
@@ -639,11 +639,14 @@ function MobileIntel() {
             ) : mobileList.length === 0 ? (
               <div className="news-loading" style={{ height: 120 }}><span>No items in this period</span></div>
             ) : mobileList.map((n, i) => {
-              const tier = (n.importance || 50) >= 80 ? 'top' : (n.importance || 50) >= 60 ? 'mid' : 'low';
+              const tier = n._scoring ? 'low' : (n.importance ?? 50) >= 80 ? 'top' : (n.importance ?? 50) >= 60 ? 'mid' : 'low';
               return (
                 <div className={`news-item news-tier-${tier}`} key={i}
                      style={{ gridTemplateColumns: '28px 40px 1fr 32px', padding: '10px 0' }}>
-                  <div className="news-score">{n.importance || 50}</div>
+                  {n._scoring
+                    ? <div className="news-score news-score-scoring" title="AI scoring in progress">···</div>
+                    : <div className="news-score">{n.importance ?? 50}</div>
+                  }
                   <div className={`news-tk${n.macro ? ' macro' : ''}`}>{n.tk}</div>
                   <div className="news-body">
                     <div className="news-headline">
@@ -653,7 +656,10 @@ function MobileIntel() {
                     </div>
                     {n.why && <div className="news-why">{n.why}</div>}
                     <div className="news-meta">
-                      {n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>}
+                      {n._scoring
+                        ? <span className="news-sent news-sent-scoring">SCORING</span>
+                        : n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>
+                      }
                       {n.src}
                     </div>
                   </div>

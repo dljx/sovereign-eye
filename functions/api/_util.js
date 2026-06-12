@@ -20,15 +20,22 @@ export function timeAgo(input) {
 }
 
 /**
- * Best-effort parse of an LLM "JSON array" reply: strip code fences, then if the
- * array is truncated, close it at the last complete object.
+ * Best-effort parse of an LLM "JSON array" reply.
+ * Handles: clean JSON, markdown fences, preamble/postamble text, truncated arrays.
  */
 export function salvageArray(str) {
-  const s = (str || "").replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
+  const s = (str || "").trim();
+  // 1. Direct parse (clean JSON)
   try { return JSON.parse(s); } catch {}
-  const lastBrace = s.lastIndexOf("}");
-  if (lastBrace > 0) {
-    try { return JSON.parse(s.slice(0, lastBrace + 1) + "]"); } catch {}
+  // 2. Greedy bracket extraction — works even if the model adds surrounding text
+  const m = s.match(/\[[\s\S]*\]/);
+  if (m) {
+    try { return JSON.parse(m[0]); } catch {}
+    // 3. Truncated array — close at last complete object
+    const lb = m[0].lastIndexOf("}");
+    if (lb > 0) {
+      try { return JSON.parse(m[0].slice(0, lb + 1) + "]"); } catch {}
+    }
   }
   return null;
 }

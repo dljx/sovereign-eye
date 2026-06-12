@@ -186,7 +186,7 @@ export async function onRequestGet(context) {
   if (needFallback.length && fhKey) {
     const raw = await Promise.all(needFallback.map(sym => fetchTickerNews(sym, fhKey)));
     needFallback.forEach((sym, i) => {
-      itemsByTicker[sym] = raw[i].slice(0, 3).map(it => ({ ...it, sentiment: 'neutral', importance: 50, why: '' }));
+      itemsByTicker[sym] = raw[i].slice(0, 3).map(it => ({ ...it, sentiment: 'neutral', importance: 50, why: '', _scoring: true }));
     });
   }
 

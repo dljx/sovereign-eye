@@ -267,8 +267,8 @@ function applyNewsFilters(items, period, sortMode) {
     : [...filtered].sort((a, b) => b._ts - a._ts);
 }
 
-const _mapPortfolioItem = d => ({ tk: d.tk||d.ticker, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' });
-const _mapWireItem      = d => ({ tk: d.tk||d.ticker_or_sector, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: d.macro!==false && d.tag!=='TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' });
+const _mapPortfolioItem = d => ({ tk: d.tk||d.ticker, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring });
+const _mapWireItem      = d => ({ tk: d.tk||d.ticker_or_sector, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: d.macro!==false && d.tag!=='TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring });
 
 function NewsPanel() {
   const [tab, setTab]               = useState('portfolio');
@@ -318,14 +318,14 @@ function NewsPanel() {
         Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
           const news = newsRes.items;
           if (Array.isArray(news) && news.length) {
-            const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral' }));
+            const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLivePortfolio(mapped);
             try { localStorage.setItem(`se:news:v3:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(news)) {
             setLivePortfolio([]);
           }
           if (Array.isArray(wire) && wire.length) {
-            const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime??0, sentiment: d.sentiment??'neutral' }));
+            const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime??0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLiveWire(mapped);
             try { localStorage.setItem(`se:wire:v4:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
           } else if (Array.isArray(wire)) {
@@ -411,7 +411,10 @@ function NewsPanel() {
                     onClick={() => setExpandedIdx(isOpen ? null : i)}
                   >
                     <div className="news-importance-bar" />
-                    <div className="news-score">{n.importance}</div>
+                    {n._scoring
+                      ? <div className="news-score news-score-scoring" title="AI scoring in progress">···</div>
+                      : <div className="news-score">{n.importance}</div>
+                    }
                     <div
                       className={`news-tk${n.macro ? ' macro' : ''}${tickerFilter === n.tk ? ' news-tk-active' : ''}`}
                       onClick={e => { e.stopPropagation(); setTickerFilter(tickerFilter === n.tk ? null : n.tk); setExpandedIdx(null); }}
@@ -424,7 +427,10 @@ function NewsPanel() {
                       </div>
                       {n.why && <div className="news-why">{n.why}</div>}
                       <div className="news-meta">
-                        {n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>}
+                        {n._scoring
+                          ? <span className="news-sent news-sent-scoring">SCORING</span>
+                          : n.sentiment && <span className={`news-sent news-sent-${n.sentiment}`}>{n.sentiment === 'bull' ? '▲ BULL' : n.sentiment === 'bear' ? '▼ BEAR' : '— NEU'}</span>
+                        }
                         {n.src}
                       </div>
                     </div>
