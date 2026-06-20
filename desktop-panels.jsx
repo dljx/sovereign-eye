@@ -975,14 +975,16 @@ function ScoutPanel({ onPick }) {
   useEffect(() => {
     setCards(null);
     setSrc('loading');
-    fetch(mode === 'gems' ? '/api/dd/gems' : '/api/dd/scouts')
+    fetch(mode === 'gems' ? '/api/dd/gems' : mode === 'review' ? '/api/dd/watchlist' : '/api/dd/scouts')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (Array.isArray(d) && d.length) {
           // Normalize sovereign-dd scout shape → design shape. Keep the rich agent
           // consensus fields (thesis/swing/catalyst/position/banger/cycle) so the
           // click-through modal can render the real DD without another fetch.
-          const norm = d.map(s => ({
+          const norm = d.map(s => {
+            const ver = s.verification || {};
+            return {
             tk: s.ticker || s.tk || '—',
             score: s.score ?? 0,
             grade: (s.grade ?? s.consensus_grade ?? 'HOLD').replace(/ /g, '-').toUpperCase(),
@@ -1001,7 +1003,12 @@ function ScoutPanel({ onPick }) {
             rr: s.rr ?? null,
             risk: s.risk || null,
             analyzedAt: s.analyzed_at || '',
-          }));
+            // Confirmation-gate fields (populated for the Under Review tab)
+            verdict: ver.verdict || null,
+            reviewReason: ver.strongest_bear_point || (ver.reasons || [])[0] || '',
+            vscore: ver.verification_score ?? null,
+          };
+          });
           setCards(norm);
           setSrc('live');
         } else {
@@ -1022,32 +1029,40 @@ function ScoutPanel({ onPick }) {
   return (
     <>
       <div className="panel-header">
-        <div className="panel-title"><span className="num">08</span> Sovereign {mode === 'gems' ? 'Gems' : 'Scout'}</div>
+        <div className="panel-title"><span className="num">08</span> Sovereign {mode === 'gems' ? 'Gems' : mode === 'review' ? 'Review' : 'Scout'}</div>
         <div className="tabs">
-          {[['scouts', 'Scout'], ['gems', 'Gems']].map(([m, label]) => (
+          {[['scouts', 'Scout'], ['gems', 'Gems'], ['review', 'Under Review']].map(([m, label]) => (
             <span key={m} className={`tab ${mode === m ? 'active' : ''}`} onClick={() => setMode(m)}>{label}</span>
           ))}
         </div>
         <div className="panel-actions">
           <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>
-            {display.length} BUY SIGNALS
+            {display.length} {mode === 'review' ? 'UNDER REVIEW' : 'BUY SIGNALS'}
           </span>
           <SrcPill src={src === 'loading' ? 'cached' : src} age={age} />
         </div>
       </div>
       <div className="panel-body">
         {src === 'loading' || (src === 'seed' && display.length === 0) ? (
-          <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
-            <div className="mono uppercase" style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 8 }}>{mode === 'gems' ? 'Gems' : 'Scout'} is hunting</div>
-            <div style={{ fontSize: 12 }}>Screened on a schedule · next run {nextRun}</div>
-            <div style={{ marginTop: 6, fontSize: 11 }}>screener → Gemini triage → 5-agent debate</div>
-          </div>
+          mode === 'review' ? (
+            <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
+              <div className="mono uppercase" style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 8 }}>Nothing under review</div>
+              <div style={{ fontSize: 12 }}>BUYs that fail the confirmation gate land here</div>
+              <div style={{ marginTop: 6, fontSize: 11 }}>quality checks → red-team falsification</div>
+            </div>
+          ) : (
+            <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
+              <div className="mono uppercase" style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 8 }}>{mode === 'gems' ? 'Gems' : 'Scout'} is hunting</div>
+              <div style={{ fontSize: 12 }}>Screened on a schedule · next run {nextRun}</div>
+              <div style={{ marginTop: 6, fontSize: 11 }}>screener → Gemini triage → 5-agent debate</div>
+            </div>
+          )
         ) : (
           <div className="scout-grid">
             {display.map((s, i) => (
               <div
                 key={s.tk + '-' + i}
-                className={`scout-card ${s.grade.toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}
+                className={`scout-card ${mode === 'review' ? 'hold review' : s.grade.toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}
                 onClick={() => onPick && onPick(s)}
                 title={`Open DD for ${s.tk}`}
               >
@@ -1055,9 +1070,10 @@ function ScoutPanel({ onPick }) {
                   <span className="scout-tk">{s.tk}</span>
                   <span className="scout-score">{(+s.score).toFixed(1)}<span className="denom"> /10</span></span>
                 </div>
-                <div className="scout-grade">{s.grade}</div>
-                <div className="scout-rationale">{s.rationale}</div>
+                <div className="scout-grade">{mode === 'review' && s.verdict ? `⚠ ${s.verdict}` : s.grade}</div>
+                <div className="scout-rationale">{mode === 'review' && s.reviewReason ? s.reviewReason : s.rationale}</div>
                 <div className="scout-chips">
+                  {mode === 'review' && s.vscore != null && <span className="chip warn">verify {(+s.vscore).toFixed(1)}</span>}
                   {s.rr != null && <span className="chip rr">R/R {(+s.rr).toFixed(1)}</span>}
                   {(s.filters || []).map((f, j) => (
                     <span className={`chip ${j === s.filters.length - 1 ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>

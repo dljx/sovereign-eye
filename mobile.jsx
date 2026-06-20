@@ -716,12 +716,14 @@ function MobileScout({ onPick }) {
   useEffect(() => {
     setScouts([]);
     setSrc('loading');
-    fetch(mode === 'gems' ? '/api/dd/gems' : '/api/dd/scouts')
+    fetch(mode === 'gems' ? '/api/dd/gems' : mode === 'review' ? '/api/dd/watchlist' : '/api/dd/scouts')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (Array.isArray(d) && d.length) {
           // Keep the rich agent consensus so a tapped card can show the real DD.
-          setScouts(d.map(s => ({
+          setScouts(d.map(s => {
+            const ver = s.verification || {};
+            return {
             tk: s.ticker || s.tk || '—',
             score: s.score ?? 0,
             grade: (s.grade ?? 'HOLD').replace(/ /g, '-').toUpperCase(),
@@ -739,7 +741,11 @@ function MobileScout({ onPick }) {
             cycle: s.cycle_position || null,
             rr: s.rr ?? null,
             risk: s.risk || null,
-          })));
+            verdict: ver.verdict || null,
+            reviewReason: ver.strongest_bear_point || (ver.reasons || [])[0] || '',
+            vscore: ver.verification_score ?? null,
+          };
+          }));
           setSrc('live');
         } else {
           setSrc('seed');
@@ -758,29 +764,38 @@ function MobileScout({ onPick }) {
     <div className="mobile-screen">
       <div className="mscreen-header">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="mscreen-title">{mode === 'gems' ? 'Gems' : 'Scout'}</div>
+          <div className="mscreen-title">{mode === 'gems' ? 'Gems' : mode === 'review' ? 'Under Review' : 'Scout'}</div>
           <SrcPill src={src === 'loading' ? 'cached' : src} age={src === 'loading' ? '…' : 'now'} />
         </div>
         <div className="m-tabs" style={{ marginTop: 8 }}>
-          {[['scouts', 'Scout'], ['gems', 'Gems']].map(([m, label]) => (
+          {[['scouts', 'Scout'], ['gems', 'Gems'], ['review', 'Review']].map(([m, label]) => (
             <div key={m} className={`m-tab ${mode === m ? 'active' : ''}`} onClick={() => setMode(m)}>{label}</div>
           ))}
         </div>
         <div className="mono dim" style={{ fontSize: 11, marginTop: 8, letterSpacing: '0.06em' }}>
-          {display.length} tickers · screened on a schedule
+          {display.length} {mode === 'review' ? 'under review · failed confirmation gate' : 'tickers · screened on a schedule'}
         </div>
       </div>
 
       {!display.length ? (
         <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-3)' }}>
-          <div className="mono uppercase" style={{ fontSize: 11, marginBottom: 8 }}>{mode === 'gems' ? 'Gems' : 'Scout'} is hunting</div>
-          <div style={{ fontSize: 12 }}>Next run {nextRun}</div>
+          {mode === 'review' ? (
+            <>
+              <div className="mono uppercase" style={{ fontSize: 11, marginBottom: 8 }}>Nothing under review</div>
+              <div style={{ fontSize: 12 }}>BUYs that fail the confirmation gate land here</div>
+            </>
+          ) : (
+            <>
+              <div className="mono uppercase" style={{ fontSize: 11, marginBottom: 8 }}>{mode === 'gems' ? 'Gems' : 'Scout'} is hunting</div>
+              <div style={{ fontSize: 12 }}>Next run {nextRun}</div>
+            </>
+          )}
         </div>
       ) : (
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {display.map((s, i) => (
             <div key={s.tk + '-' + i}
-              className={`scout-card ${(s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}
+              className={`scout-card ${mode === 'review' ? 'hold review' : (s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}
               onClick={() => onPick && onPick(s)}
               title={`Open DD for ${s.tk}`}
               style={{ cursor: 'pointer' }}>
@@ -788,9 +803,10 @@ function MobileScout({ onPick }) {
                 <span className="scout-tk">{s.tk}</span>
                 <span className="scout-score">{(+s.score).toFixed(1)}<span className="denom"> /10</span></span>
               </div>
-              <div className="scout-grade">{s.grade}</div>
-              <div className="scout-rationale">{s.rationale}</div>
+              <div className="scout-grade">{mode === 'review' && s.verdict ? `⚠ ${s.verdict}` : s.grade}</div>
+              <div className="scout-rationale">{mode === 'review' && s.reviewReason ? s.reviewReason : s.rationale}</div>
               <div className="scout-chips">
+                {mode === 'review' && s.vscore != null && <span className="chip warn">verify {(+s.vscore).toFixed(1)}</span>}
                 {s.rr != null && <span className="chip rr">R/R {(+s.rr).toFixed(1)}</span>}
                 {(s.filters || []).map((f, j) => (
                   <span className={`chip ${j === (s.filters.length - 1) ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>

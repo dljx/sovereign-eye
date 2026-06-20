@@ -41,7 +41,7 @@ export async function onRequestPost(context) {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { results = [], index, scouts, gems, reconcile_remove } = body;
+  const { results = [], index, scouts, gems, watchlist, reconcile_remove } = body;
   const written = [];
   const failed = [];
 
@@ -117,29 +117,58 @@ export async function onRequestPost(context) {
     }
   }
 
-  // Reconcile: remove below-threshold tickers (re-analyzed this run and no longer
-  // qualifying) from both dd:scouts and dd:gems, so Scout stays a clean board and
-  // a downgrade drops the stale card. Runs AFTER the upserts above so a same-run
-  // qualifying result is never undone.
-  if (Array.isArray(reconcile_remove) && reconcile_remove.length > 0) {
-    const drop = new Set(reconcile_remove.map(t => String(t).toUpperCase()));
-    for (const kvKey of ["dd:scouts", "dd:gems"]) {
-      try {
-        const raw = await context.env.DD_KV.get(kvKey);
-        if (!raw) continue;
-        let list;
-        try { list = JSON.parse(raw); } catch { continue; }
-        if (!Array.isArray(list)) continue;
-        const filtered = list.filter(s => !drop.has(String(s.ticker || "").toUpperCase()));
-        if (filtered.length !== list.length) {
-          await context.env.DD_KV.put(kvKey, JSON.stringify(filtered));
-          if (!written.includes(kvKey)) written.push(kvKey);
-        }
-      } catch (e) {
-        failed.push({ key: `${kvKey} (reconcile)`, error: e.message });
+  // Merge new "Under Review" items into dd:watchlist — BUYs that crossed the
+  // threshold but failed the confirmation gate. Same dedup/sort/cap as scouts.
+  if (Array.isArray(watchlist) && watchlist.length > 0) {
+    try {
+      let existing = [];
+      const raw = await context.env.DD_KV.get("dd:watchlist");
+      if (raw) {
+        try { existing = JSON.parse(raw); } catch {}
       }
+      const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
+      for (const s of watchlist) map.set(s.ticker, s);
+      const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
+      await context.env.DD_KV.put("dd:watchlist", JSON.stringify(merged));
+      written.push("dd:watchlist");
+    } catch (e) {
+      failed.push({ key: "dd:watchlist", error: e.message });
     }
   }
+
+  // Cross-board reconciliation so each ticker lives on exactly ONE board.
+  // Runs AFTER the upserts so a same-run qualifying result is never undone.
+  //   - dropped below threshold (reconcile_remove)     → off scouts + gems + watchlist
+  //   - newly under review (this run's watchlist)        → off scouts + gems
+  //   - newly confirmed (this run's scouts/gems)         → off watchlist (promoted)
+  const _up = arr => (Array.isArray(arr) ? arr : []).map(s => String(s.ticker ?? s).toUpperCase());
+  const baseRemove       = _up(reconcile_remove);
+  const confirmedTickers = [..._up(scouts), ..._up(gems)];
+  const watchTickers     = _up(watchlist);
+  const dropFromBoards = new Set([...baseRemove, ...watchTickers]);     // off scouts/gems
+  const dropFromWatch  = new Set([...baseRemove, ...confirmedTickers]); // off watchlist
+
+  async function pruneKey(kvKey, dropSet) {
+    if (dropSet.size === 0) return;
+    try {
+      const raw = await context.env.DD_KV.get(kvKey);
+      if (!raw) return;
+      let list;
+      try { list = JSON.parse(raw); } catch { return; }
+      if (!Array.isArray(list)) return;
+      const filtered = list.filter(s => !dropSet.has(String(s.ticker || "").toUpperCase()));
+      if (filtered.length !== list.length) {
+        await context.env.DD_KV.put(kvKey, JSON.stringify(filtered));
+        if (!written.includes(kvKey)) written.push(kvKey);
+      }
+    } catch (e) {
+      failed.push({ key: `${kvKey} (reconcile)`, error: e.message });
+    }
+  }
+
+  await pruneKey("dd:scouts", dropFromBoards);
+  await pruneKey("dd:gems", dropFromBoards);
+  await pruneKey("dd:watchlist", dropFromWatch);
 
   // Persist scout history and notification history for cache-miss recovery in CI.
   // Written as scout:history and scout:notified — fetched by download_history.py
