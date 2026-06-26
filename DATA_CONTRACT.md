@@ -61,4 +61,12 @@ So editing holdings on the dashboard changes what the next pre-market screen ana
 
 ## Supabase tables (written by sovereign-dd `upload_kv.py`)
 
-- `dd_history`, `scout_history`, `gems_history` (needs creating — columns: ticker, score, grade, thesis, catalyst, fair_value, discovered_at), `news_archive` (written by eye news/wire endpoints).
+- `dd_history` — one row per portfolio/hold-mode debate: `ticker, run_at, price, composite_fv, result_fv, mos, score, grade, confidence, archetype, agent_scores, thesis, swing, is_banger, full_result`.
+- `scout_history` — one row per scout discovery (append-only signal log): `ticker, score, grade, sector, path, filters, thesis, price, confirmed, verdict, discovered_at`.
+- `gems_history` — one row per gems discovery: `ticker, score, grade, thesis, catalyst, fair_value, price, confirmed, verdict, discovered_at`.
+- `news_archive` — written by eye news/wire endpoints.
+
+> `price` = market price at signal time (the anchor for forward-return / hit-rate analysis);
+> `confirmed` + `verdict` = BUY-confirmation-gate outcome (lets you measure whether the gate adds edge).
+> Added 2026-06-26. Producer rows are built by `_scout_history_row` / `_gems_history_row` in `upload_kv.py`
+> — add a column to the table **before** adding the field there, or PostgREST drops the whole insert.
