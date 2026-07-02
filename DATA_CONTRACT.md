@@ -62,11 +62,25 @@ So editing holdings on the dashboard changes what the next pre-market screen ana
 ## Supabase tables (written by sovereign-dd `upload_kv.py`)
 
 - `dd_history` — one row per portfolio/hold-mode debate: `ticker, run_at, price, composite_fv, result_fv, mos, score, grade, confidence, archetype, agent_scores, thesis, swing, is_banger, full_result`.
-- `scout_history` — one row per scout discovery (append-only signal log): `ticker, score, grade, sector, path, filters, thesis, price, confirmed, verdict, discovered_at`.
-- `gems_history` — one row per gems discovery: `ticker, score, grade, thesis, catalyst, fair_value, price, confirmed, verdict, discovered_at`.
+- `scout_history` — one row per scout discovery (append-only signal log): `ticker, score, grade, sector, path, filters, thesis, price, confirmed, verdict, factors, discovered_at`.
+- `gems_history` — one row per gems discovery: `ticker, score, grade, thesis, catalyst, fair_value, price, confirmed, verdict, factors, discovered_at`.
 - `news_archive` — written by eye news/wire endpoints.
 
 > `price` = market price at signal time (the anchor for forward-return / hit-rate analysis);
 > `confirmed` + `verdict` = BUY-confirmation-gate outcome (lets you measure whether the gate adds edge).
 > Added 2026-06-26. Producer rows are built by `_scout_history_row` / `_gems_history_row` in `upload_kv.py`
 > — add a column to the table **before** adding the field there, or PostgREST drops the whole insert.
+>
+> `factors` (jsonb, added 2026-07-03) = evidence-factor profile at signal time:
+> `{v, mom_12_1, mom_6m, mom_1m, quality, eps_rev_mom, fcf_yield, roic}` (`v` = methodology
+> version; 2 = post the 2026-07-03 momentum-lens/analyst-gap changes). Used by the
+> benchmark-relative outcome analysis (returns vs VWRA bucketed by factor terciles).
+>
+> **Sourcing rule (bug fixed 2026-07-03):** the history rows are built from the output *files*
+> via `_scout_card(..., dossier)` / the gems collector / `_factor_stamp` — NOT from scout.py's
+> in-memory discovery dicts (those only feed Telegram). `price`/`confirmed`/`sector` were NULL
+> for every row 06-12→07-03 because the card builder never read the dossier. The card (and the
+> `dd:scouts`/`dd:gems`/`dd:watchlist` KV blobs, which store cards whole) now also carries
+> `sector`/`price`/`confirmed`/`factors`. **Confirmation-gate rejects are now logged too**
+> (routed by the card's `src` tag to scout/gems history) — rejected BUYs are the comparison
+> group for measuring whether the gate adds edge; distinguish them by `confirmed = false`.
