@@ -1425,6 +1425,9 @@ const _SB_SECTIONS = [
   ['gate', 'Confirmation gate'],
   ['grade', 'Grade'],
   ['source', 'Source'],
+  // "Did methodology v2 beat v1 out-of-sample?" as a standing view — see
+  // sovereign-dd docs/ADAPTATION_PROTOCOL.md for what each version means.
+  ['factors_v', 'Methodology version'],
 ];
 
 function _sbPct(x, dec = 1) {
@@ -1543,6 +1546,9 @@ function ScoreboardPanel() {
               excess = signal forward return − {sb.benchmark} over the matched window
               · {sb.n_signals} signals logged ({sb.n_scout} scout · {sb.n_gems} gems)
               {sb.note ? <><br />{sb.note}</> : null}
+              {(sb.versions || []).map(ver => (
+                <React.Fragment key={ver.v}><br />{ver.v}: {ver.desc}</React.Fragment>
+              ))}
             </div>
           </>
         )}

@@ -768,21 +768,25 @@ function MobileScoreboard() {
             <span className="chip">{w.pending} pending</span>
             {o.n < 10 && <span className="chip warn">⚠ small sample</span>}
           </div>
-          {(w.buckets?.gate || []).length > 0 && (
-            <div className="sb-section">
-              <div className="dd-section-label">Confirmation gate</div>
-              <table className="sb-table"><tbody>
-                {w.buckets.gate.map(r => (
-                  <tr key={r.k}>
-                    <td className="k">{r.k}</td>
-                    <td className="n">n={r.n}</td>
-                    <td className="v dim">{(r.hit * 100).toFixed(0)}%</td>
-                    <td className={`v ${r.mean >= 0 ? 'pos' : 'neg'}`}>{pct(r.mean)}</td>
-                  </tr>
-                ))}
-              </tbody></table>
-            </div>
-          )}
+          {[['gate', 'Confirmation gate'], ['factors_v', 'Methodology version']].map(([key, label]) => {
+            const rows = w.buckets?.[key];
+            if (!rows || !rows.length) return null;
+            return (
+              <div className="sb-section" key={key}>
+                <div className="dd-section-label">{label}</div>
+                <table className="sb-table"><tbody>
+                  {rows.map(r => (
+                    <tr key={r.k}>
+                      <td className="k">{r.k}</td>
+                      <td className="n">n={r.n}</td>
+                      <td className="v dim">{(r.hit * 100).toFixed(0)}%</td>
+                      <td className={`v ${r.mean >= 0 ? 'pos' : 'neg'}`}>{pct(r.mean)}</td>
+                    </tr>
+                  ))}
+                </tbody></table>
+              </div>
+            );
+          })}
           {(w.top?.length || w.bottom?.length) ? (
             <div className="sb-section">
               <div className="dd-section-label">Best / worst vs index</div>

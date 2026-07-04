@@ -79,6 +79,10 @@ window.SE_SEED = {
     benchmark: "VWRA.L",
     n_signals: 119, n_scout: 67, n_gems: 49,
     note: "pre-2026-07-03 entry prices are same-day-close backfills (approx)",
+    versions: [
+      { v: "unstamped", desc: "legacy ≤2026-07-02 — no factor stamp, backfilled entry prices" },
+      { v: "v2", desc: "since 2026-07-03 — true momentum lens, anti-evidence removals, quality composite, fail-closed gate" }
+    ],
     windows: [
       {
         weeks: 1, measurable: 93, pending: 26, no_data: 0,
