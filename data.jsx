@@ -142,6 +142,6 @@ function computeTotals(positions, quotes) {
   Object.assign(window, {
     POSITIONS, QUOTES, SYNTHESIS,
     SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS,
-    computeTotals, API_HEALTH,
+    computeTotals, API_HEALTH, _relDate,
   });
 })();

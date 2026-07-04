@@ -69,7 +69,47 @@ window.SE_SEED = {
   scouts: [],
 
   // ── DD cache — pre-canned results for portfolio tickers (live KV takes priority) ──
-  ddCache: {}
+  ddCache: {},
+
+  // ── Signal Scoreboard fallback — real 2026-07-04 numbers; live dd:scoreboard takes priority ──
+  scoreboard: {
+    v: 1,
+    generated_at: "2026-07-04T08:00:00Z",
+    as_of: "2026-07-04",
+    benchmark: "VWRA.L",
+    n_signals: 119, n_scout: 67, n_gems: 49,
+    note: "pre-2026-07-03 entry prices are same-day-close backfills (approx)",
+    windows: [
+      {
+        weeks: 1, measurable: 93, pending: 26, no_data: 0,
+        overall: { n: 93, hit: 0.5591, mean: 0.0174, median: 0.0063 },
+        buckets: {
+          gate: [{ k: "unknown", n: 93, hit: 0.5591, mean: 0.0174, median: 0.0063 }],
+          grade: [
+            { k: "BUY", n: 77, hit: 0.5195, mean: 0.0143, median: 0.0038 },
+            { k: "CONVICTION BUY", n: 1, hit: 1.0, mean: 0.0022, median: 0.0022 },
+            { k: "STRONG BUY", n: 15, hit: 0.7333, mean: 0.0343, median: 0.018 }
+          ],
+          source: [
+            { k: "gems", n: 43, hit: 0.65, mean: 0.023, median: 0.009 },
+            { k: "scout", n: 50, hit: 0.48, mean: 0.012, median: -0.003 }
+          ]
+        },
+        top: [
+          { ticker: "PAY", excess: 0.2618 }, { ticker: "RIGL", excess: 0.1918 },
+          { ticker: "FATN", excess: 0.1579 }, { ticker: "KVYO", excess: 0.1543 },
+          { ticker: "TLX", excess: 0.1466 }
+        ],
+        bottom: [
+          { ticker: "LEGN", excess: -0.2296 }, { ticker: "TMDX", excess: -0.1122 },
+          { ticker: "UI", excess: -0.0913 }, { ticker: "GMED", excess: -0.0878 },
+          { ticker: "KVYO", excess: -0.0761 }
+        ]
+      },
+      { weeks: 4, measurable: 0, pending: 119, no_data: 0 },
+      { weeks: 12, measurable: 0, pending: 119, no_data: 0 }
+    ]
+  }
 };
 
 // Seed quotes for initial render before Finnhub responds.

@@ -73,12 +73,22 @@ function Icon({ name, size = 16 }) {
 }
 
 function SrcPill({ src = 'live', age }) {
-  const label = { live: 'LIVE', cached: 'CACHED', seed: 'SEED', error: 'ERROR' }[src] || 'LIVE';
+  // Telemetry vocabulary: a data source is a LINK you either have or don't.
+  const label = { live: 'LINK', cached: 'CACHE', seed: 'SEED', error: 'FAULT' }[src] || 'LINK';
   return (
     <span className={`src-pill ${src}`}>
       <span className="led" />
       <span>{label}</span>
       {age && <span style={{ opacity: 0.6, marginLeft: 4 }}>· {age}</span>}
+    </span>
+  );
+}
+
+function GaugeBar({ value, max = 1, tone = '', height = 6 }) {
+  const pct = Math.max(0, Math.min(1, max ? value / max : 0)) * 100;
+  return (
+    <span className={`gauge ${tone}`} style={{ height }}>
+      <i style={{ width: `${pct}%` }} />
     </span>
   );
 }
@@ -118,9 +128,9 @@ function heatColor(pct) {
 
 const PALETTE = {
   skin: '#e8b89e', skinDark: '#b88c70', hair: '#3a2a1f',
-  bgGray: '#27272a', bg2: '#1f1f23', acc: '#a78bfa',
-  pos: '#4ade80', neg: '#f87171', warn: '#fbbf24',
-  white: '#fafafa', mid: '#71717a',
+  bgGray: '#172a42', bg2: '#0c1724', acc: '#22d3ee',
+  pos: '#34d399', neg: '#fb7185', warn: '#fbbf24',
+  white: '#edf6fa', mid: '#5e7a8c',
 };
 
 function AgentPixel({ kind = 'valuation', talking = false }) {
@@ -303,6 +313,6 @@ function Treemap({ items, width, height }) {
 Object.assign(window, {
   fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
   CCY_RATES, CCY_SYMS,
-  Icon, SrcPill, Sparkline, heatColor, AgentPixel, MacroChart, Treemap,
+  Icon, SrcPill, GaugeBar, Sparkline, heatColor, AgentPixel, MacroChart, Treemap,
 });
 })();

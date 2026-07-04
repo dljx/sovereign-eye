@@ -1,5 +1,5 @@
-/* global React, ReactDOM, window, Icon, SrcPill, Sparkline, AgentPixel, MacroChart,
-   fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
+/* global React, ReactDOM, window, Icon, SrcPill, GaugeBar, Sparkline, AgentPixel, MacroChart,
+   fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ, _relDate,
    POSITIONS, QUOTES, SYNTHESIS,
    SEC_FILINGS, DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals,
    _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry, RRChip */
@@ -532,9 +532,12 @@ function MobileIntel() {
         const newsP = fetch(`/api/news?tickers=${qs}&v=16`)
           .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
           .catch(() => ({ items: null, status: null }));
-        const wireP = fetch(`/api/wire?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null);
-        Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
+        const wireP = fetch(`/api/wire?tickers=${qs}&v=9`)
+          .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
+          .catch(() => ({ items: null, status: null }));
+        Promise.all([newsP, wireP]).then(([newsRes, wireRes]) => {
           const news = newsRes.items;
+          const wire = wireRes.items;
           if (Array.isArray(news) && news.length) {
             const m = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLivePortfolio(m);
@@ -546,11 +549,11 @@ function MobileIntel() {
             const m = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLiveWire(m);
             try { localStorage.setItem(`se:wire:v4:${qs}`, JSON.stringify({ items: m, savedAt: Date.now() })); } catch {}
-          } else if (Array.isArray(wire)) {
+          } else if (Array.isArray(wire) && wireRes.status !== 'scoring') {
             setLiveWire([]);
           }
           setNewsSrc('live');
-          if (newsRes.status === 'scoring' && scoreAttempts < 2) {
+          if ((newsRes.status === 'scoring' || wireRes.status === 'scoring') && scoreAttempts < 2) {
             scoreAttempts++;
             if (rescore) clearTimeout(rescore);
             rescore = setTimeout(() => load(true), 60000);
@@ -708,12 +711,107 @@ function MobileIntel() {
 // =============================================================
 // SCOUT SCREEN — live from /api/dd/scouts
 // =============================================================
+function MobileScoreboard() {
+  const [sb, setSb] = useState(window.SE_SEED?.scoreboard || null);
+  const [wi, setWi] = useState(0);
+  useEffect(() => {
+    fetch('/api/dd/scoreboard')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && Array.isArray(d.windows)) setSb(d); })
+      .catch(() => {});
+  }, []);
+  const windows = sb?.windows || [];
+  const w = windows[Math.min(wi, Math.max(windows.length - 1, 0))];
+  const o = w?.overall;
+  const pct = (x, dec = 1) => (x >= 0 ? '+' : '') + (x * 100).toFixed(dec) + '%';
+  if (!sb || !w) {
+    return (
+      <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 12 }}>
+        No scoreboard yet — lands with the next analyze run.
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: 14 }}>
+      <div className="m-tabs" style={{ padding: 0, marginBottom: 12, border: 'none' }}>
+        {windows.map((win, i) => (
+          <div key={win.weeks} className={`m-tab ${i === wi ? 'active' : ''}`} onClick={() => setWi(i)}>{win.weeks}W</div>
+        ))}
+      </div>
+      {!o ? (
+        <div style={{ padding: '30px 10px', textAlign: 'center', color: 'var(--fg-3)', fontSize: 12 }}>
+          Nothing measurable yet · {w.pending} pending
+        </div>
+      ) : (
+        <>
+          <div className="sb-hero" style={{ gap: 20 }}>
+            <div>
+              <div className="sb-big">{(o.hit * 100).toFixed(0)}%</div>
+              <div className="sb-big-label">Hit rate</div>
+            </div>
+            <div>
+              <div className={`sb-big ${o.mean >= 0 ? 'pos' : 'neg'}`}>{pct(o.mean)}</div>
+              <div className="sb-big-label">Mean excess</div>
+            </div>
+            <div>
+              <div className={`sb-big ${o.median >= 0 ? 'pos' : 'neg'}`}>{pct(o.median)}</div>
+              <div className="sb-big-label">Median</div>
+            </div>
+          </div>
+          <div className="sb-gauge-row">
+            <span>Win</span>
+            <GaugeBar value={o.hit} tone={o.hit >= 0.5 ? 'pos' : 'warn'} />
+            <span>{o.n} of {w.measurable + w.pending + w.no_data}</span>
+          </div>
+          <div className="sb-chips">
+            <span className="chip acc">{w.measurable} measured</span>
+            <span className="chip">{w.pending} pending</span>
+            {o.n < 10 && <span className="chip warn">⚠ small sample</span>}
+          </div>
+          {(w.buckets?.gate || []).length > 0 && (
+            <div className="sb-section">
+              <div className="dd-section-label">Confirmation gate</div>
+              <table className="sb-table"><tbody>
+                {w.buckets.gate.map(r => (
+                  <tr key={r.k}>
+                    <td className="k">{r.k}</td>
+                    <td className="n">n={r.n}</td>
+                    <td className="v dim">{(r.hit * 100).toFixed(0)}%</td>
+                    <td className={`v ${r.mean >= 0 ? 'pos' : 'neg'}`}>{pct(r.mean)}</td>
+                  </tr>
+                ))}
+              </tbody></table>
+            </div>
+          )}
+          {(w.top?.length || w.bottom?.length) ? (
+            <div className="sb-section">
+              <div className="dd-section-label">Best / worst vs index</div>
+              <div className="sb-movers">
+                {(w.top || []).slice(0, 3).map(t => (
+                  <span className="sb-mover up" key={'t' + t.ticker}>▲ {t.ticker} {pct(t.excess)}</span>
+                ))}
+                {(w.bottom || []).slice(0, 3).map(t => (
+                  <span className="sb-mover down" key={'b' + t.ticker}>▼ {t.ticker} {pct(t.excess)}</span>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <div className="sb-note">
+            excess vs {sb.benchmark} · {sb.n_signals} signals · updated {sb.generated_at ? _relDate(sb.generated_at) : '—'} ago
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MobileScout({ onPick }) {
   const [scouts, setScouts] = useState(window.SCOUTS || []);
   const [src, setSrc] = useState((window.SCOUTS || []).length ? 'seed' : 'loading');
-  const [mode, setMode] = useState('scouts'); // scouts | gems
+  const [mode, setMode] = useState('scouts'); // scouts | gems | review | perf
 
   useEffect(() => {
+    if (mode === 'perf') { setSrc('live'); return; }
     setScouts([]);
     setSrc('loading');
     fetch(mode === 'gems' ? '/api/dd/gems' : mode === 'review' ? '/api/dd/watchlist' : '/api/dd/scouts')
@@ -764,20 +862,23 @@ function MobileScout({ onPick }) {
     <div className="mobile-screen">
       <div className="mscreen-header">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="mscreen-title">{mode === 'gems' ? 'Gems' : mode === 'review' ? 'Under Review' : 'Scout'}</div>
+          <div className="mscreen-title">{mode === 'gems' ? 'Gems' : mode === 'review' ? 'Under Review' : mode === 'perf' ? 'Performance' : 'Scout'}</div>
           <SrcPill src={src === 'loading' ? 'cached' : src} age={src === 'loading' ? '…' : 'now'} />
         </div>
         <div className="m-tabs" style={{ marginTop: 8 }}>
-          {[['scouts', 'Scout'], ['gems', 'Gems'], ['review', 'Review']].map(([m, label]) => (
+          {[['scouts', 'Scout'], ['gems', 'Gems'], ['review', 'Review'], ['perf', 'Perf']].map(([m, label]) => (
             <div key={m} className={`m-tab ${mode === m ? 'active' : ''}`} onClick={() => setMode(m)}>{label}</div>
           ))}
         </div>
         <div className="mono dim" style={{ fontSize: 11, marginTop: 8, letterSpacing: '0.06em' }}>
-          {display.length} {mode === 'review' ? 'under review · failed confirmation gate' : 'tickers · screened on a schedule'}
+          {mode === 'perf' ? 'signal forward returns vs VWRA'
+            : `${display.length} ${mode === 'review' ? 'under review · failed confirmation gate' : 'tickers · screened on a schedule'}`}
         </div>
       </div>
 
-      {!display.length ? (
+      {mode === 'perf' ? (
+        <MobileScoreboard />
+      ) : !display.length ? (
         <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--fg-3)' }}>
           {mode === 'review' ? (
             <>

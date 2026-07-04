@@ -1,5 +1,5 @@
-/* global React, window, Icon, SrcPill, Sparkline, AgentPixel, MacroChart, Treemap,
-   fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
+/* global React, window, Icon, SrcPill, GaugeBar, Sparkline, AgentPixel, MacroChart, Treemap,
+   fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ, _relDate,
    POSITIONS, QUOTES, SYNTHESIS, SEC_FILINGS,
    DD_RESULT, SCOUTS, MACRO_SERIES, SPARKS, computeTotals, API_HEALTH,
    _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry, RRChip */
@@ -318,9 +318,12 @@ function NewsPanel() {
         const newsP = fetch(`/api/news?tickers=${qs}&v=16`)
           .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
           .catch(() => ({ items: null, status: null }));
-        const wireP = fetch(`/api/wire?tickers=${qs}&v=8`).then(r => r.ok ? r.json() : null).catch(() => null);
-        Promise.all([newsP, wireP]).then(([newsRes, wire]) => {
+        const wireP = fetch(`/api/wire?tickers=${qs}&v=9`)
+          .then(async r => r.ok ? { items: await r.json().catch(() => null), status: r.headers.get('X-News-Status') } : { items: null, status: null })
+          .catch(() => ({ items: null, status: null }));
+        Promise.all([newsP, wireP]).then(([newsRes, wireRes]) => {
           const news = newsRes.items;
+          const wire = wireRes.items;
           if (Array.isArray(news) && news.length) {
             const mapped = news.map(d => ({ tk: d.ticker, headline: d.headline, src: d.source, t: d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLivePortfolio(mapped);
@@ -331,12 +334,14 @@ function NewsPanel() {
             const mapped = wire.map(d => ({ tk: d.ticker_or_sector, headline: d.headline, src: d.source, t: d.ago, macro: d.tag !== 'TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime??0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring }));
             setLiveWire(mapped);
             try { localStorage.setItem(`se:wire:v4:${qs}`, JSON.stringify({ items: mapped, savedAt: Date.now() })); } catch {}
-          } else if (Array.isArray(wire)) {
+          } else if (Array.isArray(wire) && wireRes.status !== 'scoring') {
+            // Genuinely empty — but never blank the tab mid-rescore (wire now
+            // serves stale + refreshes in the background, like news).
             setLiveWire([]);
           }
           setSrc('live');
           // Re-poll once after 60s if scoring is still in progress (background job takes ~15-20s)
-          if (newsRes.status === 'scoring' && scoreAttempts < 2) {
+          if ((newsRes.status === 'scoring' || wireRes.status === 'scoring') && scoreAttempts < 2) {
             scoreAttempts++;
             if (rescore) clearTimeout(rescore);
             rescore = setTimeout(() => load(true), 60000);
@@ -1201,7 +1206,7 @@ function ScoutDDModal({ scout, onClose }) {
           <span className="mono" style={{ fontSize: 10, letterSpacing: '0.14em', color: 'var(--acc)', padding: '4px 8px', border: '1px solid var(--acc)' }}>
             From Scout
           </span>
-          <SrcPill src="cached" age={scout.analyzedAt || 'scouted'} />
+          <SrcPill src="cached" age={scout.analyzedAt ? _relDate(scout.analyzedAt) : 'scouted'} />
           <button className="btn-icon" onClick={onClose}><Icon name="close" size={14} /></button>
         </div>
         <div className="modal-body">
@@ -1410,8 +1415,144 @@ function HoldingDDModal({ ticker, onClose }) {
   );
 }
 
+// =============================================================
+// SCB·10 — SIGNAL SCOREBOARD (forward returns vs VWRA)
+// Data: /api/dd/scoreboard — KV dd:scoreboard, refreshed daily by
+// the analyze cron (signal_analysis.py --json). Seed fallback so
+// the panel renders before the first upload.
+// =============================================================
+const _SB_SECTIONS = [
+  ['gate', 'Confirmation gate'],
+  ['grade', 'Grade'],
+  ['source', 'Source'],
+];
+
+function _sbPct(x, dec = 1) {
+  return (x >= 0 ? '+' : '') + (x * 100).toFixed(dec) + '%';
+}
+
+function ScoreboardPanel() {
+  const [sb, setSb] = useState(window.SE_SEED?.scoreboard || null);
+  const [src, setSrc] = useState('seed');
+  const [wi, setWi] = useState(0);
+
+  useEffect(() => {
+    fetch('/api/dd/scoreboard')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && Array.isArray(d.windows)) { setSb(d); setSrc('live'); }
+      })
+      .catch(() => {});
+  }, []);
+
+  const windows = sb?.windows || [];
+  const w = windows[Math.min(wi, Math.max(windows.length - 1, 0))];
+  const o = w?.overall;
+
+  return (
+    <>
+      <div className="panel-header">
+        <div className="panel-title"><span className="num">SCB·10</span> Signal Scoreboard</div>
+        <div className="tabs">
+          {windows.map((win, i) => (
+            <span key={win.weeks} className={`tab ${i === wi ? 'active' : ''}`} onClick={() => setWi(i)}>
+              {win.weeks}W
+            </span>
+          ))}
+        </div>
+        <div className="panel-actions">
+          <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>
+            VS {sb?.benchmark || 'VWRA.L'}
+          </span>
+          <SrcPill src={src} age={sb?.generated_at ? _relDate(sb.generated_at) : undefined} />
+        </div>
+      </div>
+      <div className="panel-body">
+        {!sb || !w ? (
+          <div className="sb-empty">No scoreboard yet — first snapshot lands with the next analyze run.</div>
+        ) : !o ? (
+          <div className="sb-empty">
+            {w.weeks}-week window: nothing measurable yet · {w.pending} signal{w.pending === 1 ? '' : 's'} pending
+          </div>
+        ) : (
+          <>
+            <div className="sb-hero">
+              <div>
+                <div className="sb-big">{(o.hit * 100).toFixed(0)}%</div>
+                <div className="sb-big-label">Hit rate vs index</div>
+              </div>
+              <div>
+                <div className={`sb-big ${o.mean >= 0 ? 'pos' : 'neg'}`}>{_sbPct(o.mean)}</div>
+                <div className="sb-big-label">Mean excess</div>
+              </div>
+              <div>
+                <div className={`sb-big ${o.median >= 0 ? 'pos' : 'neg'}`}>{_sbPct(o.median)}</div>
+                <div className="sb-big-label">Median excess</div>
+              </div>
+            </div>
+
+            <div className="sb-gauge-row">
+              <span>Win rate</span>
+              <GaugeBar value={o.hit} tone={o.hit >= 0.5 ? 'pos' : 'warn'} />
+              <span>{o.n} measured</span>
+            </div>
+
+            <div className="sb-chips">
+              <span className="chip acc">{w.measurable} measured</span>
+              <span className="chip">{w.pending} pending</span>
+              {w.no_data > 0 && <span className="chip warn">{w.no_data} no-data</span>}
+              {o.n < 10 && <span className="chip warn">⚠ small sample</span>}
+            </div>
+
+            {_SB_SECTIONS.map(([key, label]) => {
+              const rows = w.buckets?.[key];
+              if (!rows || !rows.length) return null;
+              return (
+                <div className="sb-section" key={key}>
+                  <div className="dd-section-label">{label}</div>
+                  <table className="sb-table"><tbody>
+                    {rows.map(r => (
+                      <tr key={r.k}>
+                        <td className="k">{r.k}</td>
+                        <td className="n">n={r.n}{r.n < 10 ? ' ⚠' : ''}</td>
+                        <td className="g"><GaugeBar value={r.hit} tone={r.hit >= 0.5 ? 'pos' : 'warn'} height={5} /></td>
+                        <td className="v dim">{(r.hit * 100).toFixed(0)}%</td>
+                        <td className={`v ${r.mean >= 0 ? 'pos' : 'neg'}`}>{_sbPct(r.mean)}</td>
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </div>
+              );
+            })}
+
+            {(w.top?.length || w.bottom?.length) ? (
+              <div className="sb-section">
+                <div className="dd-section-label">Best / worst vs index</div>
+                <div className="sb-movers">
+                  {(w.top || []).map(t => (
+                    <span className="sb-mover up" key={'t' + t.ticker + t.excess}>▲ {t.ticker} {_sbPct(t.excess)}</span>
+                  ))}
+                  {(w.bottom || []).map(t => (
+                    <span className="sb-mover down" key={'b' + t.ticker + t.excess}>▼ {t.ticker} {_sbPct(t.excess)}</span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="sb-note">
+              excess = signal forward return − {sb.benchmark} over the matched window
+              · {sb.n_signals} signals logged ({sb.n_scout} scout · {sb.n_gems} gems)
+              {sb.note ? <><br />{sb.note}</> : null}
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 Object.assign(window, {
   HoldingsPanel, HeatmapPanel, IntelPanel, NewsPanel, MacroPanel,
-  FilingsPanel, DDPanel, ScoutPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
+  FilingsPanel, DDPanel, ScoutPanel, ScoreboardPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
 });
 })();

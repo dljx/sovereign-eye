@@ -1,13 +1,13 @@
 /* global React, ReactDOM, window, Icon, SrcPill,
    HoldingsPanel, HeatmapPanel, IntelPanel, NewsPanel, MacroPanel,
-   FilingsPanel, DDPanel, ScoutPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
+   FilingsPanel, DDPanel, ScoutPanel, ScoreboardPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
    ImportModal, MobileFrame, MobileApp,
    computeTotals, fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
    TweaksPanel, useTweaks, TweakSection, TweakRadio, TweakColor, TweakToggle */
 (function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-const BUILD = '20260528-5';
+const BUILD = '20260704-1';
 
 // =============================================================
 // TIMEZONE / MARKET SESSION
@@ -145,7 +145,7 @@ function useQuotes(positions) {
 // =============================================================
 const TWEAK_DEFAULTS = {
   density: 'compact',
-  accent: '#a78bfa',
+  accent: '#22d3ee',
   scanlines: false,
   glow: false,
   showMobile: false,
@@ -165,6 +165,35 @@ function mix(a, b, w) {
 }
 
 // =============================================================
+// PIPELINE LINK — dd:meta heartbeat in the header, always visible.
+// Scout cron runs 4-hourly: > 6h since last upload = a missed run.
+// =============================================================
+function PipelineLink() {
+  const [dd, setDd] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => fetch('/api/health')
+      .then(r => r.ok ? r.json() : null)
+      .then(apis => { if (alive && Array.isArray(apis)) setDd(apis.find(a => a.id === 'gh') || null); })
+      .catch(() => {});
+    load();
+    const id = setInterval(load, 5 * 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  if (!dd) return null;
+  const m = /(\d+)([mhd])/.exec(dd.lastOk || '');
+  const hrs = m ? (m[2] === 'm' ? +m[1] / 60 : m[2] === 'h' ? +m[1] : +m[1] * 24) : null;
+  const tone = hrs == null ? (dd.status === 'ok' ? 'ok' : 'warn')
+    : hrs > 12 ? 'err' : hrs > 6 ? 'warn' : 'ok';
+  return (
+    <div className={`hud-link ${tone}`} title={`DD pipeline — last upload ${dd.lastOk}`}>
+      <span className="led" />
+      <span>DD · {dd.lastOk}</span>
+    </div>
+  );
+}
+
+// =============================================================
 // HEADER
 // =============================================================
 const NAV_ITEMS = [
@@ -179,7 +208,7 @@ function Header({ totals, onImport, onToggleMobile, mobileOpen, route, onRoute, 
       <div className="brand">
         <span className="brand-mark" />
         <span>SOVEREIGN&nbsp;EYE</span>
-        <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.16em', marginLeft: 6 }}>v3</span>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--fg-4)', letterSpacing: '0.16em', marginLeft: 6 }}>v4</span>
       </div>
 
       <div className="header-nav">
@@ -212,6 +241,8 @@ function Header({ totals, onImport, onToggleMobile, mobileOpen, route, onRoute, 
         <input placeholder="symbol or command…" readOnly tabIndex={-1} />
         <span className="header-search-kbd">⌘K</span>
       </div>
+
+      <PipelineLink />
 
       <div className="ccy-toggle" title="Toggle reporting currency">
         {['USD','SGD'].map(c => (
@@ -358,6 +389,7 @@ function ResearchView({ onPickScout }) {
     <div className="dash dash-research" style={{ gridTemplateColumns: '1fr' }}>
       <div className="panel"><DDPanel /></div>
       <div className="panel"><ScoutPanel onPick={onPickScout} /></div>
+      <div className="panel"><ScoreboardPanel /></div>
     </div>
   );
 }
@@ -538,7 +570,7 @@ function App() {
         <TweakColor
           label="Accent"
           value={t.accent}
-          options={['#a78bfa','#60a5fa','#fbbf24','#4ade80','#f87171']}
+          options={['#22d3ee','#fbbf24','#34d399','#fb7185','#a78bfa']}
           onChange={v => setTweak('accent', v)}
         />
         <TweakToggle label="Scanlines" value={t.scanlines} onChange={v => setTweak('scanlines', v)} />

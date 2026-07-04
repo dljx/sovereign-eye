@@ -1,0 +1,64 @@
+name: Deploy to Cloudflare Pages
+
+# Kills the "git push doesn't deploy" footgun: every push to master builds
+# (build.mjs → dist/) and deploys via wrangler, exactly like deploy.sh.
+#
+# ONE-TIME SETUP (until then the workflow no-ops with a notice):
+#   1. Cloudflare dashboard → My Profile → API Tokens → Create Token
+#      → "Edit Cloudflare Workers" template or custom with Account.Cloudflare
+#      Pages:Edit permission.
+#   2. Account ID: dash.cloudflare.com → any zone → right sidebar.
+#   3. gh secret set CLOUDFLARE_API_TOKEN  --repo <owner>/sovereign-eye
+#      gh secret set CLOUDFLARE_ACCOUNT_ID --repo <owner>/sovereign-eye
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true # only the newest push needs to deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check deploy secrets
+        id: guard
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CF_TOKEN" ] || [ -z "$CF_ACCOUNT" ]; then
+            echo "::notice::Auto-deploy skipped — add CLOUDFLARE_API_TOKEN (Pages:Edit) and CLOUDFLARE_ACCOUNT_ID repo secrets to enable. Until then, deploy manually with ./deploy.sh"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        if: steps.guard.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build (esbuild → dist/)
+        if: steps.guard.outputs.enabled == 'true'
+        run: |
+          npm install esbuild@0.24.0 --no-save --silent
+          node build.mjs
+
+      # Same command as deploy.sh — production branch is "main" on this
+      # Pages project even though the git branch is master.
+      - name: Deploy dist/ to Cloudflare Pages
+        if: steps.guard.outputs.enabled == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler pages deploy dist --project-name=sovereign-eye --branch=main
