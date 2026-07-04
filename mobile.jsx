@@ -806,6 +806,7 @@ function MobileScout({ onPick }) {
               <div className="scout-grade">{mode === 'review' && s.verdict ? `⚠ ${s.verdict}` : s.grade}</div>
               <div className="scout-rationale">{mode === 'review' && s.reviewReason ? s.reviewReason : s.rationale}</div>
               <div className="scout-chips">
+                {mode !== 'review' && s.vscore != null && <span className="chip ok">🛡 {(+s.vscore).toFixed(1)}</span>}
                 {mode === 'review' && s.vscore != null && <span className="chip warn">verify {(+s.vscore).toFixed(1)}</span>}
                 {s.rr != null && <span className="chip rr">R/R {(+s.rr).toFixed(1)}</span>}
                 {(s.filters || []).map((f, j) => (
