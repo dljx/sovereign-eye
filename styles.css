@@ -1201,9 +1201,11 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
   background: var(--bg-3);
   transform: translateY(-1px);
 }
+/* Top-ranked signal — the first card of the score-sorted list. Kept faint so
+   it reads as deliberate emphasis, not a stuck hover state. */
 .scout-card.featured {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--acc) 8%, var(--bg-2)), var(--bg-2));
-  border-color: var(--acc);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--acc) 4%, var(--bg-2)), var(--bg-2));
+  border-color: color-mix(in srgb, var(--acc) 55%, var(--border-2));
 }
 .scout-card-top {
   display: flex;
