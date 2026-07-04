@@ -222,38 +222,20 @@ async function archiveToSupabase(env, items) {
   await postNewsArchive(env, rows);
 }
 
-export async function onRequestGet(context) {
-  const url = new URL(context.request.url);
-  const tickerParam = url.searchParams.get("tickers") || "";
-  const tickers = tickerParam.split(",").map(t => t.trim()).filter(Boolean).filter(t => t !== "USD");
+function wireResponse(items, status) {
+  return new Response(JSON.stringify(items), {
+    headers: {
+      "Content-Type": "application/json",
+      "X-News-Status": status,
+      "Cache-Control": "no-store",
+    },
+  });
+}
 
-  const fhKey = context.env.FINNHUB_API_KEY;
-  const tvKeys = tavilyKeys(context.env);
-  const hasGemini = geminiKeys(context.env).length > 0;
-
-  // Workers edge cache (URL-only key — auth already validated by middleware)
-  const edgeCacheKey = new Request(url.toString());
-  const cache = caches.default;
-  const edgeCached = await cache.match(edgeCacheKey);
-  if (edgeCached) return edgeCached;
-
-  // Check KV cache
-  const kvKey = cacheKey(tickers);
-  if (context.env.DD_KV) {
-    try {
-      const cached = await context.env.DD_KV.get(kvKey, "json");
-      if (cached?.items && cached.updatedAt) {
-        const age = Date.now() - new Date(cached.updatedAt).getTime();
-        if (age < CACHE_TTL_MS) {
-          const kvHit = new Response(JSON.stringify(cached.items), {
-            headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=600, stale-while-revalidate=180" },
-          });
-          context.waitUntil(cache.put(edgeCacheKey,kvHit.clone()));
-          return kvHit;
-        }
-      }
-    } catch {}
-  }
+async function buildWireItems(env, tickers) {
+  const fhKey = env.FINNHUB_API_KEY;
+  const tvKeys = tavilyKeys(env);
+  const hasGemini = geminiKeys(env).length > 0;
 
   // Fetch raw items in parallel
   const [finnhubItems, tavilyItems] = await Promise.all([
@@ -271,7 +253,7 @@ export async function onRequestGet(context) {
   });
 
   // Run Gemma editorial filter
-  let items = hasGemini ? await filterWithGemma(allRaw, tickers, context.env) : null;
+  let items = hasGemini ? await filterWithGemma(allRaw, tickers, env) : null;
 
   // Fallback: keyword filter + heuristic scoring when Gemma is unavailable
   if (!items) {
@@ -297,17 +279,44 @@ export async function onRequestGet(context) {
       .sort((a, b) => b.importance - a.importance);
   }
 
-  // Cache result
-  if (context.env.DD_KV && items.length > 0) {
-    try {
-      await context.env.DD_KV.put(kvKey, JSON.stringify({ items, updatedAt: new Date().toISOString() }), { expirationTtl: 3600 });
-    } catch {}
+  return items;
+}
+
+async function refreshWire(env, tickers, kvKey) {
+  try {
+    const items = await buildWireItems(env, tickers);
+    if (items.length > 0) {
+      try {
+        await env.DD_KV.put(kvKey, JSON.stringify({ items, updatedAt: new Date().toISOString() }),
+          { expirationTtl: 3600 });
+      } catch { /* served next poll from stale */ }
+    }
+    await archiveToSupabase(env, items);
+  } catch { /* next poll retries */ }
+}
+
+export async function onRequestGet(context) {
+  const url = new URL(context.request.url);
+  const tickerParam = url.searchParams.get("tickers") || "";
+  const tickers = tickerParam.split(",").map(t => t.trim()).filter(Boolean).filter(t => t !== "USD");
+
+  // No KV binding (bare local dev) — compute inline, old blocking behavior.
+  if (!context.env.DD_KV) {
+    return wireResponse(await buildWireItems(context.env, tickers), "fresh");
   }
 
-  const freshResponse = new Response(JSON.stringify(items), {
-    headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=600, stale-while-revalidate=180" },
-  });
-  context.waitUntil(cache.put(edgeCacheKey,freshResponse.clone()));
-  context.waitUntil(archiveToSupabase(context.env, items));
-  return freshResponse;
+  // Serve-stale + background-refresh, mirroring news.js: a cold call used to
+  // block ~15-20s on Finnhub+Tavily+Gemma; now stale items (or []) return
+  // immediately with X-News-Status: scoring and the frontend re-polls.
+  const kvKey = cacheKey(tickers);
+  let cached = null;
+  try { cached = await context.env.DD_KV.get(kvKey, "json"); } catch { /* refresh below */ }
+
+  const age = cached?.updatedAt ? Date.now() - new Date(cached.updatedAt).getTime() : Infinity;
+  if (cached?.items?.length && age < CACHE_TTL_MS) {
+    return wireResponse(cached.items, "fresh");
+  }
+
+  context.waitUntil(refreshWire(context.env, tickers, kvKey));
+  return wireResponse(cached?.items || [], "scoring");
 }

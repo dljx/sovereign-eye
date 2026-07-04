@@ -41,7 +41,7 @@ export async function onRequestPost(context) {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { results = [], index, scouts, gems, watchlist, reconcile_remove } = body;
+  const { results = [], index, scouts, gems, watchlist, reconcile_remove, scoreboard } = body;
   const written = [];
   const failed = [];
 
@@ -86,11 +86,12 @@ export async function onRequestPost(context) {
       if (raw) {
         try { existing = JSON.parse(raw); } catch {}
       }
-      // Build a map keyed by ticker; new entries overwrite older ones
+      // Build a map keyed by ticker; new entries overwrite older ones.
+      // Entries without a ticker can't be deduped or reconciled — drop them.
       const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
-      for (const s of scouts) map.set(s.ticker, s);
+      for (const s of scouts) { if (s && s.ticker) map.set(s.ticker, s); }
       // Sort by score descending, cap at 100
-      const merged = [...map.values()].sort((a, b) => b.score - a.score).slice(0, 100);
+      const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
       await context.env.DD_KV.put("dd:scouts", JSON.stringify(merged));
       written.push("dd:scouts");
     } catch (e) {
@@ -108,8 +109,8 @@ export async function onRequestPost(context) {
         try { existing = JSON.parse(raw); } catch {}
       }
       const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
-      for (const s of gems) map.set(s.ticker, s);
-      const merged = [...map.values()].sort((a, b) => b.score - a.score).slice(0, 100);
+      for (const s of gems) { if (s && s.ticker) map.set(s.ticker, s); }
+      const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
       await context.env.DD_KV.put("dd:gems", JSON.stringify(merged));
       written.push("dd:gems");
     } catch (e) {
@@ -127,7 +128,7 @@ export async function onRequestPost(context) {
         try { existing = JSON.parse(raw); } catch {}
       }
       const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
-      for (const s of watchlist) map.set(s.ticker, s);
+      for (const s of watchlist) { if (s && s.ticker) map.set(s.ticker, s); }
       const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
       await context.env.DD_KV.put("dd:watchlist", JSON.stringify(merged));
       written.push("dd:watchlist");
@@ -169,6 +170,18 @@ export async function onRequestPost(context) {
   await pruneKey("dd:scouts", dropFromBoards);
   await pruneKey("dd:gems", dropFromBoards);
   await pruneKey("dd:watchlist", dropFromWatch);
+
+  // Scoreboard snapshot (signal performance vs benchmark, from
+  // signal_analysis.py) — replaced wholesale: it's a computed artifact,
+  // not an accumulator like the boards above.
+  if (scoreboard && typeof scoreboard === "object") {
+    try {
+      await context.env.DD_KV.put("dd:scoreboard", JSON.stringify(scoreboard));
+      written.push("dd:scoreboard");
+    } catch (e) {
+      failed.push({ key: "dd:scoreboard", error: e.message });
+    }
+  }
 
   // Persist scout history and notification history for cache-miss recovery in CI.
   // Written as scout:history and scout:notified — fetched by download_history.py

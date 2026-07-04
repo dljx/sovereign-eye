@@ -124,21 +124,23 @@ export async function onRequestGet(context) {
 
   const kvKey = cacheKey(tickers);
 
-  // 1. Try KV cache
+  // 1. Try KV cache (kept in scope — it doubles as the stale fallback when
+  //    Gemini fails below)
+  let cached = null;
   if (context.env.DD_KV) {
     try {
-      const cached = await context.env.DD_KV.get(kvKey, "json");
-      if (cached && cached.updatedAt) {
-        const age = Date.now() - new Date(cached.updatedAt).getTime();
-        if (age < CACHE_TTL_MS) {
-          const kvHit = new Response(JSON.stringify({ ...cached, cached: true }), {
-            headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=1800, stale-while-revalidate=900" },
-          });
-          context.waitUntil(cache.put(edgeCacheKey,kvHit.clone()));
-          return kvHit;
-        }
-      }
+      cached = await context.env.DD_KV.get(kvKey, "json");
     } catch { /* proceed to refresh */ }
+  }
+  if (cached && cached.updatedAt) {
+    const age = Date.now() - new Date(cached.updatedAt).getTime();
+    if (age < CACHE_TTL_MS) {
+      const kvHit = new Response(JSON.stringify({ ...cached, cached: true }), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "public, s-maxage=1800, stale-while-revalidate=900" },
+      });
+      context.waitUntil(cache.put(edgeCacheKey,kvHit.clone()));
+      return kvHit;
+    }
   }
 
   // 2. Fetch headlines + call Gemini
@@ -148,7 +150,14 @@ export async function onRequestGet(context) {
   try {
     synthesis = await callGemini(tickers, headlines, context.env);
   } catch (e) {
-    // If Gemini fails, return a 502 so frontend falls back to seed
+    // Gemini down: serve the stale KV synthesis if one exists — better than a
+    // blank panel. 502 only when there's truly nothing, so the frontend can
+    // fall back to seed. no-store: don't edge-cache a degraded response.
+    if (cached && cached.updatedAt) {
+      return new Response(JSON.stringify({ ...cached, cached: true, stale: true }), {
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+      });
+    }
     return new Response(JSON.stringify({ error: e.message }), {
       status: 502,
       headers: { "Content-Type": "application/json" },
