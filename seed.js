@@ -81,7 +81,8 @@ window.SE_SEED = {
     note: "pre-2026-07-03 entry prices are same-day-close backfills (approx)",
     versions: [
       { v: "unstamped", desc: "legacy ≤2026-07-02 — no factor stamp, backfilled entry prices" },
-      { v: "v2", desc: "since 2026-07-03 — true momentum lens, anti-evidence removals, quality composite, fail-closed gate" }
+      { v: "v2", desc: "since 2026-07-03 — true momentum lens, anti-evidence removals, quality composite, fail-closed gate" },
+      { v: "v3", desc: "since 2026-07-07 — gate grades not gates: R:R divergence is red-team input not an auto-reject, DOWNGRADE surfaces flagged, calm-window re-verification of UNVERIFIED holds" }
     ],
     windows: [
       {
@@ -111,7 +112,9 @@ window.SE_SEED = {
         ]
       },
       { weeks: 4, measurable: 0, pending: 119, no_data: 0 },
-      { weeks: 12, measurable: 0, pending: 119, no_data: 0 }
+      { weeks: 12, measurable: 0, pending: 119, no_data: 0 },
+      { weeks: 26, measurable: 0, pending: 119, no_data: 0 },
+      { weeks: 52, measurable: 0, pending: 119, no_data: 0 }
     ]
   }
 };

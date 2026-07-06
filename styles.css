@@ -1196,6 +1196,10 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 }
 .scout-card.buy::before { background: var(--pos); }
 .scout-card.strong-buy::before { background: var(--pos); box-shadow: 0 0 12px var(--pos); }
+/* v3 (2026-07-07): a red-team DOWNGRADE surfaces on the board flagged, not
+   suppressed like a VETO — amber marks it as graded evidence, not a clean BUY. */
+.scout-card.flagged::before { background: var(--warn); }
+.scout-card.flagged .scout-grade { color: var(--warn); }
 .scout-card:hover {
   border-color: var(--acc);
   background: var(--bg-3);

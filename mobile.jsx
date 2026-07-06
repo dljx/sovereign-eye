@@ -172,6 +172,16 @@ function MobileDDModal({ ticker, fallbackScout, onClose }) {
               <div className="news-loading" style={{ padding: '8px 0', fontSize: 11 }}>
                 <span>Scout consensus — run a full DD from the DD tab for the agent transcript.</span>
               </div>
+              {s.verdict === 'DOWNGRADE' && (
+                <div className="dd-section" style={{ color: 'var(--warn)' }}>
+                  <div className="dd-section-label">
+                    ⚠ Red-Team Flagged — DOWNGRADE{s.vscore != null ? ` · ${(+s.vscore).toFixed(1)}/10` : ''}
+                  </div>
+                  <div className="dd-thesis">
+                    {s.reviewReason || 'Red-team review raised concerns that weren’t fatal to the thesis.'}
+                  </div>
+                </div>
+              )}
               {s.banger?.is_banger && (
                 <div className="dd-section" style={{ color: 'var(--acc)' }}>
                   <div className="dd-section-label">🔥 Banger</div>
@@ -898,9 +908,13 @@ function MobileScout({ onPick }) {
         </div>
       ) : (
         <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {display.map((s, i) => (
+          {display.map((s, i) => {
+            // v3 (2026-07-07): a red-team DOWNGRADE surfaces here flagged rather
+            // than being suppressed to Under Review like a VETO.
+            const flagged = mode !== 'review' && s.verdict === 'DOWNGRADE';
+            return (
             <div key={s.tk + '-' + i}
-              className={`scout-card ${mode === 'review' ? 'hold review' : (s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}`}
+              className={`scout-card ${mode === 'review' ? 'hold review' : (s.grade || '').toLowerCase().replace(' ','-')}${i === 0 ? ' featured' : ''}${flagged ? ' flagged' : ''}`}
               onClick={() => onPick && onPick(s)}
               title={`Open DD for ${s.tk}`}
               style={{ cursor: 'pointer' }}>
@@ -908,10 +922,11 @@ function MobileScout({ onPick }) {
                 <span className="scout-tk">{s.tk}</span>
                 <span className="scout-score">{(+s.score).toFixed(1)}<span className="denom"> /10</span></span>
               </div>
-              <div className="scout-grade">{mode === 'review' && s.verdict ? `⚠ ${s.verdict}` : s.grade}</div>
-              <div className="scout-rationale">{mode === 'review' && s.reviewReason ? s.reviewReason : s.rationale}</div>
+              <div className="scout-grade">{mode === 'review' && s.verdict ? `⚠ ${s.verdict}` : flagged ? `⚠ ${s.grade}` : s.grade}</div>
+              <div className="scout-rationale">{(mode === 'review' || flagged) && s.reviewReason ? s.reviewReason : s.rationale}</div>
               <div className="scout-chips">
-                {mode !== 'review' && s.vscore != null && <span className="chip ok">🛡 {(+s.vscore).toFixed(1)}</span>}
+                {flagged && s.vscore != null && <span className="chip warn">⚠ {(+s.vscore).toFixed(1)}</span>}
+                {!flagged && mode !== 'review' && s.vscore != null && <span className="chip ok">🛡 {(+s.vscore).toFixed(1)}</span>}
                 {mode === 'review' && s.vscore != null && <span className="chip warn">verify {(+s.vscore).toFixed(1)}</span>}
                 {s.rr != null && <span className="chip rr">R/R {(+s.rr).toFixed(1)}</span>}
                 {(s.filters || []).map((f, j) => (
@@ -920,7 +935,8 @@ function MobileScout({ onPick }) {
               </div>
               <div className="scout-meta"><span>{s.sector}</span><span>Path {s.valPath}</span></div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
