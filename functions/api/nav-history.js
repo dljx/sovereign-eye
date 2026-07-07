@@ -19,10 +19,14 @@ export async function onRequestGet(context) {
   // Bearer callers (the dd cron's daily NAV stamp) must present the upload
   // secret — this path is in BEARER_PATHS, and the middleware contract says
   // bearer-reachable endpoints self-validate. Basic-auth browser traffic
-  // arrives here already authenticated with no Bearer header.
+  // arrives here already authenticated with no Bearer header. The regex form
+  // catches a BARE "Bearer" too (startsWith("Bearer ") missed it, which
+  // treated bare-Bearer requests as authenticated — found live 2026-07-08).
   const auth = context.request.headers.get("Authorization") || "";
-  if (auth.startsWith("Bearer ")) {
-    if (!context.env.DD_UPLOAD_SECRET || auth.slice(7) !== context.env.DD_UPLOAD_SECRET) {
+  const bearerMatch = auth.match(/^Bearer\b\s*(.*)$/i);
+  if (bearerMatch) {
+    const token = bearerMatch[1].trim();
+    if (!token || !context.env.DD_UPLOAD_SECRET || token !== context.env.DD_UPLOAD_SECRET) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
   }

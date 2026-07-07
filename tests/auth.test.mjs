@@ -47,6 +47,12 @@ await check("Bearer -> /api/positions blocked", "Bearer x", "/api/positions", 40
 // FIRE-feature bearer paths (both self-validate DD_UPLOAD_SECRET internally).
 await check("Bearer -> /api/nav-history forwarded", "Bearer x", "/api/nav-history", 200);
 await check("Bearer -> /api/fire forwarded", "Bearer x", "/api/fire", 200);
+// A BARE "Bearer" (no token) must NOT be forwarded — handlers that treat
+// parsed-bearer-absence as Basic-authed would let it straight through
+// (live finding, 2026-07-08).
+await check("bare Bearer -> /api/fire blocked", "Bearer", "/api/fire", 401);
+await check("bare Bearer -> /api/dd/upload blocked", "Bearer", "/api/dd/upload", 401);
+await check("empty Bearer -> /api/fire blocked", "Bearer ", "/api/fire", 401);
 // Dashboard Basic auth.
 await check("Basic daryl -> /api/dd/trigger ok", basic, "/api/dd/trigger", 200);
 await check("Basic wrong pass -> 401", "Basic " + b64("daryl:nope"), "/api/positions", 401);

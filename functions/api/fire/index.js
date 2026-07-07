@@ -7,15 +7,20 @@
 // Telegram; the human keys in changes). This path is in BEARER_PATHS, so per
 // the middleware contract it self-validates the token.
 
+// Bearer scheme detection must catch a BARE "Authorization: Bearer" too —
+// startsWith("Bearer ") missed it, and "no parsed bearer" was then treated as
+// "Basic-authed", letting an unauthenticated bare-Bearer request through
+// (defense in depth; the middleware now also refuses to forward bare Bearers).
 function bearerToken(request) {
   const auth = request.headers.get("Authorization") || "";
-  return auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  const m = auth.match(/^Bearer\b\s*(.*)$/i);
+  return m ? m[1].trim() : null; // "" for a bare Bearer — still non-null
 }
 
 export async function onRequestGet(context) {
   const token = bearerToken(context.request);
   if (token !== null &&
-      (!context.env.DD_UPLOAD_SECRET || token !== context.env.DD_UPLOAD_SECRET)) {
+      (!token || !context.env.DD_UPLOAD_SECRET || token !== context.env.DD_UPLOAD_SECRET)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {

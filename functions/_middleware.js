@@ -40,9 +40,12 @@ async function handleRequest(context) {
       }
     }
 
-    // Bearer auth — only forwarded to specific write endpoints that re-validate the token.
-    // Prevents any Bearer value from bypassing Basic Auth on other routes (e.g. /api/positions).
-    if (scheme === "Bearer") {
+    // Bearer auth — only forwarded to specific endpoints that re-validate the
+    // token, and only when a NON-EMPTY credential follows the scheme. A bare
+    // "Authorization: Bearer" used to be forwarded, and handlers that treat
+    // parsed-bearer-absence as "already Basic-authed" then let an
+    // unauthenticated request through (found live 2026-07-08).
+    if (scheme === "Bearer" && encoded) {
       const pathname = new URL(context.request.url).pathname;
       if (BEARER_PATHS.includes(pathname)) {
         return await context.next();

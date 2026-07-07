@@ -121,6 +121,16 @@ const ctx = (kv, { auth = null, body = undefined } = {}) => ({
   check("PUT array -> 400", (await onRequestPut(ctx(kv, { body: [1, 2] }))).status === 400);
   check("nothing stored on rejected writes", !kv.store.has("fire:daryl"));
 }
+{
+  // The live 2026-07-08 finding: a BARE "Bearer" (no token) must never read
+  // like an authenticated Basic session — even if the middleware regressed.
+  const kv = mockKV({ "fire:daryl": JSON.stringify({ swr: 3.5 }) });
+  check("bare Bearer GET -> 401", (await onRequestGet(ctx(kv, { auth: "Bearer" }))).status === 401);
+  check("empty Bearer GET -> 401", (await onRequestGet(ctx(kv, { auth: "Bearer " }))).status === 401);
+  check("bare Bearer PUT -> 403", (await onRequestPut(ctx(kv, { auth: "Bearer", body: { swr: 1 } }))).status === 403);
+  check("empty Bearer PUT -> 403", (await onRequestPut(ctx(kv, { auth: "Bearer ", body: { swr: 1 } }))).status === 403);
+  check("junk not written", JSON.parse(kv.store.get("fire:daryl")).swr === 3.5);
+}
 
 rmSync(tmp, { recursive: true, force: true });
 console.log(failed === 0 ? "\nALL FIRE TESTS PASSED" : `\n${failed} FAILED`);
