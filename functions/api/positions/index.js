@@ -7,7 +7,9 @@ export async function onRequestGet(context) {
     const data = await context.env.DD_KV.get("positions:daryl", "json");
     return Response.json(data || []);
   } catch (e) {
-    return Response.json([], { status: 200 });
+    // Honest failure: a KV outage must not render as "empty portfolio".
+    // All frontend callers guard with r.ok and keep their local fallback.
+    return Response.json({ error: "KV unavailable" }, { status: 503 });
   }
 }
 

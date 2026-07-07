@@ -7,7 +7,11 @@ async function purgeCdnCache(request, writtenKeys) {
       if (k === "dd:index") return `${origin}/api/dd/index`;
       if (k === "dd:scouts") return `${origin}/api/dd/scouts`;
       if (k === "dd:gems") return `${origin}/api/dd/gems`;
-      return `${origin}/api/dd/${k.slice(3).toLowerCase()}`;
+      // Keep the ticker's case: [ticker].js caches under the raw request URL
+      // (uppercase, e.g. /api/dd/GOOG) and Request URLs are case-sensitive —
+      // lowercasing here made every per-ticker purge miss, serving stale DD
+      // panels for up to s-maxage=3600 after each upload.
+      return `${origin}/api/dd/${k.slice(3)}`;
     });
   await Promise.allSettled(urls.map(url => cache.delete(new Request(url))));
 }

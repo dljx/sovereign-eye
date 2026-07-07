@@ -39,6 +39,7 @@ export async function onRequestGet(context) {
       headers: { 'Cache-Control': 'public, s-maxage=300' },
     });
   } catch {
-    return Response.json([]);
+    // Honest failure — callers guard with r.ok and keep whatever they had.
+    return Response.json({ error: "Supabase unavailable" }, { status: 503 });
   }
 }

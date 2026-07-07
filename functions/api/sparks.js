@@ -17,7 +17,7 @@ export async function onRequestGet(context) {
   const url     = new URL(context.request.url);
   const tickers = (url.searchParams.get('tickers') || '')
     .split(',').map(t => t.trim().toUpperCase())
-    .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 15);
+    .filter(t => /^[A-Z0-9][A-Z0-9.\-]{0,11}$/.test(t)).slice(0, 15); // allow BRK.B / HPQ.V (was silently dropping them)
   if (!tickers.length) return Response.json({});
 
   // Check cache — return if fresh

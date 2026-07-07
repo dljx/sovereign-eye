@@ -21,7 +21,7 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
-import { timeAgo, salvageArray, postNewsArchive, heuristicScore, heuristicSentiment } from "./_util.js";
+import { timeAgo, salvageArray, postNewsArchive, heuristicScore, heuristicSentiment, clipWord } from "./_util.js";
 
 const CACHE_VERSION  = "news:portfolio:v1";
 const CACHE_TTL_MS   = 45 * 60 * 1000;   // serve from cache for 45 min
@@ -53,7 +53,7 @@ async function fetchTickerNews(sym, apiKey) {
         source:   n.source || "—",
         datetime: n.datetime || 0,
         ago:      timeAgo(n.datetime || 0),
-        headline: (n.headline || "").slice(0, 150),
+        headline: clipWord(n.headline, 150),
         url:      n.url || null,
       }))
       .filter(n => {
@@ -114,7 +114,7 @@ ${numbered}`;
         headline:  orig.headline,
         sentiment: ['bull','bear','neutral'].includes(sentRaw) ? sentRaw : heuristicSentiment(orig.headline),
         importance: !isNaN(imp) ? Math.min(100, Math.max(0, imp)) : heuristicScore(orig.headline),
-        why:       (sc.why || sc.w || '').slice(0, 60),
+        why:       clipWord(sc.why || sc.w, 60),
         url:       orig.url,
       };
     }).filter(Boolean);

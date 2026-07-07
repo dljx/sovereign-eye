@@ -39,6 +39,7 @@ export async function onRequestGet(context) {
     context.waitUntil(cache.put(cacheKey, fresh.clone()));
     return fresh;
   } catch {
-    return Response.json([]);
+    // Honest failure — an outage must not read as "no scout history".
+    return Response.json({ error: "Supabase unavailable" }, { status: 503 });
   }
 }

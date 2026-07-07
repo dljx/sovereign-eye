@@ -15,7 +15,8 @@ async function handleRequest(context) {
     if (scheme === "Basic") {
       const storedPass = context.env.DASHBOARD_PASSWORD;
       if (!storedPass) {
-        return new Response("DASHBOARD_PASSWORD env var not configured", { status: 500 });
+        // JSON body — every /api consumer expects res.json() to parse.
+        return Response.json({ error: "DASHBOARD_PASSWORD env var not configured" }, { status: 500 });
       }
       let decoded = "";
       try {
@@ -45,9 +46,12 @@ async function handleRequest(context) {
     }
   }
 
-  return new Response("Authentication required", {
+  // JSON body (frontend res.json() must parse); WWW-Authenticate still triggers
+  // the browser's Basic-auth prompt regardless of body shape.
+  return new Response(JSON.stringify({ error: "Authentication required" }), {
     status: 401,
     headers: {
+      "Content-Type": "application/json",
       "WWW-Authenticate": 'Basic realm="Sovereign Eye", charset="UTF-8"',
     },
   });

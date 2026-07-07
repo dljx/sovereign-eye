@@ -7,7 +7,7 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
-import { timeAgo, postNewsArchive, heuristicScore, heuristicSentiment } from "./_util.js";
+import { timeAgo, postNewsArchive, heuristicScore, heuristicSentiment, clipWord } from "./_util.js";
 
 const CACHE_VERSION = "wire:feed:v8";
 const CACHE_TTL_MS = 20 * 60 * 1000;
@@ -27,7 +27,7 @@ async function fetchFinnhubGeneralNews(apiKey) {
       source: n.source || "Finnhub",
       ago: timeAgo(new Date((n.datetime || 0) * 1000).toISOString()),
       datetime: n.datetime || 0,
-      headline: (n.headline || "").slice(0, 150),
+      headline: clipWord(n.headline, 150),
       url: n.url || null,
       hint: "MACRO",
     }));
@@ -79,7 +79,7 @@ async function fetchTavilyItems(tickers, keys) {
     .then(data => {
       if (!data?.results) return;
       data.results.forEach(r => {
-        const headline = (r.title || "").slice(0, 150);
+        const headline = clipWord(r.title, 150);
         if (!headline) return;
         let source = "unknown";
         try { source = new URL(r.url).hostname.replace("www.", ""); } catch {}
@@ -109,7 +109,7 @@ async function fetchTavilyItems(tickers, keys) {
   .then(data => {
     if (!data?.results) return;
     data.results.forEach(r => {
-      const headline = (r.title || "").slice(0, 150);
+      const headline = clipWord(r.title, 150);
       if (!headline) return;
       let source = "unknown";
       try { source = new URL(r.url).hostname.replace("www.", ""); } catch {}
@@ -184,7 +184,7 @@ ${numbered}`;
         ) || rawItems.find(r => r.source?.toLowerCase() === (item.source || "").toLowerCase())
           || rawItems.find(r => r.hint === item.ticker_or_sector || r.hint === "MACRO");
 
-      const headline = (item.headline || "").slice(0, 110);
+      const headline = clipWord(item.headline, 110);
       // Use Gemma's score if it's a real value; fall back to heuristic if Gemma skipped it
       const rawScore = parseInt(item.importance, 10);
       const importance = !isNaN(rawScore) ? Math.min(100, Math.max(0, rawScore)) : heuristicScore(headline);
@@ -200,7 +200,7 @@ ${numbered}`;
         headline,
         sentiment,
         importance,
-        why: (item.why || "").slice(0, 80),
+        why: clipWord(item.why, 80),
         url: orig?.url || null,
       };
     }).filter(item => item.headline);
@@ -262,7 +262,7 @@ async function buildWireItems(env, tickers) {
       .filter(r => !NOISE.test(r.headline))
       .slice(0, 12)
       .map(r => {
-        const headline = r.headline.slice(0, 110);
+        const headline = clipWord(r.headline, 110);
         return {
           tag: r.hint === "MACRO" ? "MACRO" : "TICKER",
           ticker_or_sector: r.hint,

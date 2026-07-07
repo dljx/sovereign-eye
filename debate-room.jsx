@@ -401,7 +401,7 @@ function buildEventQueue(rawData) {
       if (from<0||to<0||from===to) return;
       events.push({ t, type:'WALK', from, to });
       t += 1.6;
-      events.push({ t, type:'BUBBLE', idx:from, text:(e.challenge||'').slice(0,26)||'CHALLENGE', color:'#f87171' });
+      events.push({ t, type:'BUBBLE', idx:from, text:window.clipWord(e.challenge, 26)||'CHALLENGE', color:'#f87171' });
       t += 2.6;
       events.push({ t, type:'RETURN', from });
       t += 1.8;
@@ -593,7 +593,7 @@ function DebateRoom({ ddData = null, elapsed = 0, ticker = '', liveEvents = null
         agents[from].tx = deskPos[to].x;
         agents[from].ty = deskPos[to].y;
         // Show challenge bubble after walk delay
-        const snippet = (ev.challenge || 'CHALLENGE').slice(0, 26);
+        const snippet = window.clipWord(ev.challenge, 26) || 'CHALLENGE';
         st.pendingActions.push(
           { fireAt: simT + 1.6, fn: () => { agents[from].bubble = { text: snippet, color: '#f87171', t: simT+1.6 }; } },
           { fireAt: simT + 4.2, fn: () => { agents[from].bubble = null; agents[from].tx = agents[from].hx; agents[from].ty = agents[from].hy; } }

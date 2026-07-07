@@ -562,13 +562,16 @@ function MobileIntel() {
           } else if (Array.isArray(wire) && wireRes.status !== 'scoring') {
             setLiveWire([]);
           }
-          setNewsSrc('live');
-          if ((newsRes.status === 'scoring' || wireRes.status === 'scoring') && scoreAttempts < 2) {
+          // Pill honesty (see desktop) — never label a dead fetch as live.
+          const anyOk   = newsRes.items !== null || wireRes.items !== null;
+          const scoring = newsRes.status === 'scoring' || wireRes.status === 'scoring';
+          setNewsSrc(!anyOk ? 'error' : scoring ? 'cached' : 'live');
+          if (scoring && scoreAttempts < 2) {
             scoreAttempts++;
             if (rescore) clearTimeout(rescore);
             rescore = setTimeout(() => load(true), 60000);
           }
-        }).catch(() => setNewsSrc('live'));
+        }).catch(() => setNewsSrc('error'));
       };
       if (iv) clearInterval(iv);
       load(false);
@@ -868,8 +871,14 @@ function MobileScout({ onPick }) {
 
   const display = scouts.length ? scouts : (mode === 'scouts' ? (window.SCOUTS || []) : []);
   const nextRun = (() => {
-    const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    return et.getHours() < 6 ? '06:00 ET today' : '06:00 ET tomorrow';
+    // scout.yml cron is "0 */4 * * *" — every 4h UTC (the old 06:00 ET label
+    // was the portfolio schedule, not scout's).
+    const next = new Date();
+    next.setUTCMinutes(0, 0, 0);
+    next.setUTCHours(next.getUTCHours() + 4 - (next.getUTCHours() % 4));
+    const mins = Math.max(1, Math.round((next - Date.now()) / 60000));
+    const hhmm = next.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `≈ ${hhmm} (in ${mins >= 60 ? Math.round(mins / 60) + 'h' : mins + 'm'})`;
   })();
 
   return (

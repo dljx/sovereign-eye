@@ -40,6 +40,7 @@ export async function onRequestGet(context) {
     const rows = await res.json();
     return Response.json(Array.isArray(rows) ? rows : []);
   } catch {
-    return Response.json([]);
+    // Honest failure — an outage must not read as "no archived news".
+    return Response.json({ error: "Supabase unavailable" }, { status: 503 });
   }
 }

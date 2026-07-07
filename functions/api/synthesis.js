@@ -99,7 +99,12 @@ ${headlineBlock}`;
 
   // Strip markdown code fences if present
   const jsonStr = raw.replace(/^```(?:json)?\n?/m, "").replace(/\n?```$/m, "").trim();
-  return JSON.parse(jsonStr);
+  // Salvage like the sibling LLM endpoints: models wrap the object in
+  // preamble/postamble text more often than they emit clean JSON.
+  try { return JSON.parse(jsonStr); } catch (_) {}
+  const m = jsonStr.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch (_) {} }
+  throw new Error("synthesis: unparseable LLM reply");
 }
 
 export async function onRequestGet(context) {

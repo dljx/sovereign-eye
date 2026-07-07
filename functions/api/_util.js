@@ -25,6 +25,20 @@ export function heuristicSentiment(headline) {
 export const TICKER_RE = /^[A-Z0-9.\-]{1,12}$/;
 
 /**
+ * Word-boundary truncation for user-facing prose (headlines, "why" strings).
+ * Mirrors sovereign-dd's text_utils.clip: never ends mid-word, ellipsis only
+ * when text was actually cut. Raw .slice(0, N) is for keys/dates/arrays only.
+ */
+export function clipWord(s, n) {
+  s = s || "";
+  if (s.length <= n) return s;
+  let cut = s.slice(0, n);
+  const sp = cut.lastIndexOf(" ");
+  if (sp > n * 0.6) cut = cut.slice(0, sp);
+  return cut.replace(/\s+$/, "") + "…";
+}
+
+/**
  * Relative "Nm/Nh/Nd" string. Accepts either a unix-seconds number (Finnhub
  * datetime) OR a date string (Tavily published_date). Unifies the two prior
  * per-endpoint copies which differed only in input type.

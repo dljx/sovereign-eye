@@ -45,11 +45,16 @@ async function yahooQuote(ticker) {
   } catch { return null; }
 }
 
-// USD per 1 unit of `ccy` (e.g. CAD → ~0.73), via Yahoo FX pair. Cached per request.
-const _fxCache = new Map();
+// USD per 1 unit of `ccy` (e.g. CAD → ~0.73), via Yahoo FX pair.
+// NB: isolate-global, NOT per-request — successes expire after a short TTL and
+// failures are never stored (a cached null used to pin "FX unavailable" for the
+// whole isolate lifetime, leaving non-USD quotes unconverted indefinitely).
+const _fxCache = new Map();               // ccy -> { rate, ts }
+const _FX_TTL_MS = 5 * 60 * 1000;
 async function fxToUsd(ccy) {
   if (!ccy || ccy === "USD") return 1;
-  if (_fxCache.has(ccy)) return _fxCache.get(ccy);
+  const hit = _fxCache.get(ccy);
+  if (hit && Date.now() - hit.ts < _FX_TTL_MS) return hit.rate;
   let rate = null;
   try {
     const r = await fetch(
@@ -61,7 +66,7 @@ async function fxToUsd(ccy) {
       if (p > 0) rate = p;
     }
   } catch {}
-  _fxCache.set(ccy, rate);
+  if (rate) _fxCache.set(ccy, { rate, ts: Date.now() });
   return rate;
 }
 

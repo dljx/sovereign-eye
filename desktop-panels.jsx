@@ -339,14 +339,19 @@ function NewsPanel() {
             // serves stale + refreshes in the background, like news).
             setLiveWire([]);
           }
-          setSrc('live');
+          // Pill honesty: LINK only when at least one feed actually answered;
+          // 'scoring' means we're showing stale-being-refreshed (CACHE); both
+          // feeds failing is a FAULT — never label a dead fetch as live.
+          const anyOk   = newsRes.items !== null || wireRes.items !== null;
+          const scoring = newsRes.status === 'scoring' || wireRes.status === 'scoring';
+          setSrc(!anyOk ? 'error' : scoring ? 'cached' : 'live');
           // Re-poll once after 60s if scoring is still in progress (background job takes ~15-20s)
-          if ((newsRes.status === 'scoring' || wireRes.status === 'scoring') && scoreAttempts < 2) {
+          if (scoring && scoreAttempts < 2) {
             scoreAttempts++;
             if (rescore) clearTimeout(rescore);
             rescore = setTimeout(() => load(true), 60000);
           }
-        }).catch(() => setSrc('live'));
+        }).catch(() => setSrc('error'));
       };
 
       if (interval) clearInterval(interval);
@@ -1027,8 +1032,15 @@ function ScoutPanel({ onPick }) {
   const age = src === 'live' ? 'now' : src === 'loading' ? '…' : 'seed';
 
   const nextRun = (() => {
-    const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    return et.getHours() < 6 ? '06:00 ET today' : '06:00 ET tomorrow';
+    // scout.yml cron is "0 */4 * * *" — every 4h UTC. (This used to claim
+    // 06:00 ET, which is the PORTFOLIO analyze.yml schedule, not scout's —
+    // off by up to ~20h.)
+    const next = new Date();
+    next.setUTCMinutes(0, 0, 0);
+    next.setUTCHours(next.getUTCHours() + 4 - (next.getUTCHours() % 4));
+    const mins = Math.max(1, Math.round((next - Date.now()) / 60000));
+    const hhmm = next.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `≈ ${hhmm} (in ${mins >= 60 ? Math.round(mins / 60) + 'h' : mins + 'm'})`;
   })();
 
   return (
@@ -1058,7 +1070,7 @@ function ScoutPanel({ onPick }) {
           ) : (
             <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--fg-3)' }}>
               <div className="mono uppercase" style={{ fontSize: 11, color: 'var(--fg-2)', marginBottom: 8 }}>{mode === 'gems' ? 'Gems' : 'Scout'} is hunting</div>
-              <div style={{ fontSize: 12 }}>Screened on a schedule · next run {nextRun}</div>
+              <div style={{ fontSize: 12 }}>Screened every 4h · next run {nextRun}</div>
               <div style={{ marginTop: 6, fontSize: 11 }}>screener → Gemini triage → 5-agent debate</div>
             </div>
           )

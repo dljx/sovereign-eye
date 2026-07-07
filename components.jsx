@@ -3,6 +3,18 @@
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 window.__CCY = window.__CCY || { ccy: 'USD', rate: 1, sym: '$' };
+
+// Word-boundary truncation for user-facing prose — mirrors sovereign-dd's
+// text_utils.clip and functions/api/_util.js clipWord. Raw .slice() on prose
+// cuts mid-word; use this instead (keys/dates/array caps can keep .slice()).
+window.clipWord = window.clipWord || function (s, n) {
+  s = s || '';
+  if (s.length <= n) return s;
+  let cut = s.slice(0, n);
+  const sp = cut.lastIndexOf(' ');
+  if (sp > n * 0.6) cut = cut.slice(0, sp);
+  return cut.replace(/\s+$/, '') + '…';
+};
 const CCY_RATES = { USD: 1, SGD: 1.347 };
 const CCY_SYMS  = { USD: '$', SGD: 'S$' };
 

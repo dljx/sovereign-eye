@@ -13,7 +13,7 @@
 import { geminiKeys } from "./_gemini.js";
 
 const KV_CHECKS = [
-  { prefix: 'news:tk:',  apiId: 'finnhub' },  // news.js per-ticker scored cache
+  { prefix: 'news:portfolio:', apiId: 'finnhub' },  // news.js scored cache (news.js writes news:portfolio:v1:*)
   { prefix: 'dd:synthesis', apiId: 'gemini' },
   { prefix: 'wire:feed:', apiId: 'tavily'  },  // wire.js Tavily news wire
   // NB: 'gh' (the DD screen) is handled by ddScreenHealth() below, NOT here —
