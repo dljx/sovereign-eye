@@ -1615,6 +1615,17 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
   margin-top: 4px;
 }
 
+/* Swipe-left-to-delete on mobile holdings rows. (These rules previously lived
+   only in mobile.css, which no HTML page actually links — all live m-* styles
+   are here in styles.css.) */
+.m-swipe { position: relative; overflow: hidden; }
+.m-swipe-del {
+  position: absolute; right: 0; top: 0; bottom: 0;
+  width: 80px; background: var(--neg); color: #000;
+  border: none; font-family: var(--mono); font-size: 11px;
+  font-weight: 600; letter-spacing: 0.06em; cursor: pointer;
+}
+
 .m-position {
   display: grid;
   grid-template-columns: 1fr auto;

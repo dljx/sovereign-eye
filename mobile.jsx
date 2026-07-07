@@ -9,104 +9,10 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 // _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry
 // now live in dd-shared.jsx (loaded before this script in both index/mobile.html).
 
-// Hold-mode label translation: portfolio-screen results now arrive with
-// mode === 'hold' and use the ADD/HOLD/TRIM/EXIT ladder instead of BUY/SELL.
-function _holdLabel(score) {
-  const s = Number(score);
-  if (!isFinite(s)) return 'HOLD';
-  if (s >= 7.0) return 'ADD';
-  if (s >= 5.5) return 'HOLD';
-  if (s >= 3.5) return 'TRIM';
-  return 'EXIT';
-}
-function _gradeFor(d) {
-  if (d && d.mode === 'hold') return _holdLabel(d.consensus_score ?? d.score);
-  return (d?.consensus_grade ?? d?.grade ?? 'HOLD').toString().trim();
-}
-
-// Rich dossier body — shared by the DD screen (result phase) and the DD popup.
-function DDResultFull({ data }) {
-  const [showTranscript, setShowTranscript] = useState(false);
-  const gradeClass = g => (g || '').toLowerCase().replace(/[\s_-]+/g, '-');
-  const scoreColor = s => s >= 7 ? 'bull' : s <= 5 ? 'bear' : 'neutral';
-  const pos = data.position_guidance || null;
-  return (
-    <>
-      <div className="dd-result-header">
-        <div>
-          <div className="dd-ticker">{data.ticker}</div>
-          <div className="dd-conf">CONF: {data.confidence || '—'}</div>
-        </div>
-        <div style={{ flex: 1 }} />
-        <div style={{ textAlign: 'right' }}>
-          <div className="dd-score">{Number(data.consensus_score ?? data.score ?? 0).toFixed(1)}<span className="denom"> / 10</span></div>
-          {(() => { const lbl = _gradeFor(data); return <div className={`dd-grade ${gradeClass(lbl)}`}>{lbl}</div>; })()}
-        </div>
-      </div>
-      <div className="dd-chips">
-        {data.entry_assessment && <span className="dd-chip">Entry: {String(data.entry_assessment).replace(/_/g, ' ')}</span>}
-        {data.fair_value_composite != null && <span className="dd-chip">Fair value: ${data.fair_value_composite}</span>}
-        <RRChip rr={data.risk_reward} />
-        {data.asymmetry_ratio && <span className="dd-chip">Asymmetry: {data.asymmetry_ratio}</span>}
-        {data.moat_composite != null && <span className="dd-chip">Moat: {data.moat_composite}/10</span>}
-        {pos?.range && <span className="dd-chip">Size: {pos.range}</span>}
-        {data.cycle_position?.regime && <span className="dd-chip">{data.cycle_position.regime} · {data.cycle_position.phase}</span>}
-        {data.banger?.is_banger && <span className="dd-chip dd-chip-hot">BANGER</span>}
-      </div>
-      <div className="dd-section">
-        <div className="dd-section-label">Majority Thesis</div>
-        <div className="dd-thesis">{data.majority_thesis ?? data.thesis}</div>
-      </div>
-      {data.catalyst && (
-        <div className="dd-section">
-          <div className="dd-section-label">Catalyst</div>
-          <div className="dd-thesis">{data.catalyst}</div>
-        </div>
-      )}
-      {(data.key_swing_factor ?? data.swing) && (
-        <div className="dd-section">
-          <div className="dd-section-label">Key Swing Factor</div>
-          <div className="dd-swing">{data.key_swing_factor ?? data.swing}</div>
-        </div>
-      )}
-      {data.dissent && (
-        <div className="dd-section">
-          <div className="dd-section-label">Dissent</div>
-          <div className="dd-dissent">{data.dissent}</div>
-        </div>
-      )}
-      {data.agent_final_scores && (
-        <div className="dd-section">
-          <div className="dd-section-label">Agent Scores (R1 → final)</div>
-          <div className="dd-agents">
-            {Object.entries(data.agent_final_scores).map(([name, fin]) => {
-              const r1 = data.agent_r1_scores?.[name];
-              return (
-                <div key={name} className="dd-agent">
-                  <div className="ag-name">{name}</div>
-                  <div className={`ag-vote ${scoreColor(fin)}`}>{Number(fin).toFixed(1)}</div>
-                  <div className="ag-rationale">{r1 != null ? `R1 ${Number(r1).toFixed(1)} → ${Number(fin).toFixed(1)}` : `Final ${Number(fin).toFixed(1)}`}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      {Array.isArray(data.transcript) && data.transcript.length > 0 && (
-        <div className="dd-section">
-          <div className="dd-section-label dd-transcript-toggle" onClick={() => setShowTranscript(v => !v)}>
-            {showTranscript ? '▼' : '▶'} Full Debate Transcript ({data.transcript.length} turns)
-          </div>
-          {showTranscript && (
-            <div className="dd-transcript">
-              {data.transcript.filter(t => t.round !== 'synthesis').map((t, i) => <DDTranscriptEntry key={i} t={t} />)}
-            </div>
-          )}
-        </div>
-      )}
-    </>
-  );
-}
+// Hold-mode labels + the rich DD renderer now live in dd-shared.jsx.
+const _holdLabel = window.holdLabel;
+const _gradeFor = window.gradeForResult;
+const DDResultFull = window.DDResultFull;
 
 // Full-screen DD popup. Fetches the real dossier from /api/dd/{ticker}; if there
 // is none yet (scout picks aren't stored per-ticker), falls back to the scout
@@ -119,7 +25,7 @@ function MobileDDModal({ ticker, fallbackScout, onClose }) {
     if (!ticker) return;
     setState('loading'); setData(null);
     let cancelled = false;
-    fetch(`/api/dd/${ticker.toLowerCase()}`)
+    fetch(`/api/dd/${ticker.toUpperCase()}`)
       .then(r => r.status === 404 ? { __empty: true } : (r.ok ? r.json() : Promise.reject()))
       .then(d => {
         if (cancelled) return;
@@ -470,36 +376,10 @@ function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency
 // =============================================================
 // INTEL SCREEN
 // =============================================================
-function _parseAgoMs(t) {
-  const m = (t || '').match(/^(\d+)(m|h|d)$/);
-  if (!m) return 0;
-  return +m[1] * (m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : 86400000);
-}
-const _NEWS_PERIOD_SECS = { '1D': 86400, '1W': 604800, '1M': 2592000 };
-function _agoToSec(t) {
-  const m = (t || '').match(/(\d+)\s*(m|h|d)/);
-  if (!m) return 0;
-  return +m[1] * (m[2] === 'm' ? 60 : m[2] === 'h' ? 3600 : 86400);
-}
-function _effectiveTs(n) {
-  if (n.datetime >= 1000000000 && n.datetime <= 2000000000) return n.datetime;
-  const age = _agoToSec(n.t || n.ago);
-  if (age > 0) return Math.floor(Date.now() / 1000) - age;
-  return Math.floor(Date.now() / 1000);
-}
-function _decayImp(importance, ts) {
-  const ageDays = (Date.now() / 1000 - (ts || 0)) / 86400;
-  return Math.round((importance || 0) * Math.max(0.4, 1 - ageDays / 20));
-}
-function _applyNewsFilters(items, period, sortMode) {
-  const cutoff = _NEWS_PERIOD_SECS[period] || _NEWS_PERIOD_SECS['1W'];
-  const nowSec = Date.now() / 1000;
-  const withTs = items.map(n => ({ ...n, _ts: _effectiveTs(n) }));
-  const filtered = withTs.filter(n => (nowSec - n._ts) < cutoff);
-  return sortMode === 'rank'
-    ? [...filtered].sort((a, b) => _decayImp(b.importance, b._ts) - _decayImp(a.importance, a._ts))
-    : [...filtered].sort((a, b) => b._ts - a._ts);
-}
+// Time/decay/filter logic shared with desktop — see dd-shared.jsx NewsUtils.
+const _parseAgoMs = window.NewsUtils.parseAgoMs;
+const _decayImp = window.NewsUtils.decayImp;
+const _applyNewsFilters = window.NewsUtils.applyNewsFilters;
 
 function MobileIntel() {
   const [tab, setTab] = useState('synthesis');
@@ -869,32 +749,9 @@ function MobileScout({ onPick }) {
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (Array.isArray(d) && d.length) {
-          // Keep the rich agent consensus so a tapped card can show the real DD.
-          setScouts(d.map(s => {
-            const ver = s.verification || {};
-            return {
-            tk: s.ticker || s.tk || '—',
-            score: s.score ?? 0,
-            grade: (s.grade ?? 'HOLD').replace(/ /g, '-').toUpperCase(),
-            sector: s.sector || '—',
-            valPath: s.path || '—',
-            rationale: s.gemma_rationale || s.rationale || s.thesis || '—',
-            filters: s.matched_filters || [],
-            conf: s.conf || s.confidence || '',
-            thesis: s.thesis || s.majority_thesis || '',
-            keySwing: s.key_swing || s.key_swing_factor || '',
-            catalyst: s.catalyst || '',
-            asymmetry: s.asymmetry_ratio || '',
-            position: s.position_guidance || null,
-            banger: s.banger || null,
-            cycle: s.cycle_position || null,
-            rr: s.rr ?? null,
-            risk: s.risk || null,
-            verdict: ver.verdict || null,
-            reviewReason: ver.strongest_bear_point || (ver.reasons || [])[0] || '',
-            vscore: ver.verification_score ?? null,
-          };
-          }));
+          // Shared normalizer (dd-shared.jsx) — keeps the rich agent consensus
+          // so a tapped card can show the real DD, identical to desktop.
+          setScouts(d.map(window.normalizeScoutCard));
           setSrc('live');
         } else {
           setSrc('seed');
@@ -1015,7 +872,7 @@ function MobileDetail({ initialTicker }) {
   // Read-only load of an existing dossier (used when launched with a ticker)
   const loadFromKV = useCallback(async (tk) => {
     try {
-      const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
+      const r = await fetch(`/api/dd/${tk.toUpperCase()}`);
       if (!r.ok) return;
       const data = await r.json();
       const d = data?.result || data;
@@ -1048,7 +905,7 @@ function MobileDetail({ initialTicker }) {
 
     const doPoll = async () => {
       try {
-        const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
+        const r = await fetch(`/api/dd/${tk.toUpperCase()}`);
         if (r.ok) {
           const data = await r.json();
           const d = data?.result || data;

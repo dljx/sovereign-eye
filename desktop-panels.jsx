@@ -6,22 +6,9 @@
 (function () {
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
-// Hold-mode label translation. The sovereign-dd portfolio screen now runs in
-// hold-mode (mode === 'hold' on the dd payload) and emits the ADD/HOLD/TRIM/EXIT
-// ladder directly in consensus_grade. We re-derive from the score so the
-// dashboard stays correct even on older payloads that still carry BUY/SELL.
-function holdLabel(score) {
-  const s = Number(score);
-  if (!isFinite(s)) return 'HOLD';
-  if (s >= 7.0) return 'ADD';
-  if (s >= 5.5) return 'HOLD';
-  if (s >= 3.5) return 'TRIM';
-  return 'EXIT';
-}
-function gradeForResult(d) {
-  if (d && d.mode === 'hold') return holdLabel(d.consensus_score ?? d.score);
-  return (d?.consensus_grade ?? d?.grade ?? 'HOLD').toString().trim();
-}
+// Hold-mode labels + shared card/news helpers live in dd-shared.jsx (window
+// exports) so desktop and mobile can't drift apart.
+const { holdLabel, gradeForResult, DDResultFull, normalizeScoutCard } = window;
 
 // =============================================================
 // HOLDINGS PANEL
@@ -250,37 +237,8 @@ function IntelPanel() {
 // =============================================================
 // NEWS PANEL
 // =============================================================
-function parseAgoMs(t) {
-  const m = (t || '').match(/^(\d+)(m|h|d)$/);
-  if (!m) return 0;
-  return +m[1] * (m[2] === 'm' ? 60000 : m[2] === 'h' ? 3600000 : 86400000);
-}
-const NEWS_PERIOD_SECS = { '1D': 86400, '1W': 604800, '1M': 2592000 };
-function _agoToSec(t) {
-  const m = (t || '').match(/(\d+)\s*(m|h|d)/);
-  if (!m) return 0;
-  return +m[1] * (m[2] === 'm' ? 60 : m[2] === 'h' ? 3600 : 86400);
-}
-function _effectiveTs(n) {
-  // Valid Unix epoch in seconds: between 2001-09-09 and 2033-05-18
-  if (n.datetime >= 1000000000 && n.datetime <= 2000000000) return n.datetime;
-  const age = _agoToSec(n.t);
-  if (age > 0) return Math.floor(Date.now() / 1000) - age;
-  return Math.floor(Date.now() / 1000); // unknown → treat as now
-}
-function decayImp(importance, ts) {
-  const ageDays = (Date.now() / 1000 - (ts || 0)) / 86400;
-  return Math.round((importance || 0) * Math.max(0.4, 1 - ageDays / 20));
-}
-function applyNewsFilters(items, period, sortMode) {
-  const cutoff = NEWS_PERIOD_SECS[period] || NEWS_PERIOD_SECS['1W'];
-  const nowSec = Date.now() / 1000;
-  const withTs = items.map(n => ({ ...n, _ts: _effectiveTs(n) }));
-  const filtered = withTs.filter(n => (nowSec - n._ts) < cutoff);
-  return sortMode === 'rank'
-    ? [...filtered].sort((a, b) => decayImp(b.importance, b._ts) - decayImp(a.importance, a._ts))
-    : [...filtered].sort((a, b) => b._ts - a._ts);
-}
+// Time/decay/filter logic shared with mobile — see dd-shared.jsx NewsUtils.
+const { parseAgoMs, decayImp, applyNewsFilters } = window.NewsUtils;
 
 const _mapPortfolioItem = d => ({ tk: d.tk||d.ticker, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: false, url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring });
 const _mapWireItem      = d => ({ tk: d.tk||d.ticker_or_sector, headline: d.headline, src: d.src||d.source, t: d.t||d.ago, macro: d.macro!==false && d.tag!=='TICKER', url: d.url||'', importance: d.importance??50, why: d.why||'', datetime: d.datetime||0, sentiment: d.sentiment??'neutral', _scoring: !!d._scoring });
@@ -761,7 +719,9 @@ function DDPanel({ onTickerSelect }) {
     };
     const doPoll = async () => {
       try {
-        const r = await fetch(`/api/dd/${tk.toLowerCase()}`);
+        // Uppercase URL — the canonical form all clients share, so the edge
+        // cache has ONE entry per ticker and upload purges actually hit it.
+        const r = await fetch(`/api/dd/${tk.toUpperCase()}`);
         if (r.ok) {
           pollFailCount = 0;
           pollDelay = 15_000;
@@ -770,7 +730,10 @@ function DDPanel({ onTickerSelect }) {
           if (data && (d.consensus_score != null || d.score != null)) {
             stopAll();
             const mapped = _mapDDResult(data);
-            if (mapped) { setResult(mapped); setState('result'); return; }
+            // Keep the raw result too — the rich shared renderer (DDResultFull)
+            // shows fair value/moat/banger/cycle/transcript that the reduced
+            // mapped shape drops.
+            if (mapped) { setResult({ ...mapped, _raw: d }); setState('result'); return; }
           }
         } else {
           pollFailCount++;
@@ -933,45 +896,55 @@ function DDPanel({ onTickerSelect }) {
 
         {(state === 'result' || (state === 'idle' && displayResult)) && displayResult && (
           <div>
-            <div className="dd-result-header">
-              <div>
-                <div className="dd-ticker">{displayResult.ticker}</div>
-                <div className="dd-conf">CONF: {displayResult.confidence}</div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div className="dd-score">{(+displayResult.score).toFixed(1)}<span className="denom"> / 10</span></div>
-                <div className={`dd-grade ${displayResult.grade.toLowerCase().replace(/\s+/g, '-')}`}>{displayResult.grade}</div>
-              </div>
-            </div>
-            <div className="dd-section">
-              <div className="dd-section-label">Thesis</div>
-              <div className="dd-thesis">{displayResult.thesis}</div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-              <div>
-                <div className="dd-section-label">Key Swing Factor</div>
-                <div className="dd-swing">{displayResult.swing}</div>
-              </div>
-              {displayResult.dissent && (
-                <div>
-                  <div className="dd-section-label">Dissent</div>
-                  <div className="dd-dissent">{displayResult.dissent}</div>
+            {displayResult._raw ? (
+              // Full shared renderer (fair value/moat/banger/cycle/transcript) —
+              // the manual-analyze view used to show a reduced hand-rolled shape
+              // while clicking a holding showed everything.
+              <DDResultFull data={displayResult._raw} />
+            ) : (
+              // Seed/legacy reduced shape (window.DD_RESULT) — no raw payload.
+              <>
+                <div className="dd-result-header">
+                  <div>
+                    <div className="dd-ticker">{displayResult.ticker}</div>
+                    <div className="dd-conf">CONF: {displayResult.confidence}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="dd-score">{(+displayResult.score).toFixed(1)}<span className="denom"> / 10</span></div>
+                    <div className={`dd-grade ${displayResult.grade.toLowerCase().replace(/\s+/g, '-')}`}>{displayResult.grade}</div>
+                  </div>
                 </div>
-              )}
-            </div>
-            {displayResult.agents?.length > 0 && (
-              <div className="dd-section">
-                <div className="dd-section-label">Agent Votes</div>
-                <div className="dd-agents">
-                  {displayResult.agents.map(a => (
-                    <div key={a.name} className="dd-agent">
-                      <div className="ag-name">{a.name}</div>
-                      <div className={`ag-vote ${(a.vote || '').toLowerCase()}`}>{a.vote}</div>
-                      <div className="ag-rationale">{a.rationale}</div>
+                <div className="dd-section">
+                  <div className="dd-section-label">Thesis</div>
+                  <div className="dd-thesis">{displayResult.thesis}</div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+                  <div>
+                    <div className="dd-section-label">Key Swing Factor</div>
+                    <div className="dd-swing">{displayResult.swing}</div>
+                  </div>
+                  {displayResult.dissent && (
+                    <div>
+                      <div className="dd-section-label">Dissent</div>
+                      <div className="dd-dissent">{displayResult.dissent}</div>
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
+                {displayResult.agents?.length > 0 && (
+                  <div className="dd-section">
+                    <div className="dd-section-label">Agent Votes</div>
+                    <div className="dd-agents">
+                      {displayResult.agents.map(a => (
+                        <div key={a.name} className="dd-agent">
+                          <div className="ag-name">{a.name}</div>
+                          <div className={`ag-vote ${(a.vote || '').toLowerCase()}`}>{a.vote}</div>
+                          <div className="ag-rationale">{a.rationale}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
             {trendData?.length > 1 && (
               <div className="dd-section">
@@ -1000,37 +973,9 @@ function ScoutPanel({ onPick }) {
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         if (Array.isArray(d) && d.length) {
-          // Normalize sovereign-dd scout shape → design shape. Keep the rich agent
-          // consensus fields (thesis/swing/catalyst/position/banger/cycle) so the
-          // click-through modal can render the real DD without another fetch.
-          const norm = d.map(s => {
-            const ver = s.verification || {};
-            return {
-            tk: s.ticker || s.tk || '—',
-            score: s.score ?? 0,
-            grade: (s.grade ?? s.consensus_grade ?? 'HOLD').replace(/ /g, '-').toUpperCase(),
-            sector: s.sector || '—',
-            valPath: s.path || s.valPath || '—',
-            rationale: s.gemma_rationale || s.rationale || s.thesis || '—',
-            filters: s.matched_filters || s.filters || [],
-            conf: s.conf || s.confidence || '',
-            thesis: s.thesis || s.majority_thesis || '',
-            keySwing: s.key_swing || s.key_swing_factor || '',
-            catalyst: s.catalyst || '',
-            asymmetry: s.asymmetry_ratio || '',
-            position: s.position_guidance || null,
-            banger: s.banger || null,
-            cycle: s.cycle_position || null,
-            rr: s.rr ?? null,
-            risk: s.risk || null,
-            analyzedAt: s.analyzed_at || '',
-            // Confirmation-gate fields (populated for the Under Review tab)
-            verdict: ver.verdict || null,
-            reviewReason: ver.strongest_bear_point || (ver.reasons || [])[0] || '',
-            vscore: ver.verification_score ?? null,
-          };
-          });
-          setCards(norm);
+          // Normalize sovereign-dd scout shape → design shape (shared with
+          // mobile via dd-shared.jsx so the two can't drift).
+          setCards(d.map(normalizeScoutCard));
           setSrc('live');
         } else {
           setSrc('seed');
