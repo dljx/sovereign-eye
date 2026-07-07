@@ -240,9 +240,239 @@ function DDResultFull({ data }) {
   );
 }
 
+// Compact SGD label for chart axes/heroes: S$1.2M / S$850k / S$900.
+function fmtSgdCompact(v) {
+  const a = Math.abs(v);
+  if (a >= 1e6) return `S$${(v / 1e6).toFixed(a >= 1e7 ? 1 : 2)}M`;
+  if (a >= 1e3) return `S$${Math.round(v / 1e3)}k`;
+  return `S$${Math.round(v)}`;
+}
+
+// FIRE progress chart: solid NAV history (SGD), dashed central projection with
+// a ∓2pp return band, the (age-65-stepped) FIRE-number line, and a crossover
+// marker. Pure render — all math comes from window.FireMath.
+// props: { history: [{date:'YYYY-MM-DD', value}], settings, liquidNow, w, h }
+function FireChart({ history = [], settings: s, liquidNow, w = 680, h = 240 }) {
+  const FM = window.FireMath;
+  const now = new Date();
+  const baseYear = now.getFullYear();
+
+  // Horizon: crossover + 3y when reachable, else 15y.
+  const xo = FM.crossover(s, liquidNow, now);
+  const horizonMonths = Math.min(FM.MONTHS_HORIZON, (xo ? xo.months + 36 : 180));
+
+  const central = FM.project(s, liquidNow, horizonMonths, 0);
+  const low     = FM.project(s, liquidNow, horizonMonths, -2);
+  const high    = FM.project(s, liquidNow, horizonMonths, +2);
+
+  const t0 = history.length ? new Date(history[0].date) : now;
+  const tEnd = new Date(now.getFullYear(), now.getMonth() + horizonMonths + 1, 1);
+  const span = tEnd - t0 || 1;
+
+  const fireAt = (d) => FM.fireNumberAt(d.getFullYear(), s, baseYear);
+  const fireEnd = fireAt(tEnd);
+  const maxV = Math.max(fireEnd, fireAt(now), high[high.length - 1] || 0,
+                        liquidNow, ...history.map(p => p.value)) * 1.06;
+  const minV = 0;
+
+  const X = (d) => 40 + ((d - t0) / span) * (w - 52);
+  const Y = (v) => 6 + (1 - (v - minV) / (maxV - minV || 1)) * (h - 34);
+  const monthDate = (m) => new Date(now.getFullYear(), now.getMonth() + m + 1, 1);
+
+  const histPts = history.map(p => `${X(new Date(p.date)).toFixed(1)},${Y(p.value).toFixed(1)}`);
+  if (liquidNow != null) histPts.push(`${X(now).toFixed(1)},${Y(liquidNow).toFixed(1)}`);
+
+  const projPath = (arr) => [`${X(now).toFixed(1)},${Y(liquidNow).toFixed(1)}`,
+    ...arr.map((v, m) => `${X(monthDate(m)).toFixed(1)},${Y(v).toFixed(1)}`)].join(' ');
+  const bandPath = `M ${projPath(high).replace(/ /g, ' L ')} L ${
+    [...low].reverse().map((v, i) => `${X(monthDate(low.length - 1 - i)).toFixed(1)},${Y(v).toFixed(1)}`).join(' L ')} Z`;
+
+  // FIRE line: yearly points; the age-65 CPF-Life step lands naturally.
+  const firePts = [];
+  for (let yr = t0.getFullYear(); yr <= tEnd.getFullYear(); yr++) {
+    const dJan = new Date(Math.max(t0, new Date(yr, 0, 1)));
+    firePts.push(`${X(dJan).toFixed(1)},${Y(fireAt(dJan)).toFixed(1)}`);
+    const step65 = (Number(s.birthYear) || 0) + 65 === yr + 1;
+    if (step65) firePts.push(`${X(new Date(yr, 11, 31)).toFixed(1)},${Y(fireAt(new Date(yr, 0, 1))).toFixed(1)}`);
+  }
+  firePts.push(`${X(tEnd).toFixed(1)},${Y(fireEnd).toFixed(1)}`);
+
+  const yTicks = [0.25, 0.5, 0.75, 1].map(f => minV + (maxV - minV) * f);
+  const xYears = [];
+  for (let yr = t0.getFullYear() + 1; yr <= tEnd.getFullYear(); yr += Math.max(1, Math.round((tEnd.getFullYear() - t0.getFullYear()) / 6))) {
+    xYears.push(yr);
+  }
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
+      {yTicks.map(v => (
+        <g key={v}>
+          <line x1="40" x2={w - 12} y1={Y(v)} y2={Y(v)} stroke="var(--border-1)" strokeDasharray="2,4" />
+          <text x="36" y={Y(v) + 3} textAnchor="end" fontSize="9" fill="var(--fg-3)" fontFamily="var(--mono)">{fmtSgdCompact(v)}</text>
+        </g>
+      ))}
+      {xYears.map(yr => (
+        <text key={yr} x={X(new Date(yr, 0, 1))} y={h - 6} textAnchor="middle" fontSize="9" fill="var(--fg-3)" fontFamily="var(--mono)">{yr}</text>
+      ))}
+
+      <path d={bandPath} fill="var(--acc)" opacity="0.08" />
+      {histPts.length > 1 && <polyline points={histPts.join(' ')} fill="none" stroke="var(--acc)" strokeWidth="1.8" />}
+      <polyline points={projPath(central)} fill="none" stroke="var(--acc)" strokeWidth="1.2" strokeDasharray="4,4" opacity="0.85" />
+      <polyline points={firePts.join(' ')} fill="none" stroke="var(--warn, #f59e0b)" strokeWidth="1.4" />
+
+      {liquidNow != null && <circle cx={X(now)} cy={Y(liquidNow)} r="3" fill="var(--acc)" />}
+      {xo && (
+        <g>
+          <circle cx={X(xo.date)} cy={Y(fireAt(xo.date))} r="4" fill="none" stroke="var(--pos, #34d399)" strokeWidth="1.6" />
+          <text x={Math.min(X(xo.date), w - 90)} y={Math.max(14, Y(fireAt(xo.date)) - 10)} fontSize="10" fill="var(--pos, #34d399)" fontFamily="var(--mono)">
+            FIRE ≈ {xo.date.toLocaleDateString('en-SG', { month: 'short', year: 'numeric' })}
+          </text>
+        </g>
+      )}
+    </svg>
+  );
+}
+
+// Full FIRE tab body — data fetching, hero numbers, chart, settings form —
+// shared verbatim by desktop (FirePanel) and mobile (MobileFire) so the two
+// can never drift. `compact` stacks the layout for phone widths.
+const FIRE_DEFAULTS = {
+  monthlyExpenses: 4000, swr: 3.5, inflation: 2.5, expectedReturn: 6.0,
+  monthlyContribution: 0, otherAssetsSGD: 0, birthYear: 1997,
+  cpf: { balance: 0, growthRate: 4.0, includeAsAsset: false },
+  cpfLifeMonthly: 0,
+};
+
+function FireBody({ compact = false, onRate }) {
+  const { useEffect } = React;
+  const [s, setS] = useState(null);            // null = loading
+  const [rawHist, setRawHist] = useState([]);  // [{date, navUsd}]
+  const [sgdRate, setSgdRate] = useState(window.CCY_RATES?.SGD || 1.35);
+  const [saveState, setSaveState] = useState('idle'); // idle | busy | saved | err
+
+  useEffect(() => {
+    fetch('/api/fire').then(r => r.ok ? r.json() : {})
+      .then(d => setS({ ...FIRE_DEFAULTS, ...(d || {}), cpf: { ...FIRE_DEFAULTS.cpf, ...((d || {}).cpf || {}) } }))
+      .catch(() => setS({ ...FIRE_DEFAULTS }));
+    fetch('/api/nav-history').then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.raw?.dates) setRawHist(d.raw.dates.map((date, i) => ({ date, navUsd: d.raw.nav[i] })));
+      }).catch(() => {});
+    fetch('/api/sgd-rate').then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.rate) { setSgdRate(d.rate); onRate && onRate(d.rate); } }).catch(() => {});
+  }, []);
+
+  if (!s) return <div className="news-loading"><div className="news-spinner" /><span>Loading FIRE settings…</span></div>;
+
+  const FM = window.FireMath;
+  const liquidNow = FM.liquidAssetsSGD(window.__NLV || 0, sgdRate, s);
+  // Historical points get today's extras/CPF added (their own history isn't
+  // tracked) — the line is "your assets as composed today, priced then".
+  const extras = liquidNow - (window.__NLV || 0) * sgdRate;
+  const history = rawHist.map(p => ({ date: p.date, value: p.navUsd * sgdRate + extras }));
+  const yearNow = new Date().getFullYear();
+  const fireNow = FM.fireNumberAt(yearNow, s, yearNow);
+  const pct = fireNow > 0 && isFinite(fireNow) ? (liquidNow / fireNow) * 100 : 0;
+  const xo = FM.crossover(s, liquidNow);
+
+  const set = (k, v) => setS(prev => ({ ...prev, [k]: v }));
+  const setCpf = (k, v) => setS(prev => ({ ...prev, cpf: { ...prev.cpf, [k]: v } }));
+  const save = async () => {
+    setSaveState('busy');
+    try {
+      const r = await fetch('/api/fire', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
+      });
+      setSaveState(r.ok ? 'saved' : 'err');
+      if (r.ok) setTimeout(() => setSaveState('idle'), 2000);
+    } catch { setSaveState('err'); }
+  };
+
+  const num = (k, label, step = 'any', nested = false) => (
+    <label key={(nested ? 'cpf.' : '') + k} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <span className="mono" style={{ fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--fg-3)' }}>{label}</span>
+      <input type="number" step={step}
+        value={(nested ? s.cpf[k] : s[k]) ?? ''}
+        onChange={e => {
+          const v = e.target.value === '' ? 0 : +e.target.value;
+          nested ? setCpf(k, v) : set(k, v);
+        }}
+        style={{ background: 'var(--bg-2)', border: '1px solid var(--border-1)', color: 'var(--fg-0)', font: 'inherit', padding: '5px 8px' }} />
+    </label>
+  );
+
+  return (
+    <>
+      <div className="sb-hero" style={compact ? { flexWrap: 'wrap', gap: 12 } : null}>
+        <div>
+          <div className="sb-big">{fmtSgdCompact(liquidNow)}</div>
+          <div className="sb-big-label">Liquid assets now</div>
+        </div>
+        <div>
+          <div className="sb-big" style={{ color: 'var(--warn)' }}>{isFinite(fireNow) ? fmtSgdCompact(fireNow) : '—'}</div>
+          <div className="sb-big-label">FIRE number today</div>
+        </div>
+        <div>
+          <div className={`sb-big ${pct >= 100 ? 'pos' : ''}`}>{pct.toFixed(0)}%</div>
+          <div className="sb-big-label">of the way there</div>
+        </div>
+        <div>
+          <div className="sb-big pos">{xo ? xo.date.toLocaleDateString('en-SG', { month: 'short', year: 'numeric' }) : '> 40y'}</div>
+          <div className="sb-big-label">Projected crossover</div>
+        </div>
+      </div>
+
+      <div style={compact
+        ? { display: 'flex', flexDirection: 'column', gap: 16 }
+        : { display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18, alignItems: 'start' }}>
+        <div>
+          {history.length < 2 && (
+            <div className="mono dim" style={{ fontSize: 10, marginBottom: 6 }}>
+              NAV history accumulates one snapshot per day from now on ({history.length} so far) — the solid line fills in as data builds; everything right of the dot is projection.
+            </div>
+          )}
+          <FireChart history={history} settings={s} liquidNow={liquidNow}
+            w={compact ? 360 : 680} h={compact ? 200 : 240} />
+          <div className="mono dim" style={{ fontSize: 10, marginTop: 8, lineHeight: 1.6 }}>
+            <b>How this is computed</b> — FIRE number = annual expenses (inflated {s.inflation}%/yr) ÷ SWR {s.swr}%;
+            from age 65 CPF Life (S${s.cpfLifeMonthly}/mo, held fixed = conservative) offsets expenses first, so the amber line steps down.
+            Projection compounds at {s.expectedReturn}%/yr nominal + S${s.monthlyContribution}/mo contributions; shaded band = ∓2pp return.
+            A projection is an assumption, not a promise.
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="dd-section-label">Your numbers (SGD)</div>
+          {num('monthlyExpenses', 'Monthly expenses')}
+          {num('swr', 'Safe withdrawal rate %')}
+          {num('inflation', 'Inflation %/yr')}
+          {num('expectedReturn', 'Expected return %/yr')}
+          {num('monthlyContribution', 'Monthly contribution')}
+          {num('otherAssetsSGD', 'Other liquid assets')}
+          {num('birthYear', 'Birth year', '1')}
+          {num('cpfLifeMonthly', 'CPF Life payout from 65 (/mo)')}
+          <div className="dd-section-label" style={{ marginTop: 4 }}>CPF</div>
+          {num('balance', 'CPF balance', 'any', true)}
+          {num('growthRate', 'CPF growth %/yr', 'any', true)}
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, color: 'var(--fg-2)' }}>
+            <input type="checkbox" checked={!!s.cpf.includeAsAsset} onChange={e => setCpf('includeAsAsset', e.target.checked)} />
+            Count CPF balance as an asset (locked pre-55 — off = conservative)
+          </label>
+          <button className="btn" onClick={save} disabled={saveState === 'busy'} style={{ marginTop: 6 }}>
+            {saveState === 'busy' ? 'Saving…' : saveState === 'saved' ? '✓ Saved' : saveState === 'err' ? 'Failed — retry' : 'Save'}
+          </button>
+          <div className="mono dim" style={{ fontSize: 9, lineHeight: 1.5 }}>
+            A quarterly grounded check reviews these assumptions (SG inflation, CPF rates, CPF Life) and pings Telegram if any look stale. It never edits them — you do.
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 Object.assign(window, {
   _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry, RRChip,
-  holdLabel, gradeForResult, DDResultFull, normalizeScoutCard,
+  holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireChart, FireBody, fmtSgdCompact,
   NewsUtils: { NEWS_PERIOD_SECS, parseAgoMs, newsEffectiveTs, decayImp, applyNewsFilters },
 });
 })();

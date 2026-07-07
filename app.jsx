@@ -199,6 +199,7 @@ function PipelineLink() {
 const NAV_ITEMS = [
   { id: 'dash',     icon: 'dashboard', label: 'Dashboard' },
   { id: 'research', icon: 'research',  label: 'Research' },
+  { id: 'fire',     icon: 'fire',      label: 'FIRE' },
   { id: 'system',   icon: 'activity',  label: 'System' },
 ];
 
@@ -492,6 +493,14 @@ function SystemView() {
   );
 }
 
+function FireView() {
+  return (
+    <div className="dash" style={{ gridTemplateColumns: '1fr' }}>
+      <div className="panel"><FirePanel /></div>
+    </div>
+  );
+}
+
 // =============================================================
 // MOBILE PREVIEW PANE
 // =============================================================
@@ -641,6 +650,7 @@ function App() {
           />
         )}
         {route === 'research' && <ResearchView onPickScout={s => setScoutPick(s)} />}
+        {route === 'fire'     && <FireView />}
         {route === 'system'   && <SystemView />}
       </div>
 

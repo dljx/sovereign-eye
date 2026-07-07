@@ -7,13 +7,26 @@
  */
 
 const SNAP_KEY  = 'nav:snapshots:v1';
-const MAX_SNAPS = 90; // keep up to 90 daily points
+// 5 years of dailies (~60KB at 5y — far under the 25MB KV value cap). Was 90,
+// which silently discarded history the FIRE tab needs.
+const MAX_SNAPS = 1825;
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
 export async function onRequestGet(context) {
+  // Bearer callers (the dd cron's daily NAV stamp) must present the upload
+  // secret — this path is in BEARER_PATHS, and the middleware contract says
+  // bearer-reachable endpoints self-validate. Basic-auth browser traffic
+  // arrives here already authenticated with no Bearer header.
+  const auth = context.request.headers.get("Authorization") || "";
+  if (auth.startsWith("Bearer ")) {
+    if (!context.env.DD_UPLOAD_SECRET || auth.slice(7) !== context.env.DD_UPLOAD_SECRET) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
   const kv  = context.env.DD_KV;
   const key = (context.env.FINNHUB_API_KEY || '').trim();
   if (!key || !kv) return Response.json(null, { status: 503 });
@@ -92,5 +105,14 @@ export async function onRequestGet(context) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   });
 
-  return Response.json({ nav, spx, labels });
+  // `raw` (added for the FIRE tab) carries the un-normalized series — the
+  // normalized base-100 arrays above can't be converted back to dollars.
+  return Response.json({
+    nav, spx, labels,
+    raw: {
+      dates: snaps.map(s => s.date),
+      nav:   snaps.map(s => +s.nav.toFixed(2)),
+      spy:   snaps.map(s => +s.spy.toFixed(2)),
+    },
+  });
 }

@@ -222,6 +222,7 @@ function MobileTabbar({ active, onChange }) {
     { id: 'portfolio', label: 'Portfolio', icon: 'holdings' },
     { id: 'intel',     label: 'Intel',     icon: 'intel' },
     { id: 'scout',     label: 'Scout',     icon: 'scout' },
+    { id: 'fire',      label: 'FIRE',      icon: 'fire' },
     { id: 'detail',    label: 'DD',        icon: 'eye' },
     { id: 'settings',  label: 'Settings',  icon: 'settings' },
   ];
@@ -1300,6 +1301,24 @@ function MobileSettings({ positions, setPositions }) {
 // =============================================================
 // MOBILE APP — entry point for mobile.html
 // =============================================================
+// FIRE screen — the entire body (data, math, chart, form) is the shared
+// dd-shared.FireBody; this is just the mobile chrome around it.
+function MobileFire() {
+  return (
+    <div className="mobile-screen">
+      <div className="mscreen-header">
+        <div className="mscreen-title">FIRE</div>
+        <div className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em', marginTop: 4 }}>
+          Portfolio vs financial-independence number · SGD
+        </div>
+      </div>
+      <div style={{ padding: 14 }}>
+        <window.FireBody compact />
+      </div>
+    </div>
+  );
+}
+
 function MobileApp() {
   const [screen, setScreen] = useState('portfolio');
   const { positions, setPositions, quotes } = useLiveData();
@@ -1321,6 +1340,12 @@ function MobileApp() {
 
   const openHolding = tk => setDdModal({ ticker: tk, scout: null });
   const openScout   = s  => setDdModal({ ticker: s.tk, scout: s });
+
+  // FireBody (shared) reads portfolio value from this global — desktop's App
+  // sets it, but mobile.html never loads app.jsx, so set it here too.
+  useEffect(() => {
+    try { window.__NLV = (window.computeTotals(positions, quotes) || {}).nlv || 0; } catch {}
+  }, [positions, quotes]);
 
   // Swipe-to-delete on the holdings list — confirm, optimistic update, persist.
   const deletePosition = tk => {
@@ -1349,6 +1374,7 @@ function MobileApp() {
       {screen === 'portfolio' && <MobilePortfolio positions={positions} quotes={quotes} onPick={openHolding} currency={currency} onToggleCurrency={setCurrency} onDelete={deletePosition} />}
       {screen === 'intel'     && <MobileIntel />}
       {screen === 'scout'     && <MobileScout onPick={openScout} />}
+      {screen === 'fire'      && <MobileFire />}
       {screen === 'detail'    && <MobileDetail />}
       {screen === 'settings'  && <MobileSettings positions={positions} setPositions={setPositions} />}
       <MobileTabbar active={screen} onChange={setScreen} />

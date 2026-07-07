@@ -64,6 +64,7 @@ function Icon({ name, size = 16 }) {
     search:      <><circle cx="11" cy="11" r="7" /><path d="m20 20-3-3" /></>,
     refresh:     <><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" /><path d="M3 21v-5h5" /></>,
     bell:        <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10 21a2 2 0 0 0 4 0" /></>,
+    fire:        <><path d="M12 2c1 4-4 5.5-4 10a4 4 0 0 0 8 0c0-1.5-.6-2.6-1.4-3.7C13.6 10 15 8 12 2z" /><path d="M12 22a7 7 0 0 1-7-7c0-2 1-4 2-5" /><path d="M19 15a7 7 0 0 1-7 7" /></>,
     chevron:     <><path d="m9 18 6-6-6-6" /></>,
     chevronDown: <><path d="m6 9 6 6 6-6" /></>,
     play:        <><path d="m6 4 14 8L6 20z" /></>,

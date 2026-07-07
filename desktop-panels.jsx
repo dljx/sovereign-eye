@@ -8,7 +8,7 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // Hold-mode labels + shared card/news helpers live in dd-shared.jsx (window
 // exports) so desktop and mobile can't drift apart.
-const { holdLabel, gradeForResult, DDResultFull, normalizeScoutCard } = window;
+const { holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireBody, FireChart, fmtSgdCompact } = window;
 
 // =============================================================
 // HOLDINGS PANEL
@@ -1617,8 +1617,30 @@ function ScoreboardPanel() {
   );
 }
 
+// =============================================================
+// FIRE PANEL — thin desktop wrapper; the whole body (fetching, math,
+// chart, settings form) is shared with mobile via dd-shared.FireBody.
+// =============================================================
+function FirePanel() {
+  const [sgdRate, setSgdRate] = useState(window.CCY_RATES?.SGD || 1.35);
+  return (
+    <>
+      <div className="panel-header">
+        <div className="panel-title"><span className="num">FIRE·11</span> Financial Independence</div>
+        <div className="panel-actions">
+          <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>SGD · USD/SGD {sgdRate.toFixed(3)}</span>
+        </div>
+      </div>
+      <div className="panel-body">
+        <FireBody onRate={setSgdRate} />
+      </div>
+    </>
+  );
+}
+
 Object.assign(window, {
   HoldingsPanel, HeatmapPanel, IntelPanel, NewsPanel, MacroPanel,
   FilingsPanel, DDPanel, ScoutPanel, ScoreboardPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
+  FirePanel,
 });
 })();

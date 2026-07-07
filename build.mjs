@@ -26,7 +26,7 @@ const JSX = [
   "tweaks-panel.jsx", "components.jsx", "data.jsx", "dd-shared.jsx",
   "debate-room.jsx", "desktop-panels.jsx", "import-modal.jsx", "mobile.jsx", "app.jsx",
 ];
-const PLAIN_JS = ["positions.js", "seed.js"];
+const PLAIN_JS = ["positions.js", "seed.js", "fire-math.js"];
 const CSS = ["styles.css", "mobile.css"];
 const STATIC = ["manifest.json", "icon-192.png", "icon-512.png", "sw.js"];
 const HTML = ["index.html", "mobile.html"];

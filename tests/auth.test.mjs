@@ -44,6 +44,9 @@ await check("Bearer -> /api/dd/history allowed", "Bearer x", "/api/dd/history", 
 await check("Bearer -> /api/dd/positions allowed", "Bearer x", "/api/dd/positions", 200);
 // /api/positions (Basic-only) must NOT be reachable with a Bearer.
 await check("Bearer -> /api/positions blocked", "Bearer x", "/api/positions", 401);
+// FIRE-feature bearer paths (both self-validate DD_UPLOAD_SECRET internally).
+await check("Bearer -> /api/nav-history forwarded", "Bearer x", "/api/nav-history", 200);
+await check("Bearer -> /api/fire forwarded", "Bearer x", "/api/fire", 200);
 // Dashboard Basic auth.
 await check("Basic daryl -> /api/dd/trigger ok", basic, "/api/dd/trigger", 200);
 await check("Basic wrong pass -> 401", "Basic " + b64("daryl:nope"), "/api/positions", 401);
