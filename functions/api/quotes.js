@@ -71,6 +71,15 @@ async function fxToUsd(ccy) {
 }
 
 export async function onRequestGet(context) {
+  // 25s edge micro-cache — the dashboard polls this every 30s (mobile) / 60s
+  // (desktop), fanning out one Finnhub call per holding per poll; an open
+  // dashboard alone could breach Finnhub's free 60/min limit. Keyed by URL
+  // (tickers param); auth is middleware-level so it doesn't block caching.
+  const cacheKey = new Request(new URL(context.request.url).toString());
+  const cache = caches.default;
+  const edgeCached = await cache.match(cacheKey);
+  if (edgeCached) return edgeCached;
+
   const key = (context.env.FINNHUB_API_KEY || "").trim();
 
   const url     = new URL(context.request.url);
@@ -104,5 +113,9 @@ export async function onRequestGet(context) {
     q._ccy = "USD";
   }));
 
-  return Response.json(quotes, { headers: { "Cache-Control": "no-store" } });
+  const response = Response.json(quotes, {
+    headers: { "Cache-Control": "public, s-maxage=25" },
+  });
+  context.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
 }

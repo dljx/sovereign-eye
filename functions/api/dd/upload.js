@@ -48,16 +48,28 @@ export async function onRequestPost(context) {
   const { results = [], index, scouts, gems, watchlist, reconcile_remove, scoreboard } = body;
   const written = [];
   const failed = [];
+  let kvOps = 0; // puts + deletes actually performed (free tier: 1,000/day, shared)
 
   // Write individual ticker results + clean up live event keys
   for (const { key, value } of results) {
     try {
       await context.env.DD_KV.put(key, JSON.stringify(value));
+      kvOps++;
       written.push(key);
-      // Delete the live event stream now that final result is stored
+      // Delete the live event stream now that the final result is stored — but
+      // only when one exists: live keys TTL out on their own (live.js writes
+      // with expirationTtl), and the old unconditional delete burned one write-
+      // budget op per ticker per upload, mostly on non-existent keys. A read
+      // costs against the far larger read budget instead.
       if (key.startsWith("dd:")) {
         const ticker = key.slice(3); // "dd:GOOG" → "GOOG"
-        await context.env.DD_KV.delete(`dd:live:${ticker}`).catch(() => {});
+        try {
+          const live = await context.env.DD_KV.get(`dd:live:${ticker}`);
+          if (live !== null) {
+            await context.env.DD_KV.delete(`dd:live:${ticker}`);
+            kvOps++;
+          }
+        } catch {}
       }
     } catch (e) {
       failed.push({ key, error: e.message });
@@ -75,77 +87,22 @@ export async function onRequestPost(context) {
         try { existing = JSON.parse(raw) || {}; } catch {}
       }
       await context.env.DD_KV.put("dd:index", JSON.stringify({ ...existing, ...index }));
+      kvOps++;
       written.push("dd:index");
     } catch (e) {
       failed.push({ key: "dd:index", error: e.message });
     }
   }
 
-  // Merge new scouts into the existing accumulated list (never replace wholesale).
-  // Dedup by ticker — newest entry wins. Cap at 100 to bound KV value size.
-  if (Array.isArray(scouts) && scouts.length > 0) {
-    try {
-      let existing = [];
-      const raw = await context.env.DD_KV.get("dd:scouts");
-      if (raw) {
-        try { existing = JSON.parse(raw); } catch {}
-      }
-      // Build a map keyed by ticker; new entries overwrite older ones.
-      // Entries without a ticker can't be deduped or reconciled — drop them.
-      const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
-      for (const s of scouts) { if (s && s.ticker) map.set(s.ticker, s); }
-      // Sort by score descending, cap at 100
-      const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
-      await context.env.DD_KV.put("dd:scouts", JSON.stringify(merged));
-      written.push("dd:scouts");
-    } catch (e) {
-      failed.push({ key: "dd:scouts", error: e.message });
-    }
-  }
-
-  // Merge new gems into the accumulated dd:gems list — same dedup-by-ticker /
-  // sort-by-score / cap-100 contract as dd:scouts above.
-  if (Array.isArray(gems) && gems.length > 0) {
-    try {
-      let existing = [];
-      const raw = await context.env.DD_KV.get("dd:gems");
-      if (raw) {
-        try { existing = JSON.parse(raw); } catch {}
-      }
-      const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
-      for (const s of gems) { if (s && s.ticker) map.set(s.ticker, s); }
-      const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
-      await context.env.DD_KV.put("dd:gems", JSON.stringify(merged));
-      written.push("dd:gems");
-    } catch (e) {
-      failed.push({ key: "dd:gems", error: e.message });
-    }
-  }
-
-  // Merge new "Under Review" items into dd:watchlist — BUYs that crossed the
-  // threshold but failed the confirmation gate. Same dedup/sort/cap as scouts.
-  if (Array.isArray(watchlist) && watchlist.length > 0) {
-    try {
-      let existing = [];
-      const raw = await context.env.DD_KV.get("dd:watchlist");
-      if (raw) {
-        try { existing = JSON.parse(raw); } catch {}
-      }
-      const map = new Map((Array.isArray(existing) ? existing : []).map(s => [s.ticker, s]));
-      for (const s of watchlist) { if (s && s.ticker) map.set(s.ticker, s); }
-      const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
-      await context.env.DD_KV.put("dd:watchlist", JSON.stringify(merged));
-      written.push("dd:watchlist");
-    } catch (e) {
-      failed.push({ key: "dd:watchlist", error: e.message });
-    }
-  }
-
-  // Cross-board reconciliation so each ticker lives on exactly ONE board.
-  // Runs AFTER the upserts so a same-run qualifying result is never undone.
-  //   - dropped below threshold (reconcile_remove)     → off scouts + gems + watchlist
-  //   - newly under review (this run's watchlist)        → off scouts + gems
-  //   - newly confirmed (this run's scouts/gems)         → off watchlist (promoted)
+  // Cross-board reconciliation sets, computed BEFORE the merges so each board
+  // key is read+merged+pruned+written in ONE pass (merge and prune used to be
+  // two separate writes per key — pure write-budget waste). The sets are
+  // mutually exclusive with same-run incoming entries by construction
+  // (reconcile_remove = below threshold; a ticker routes to either the boards
+  // or the watchlist in one run, never both), so single-pass = same result.
+  //   - dropped below threshold (reconcile_remove)  → off scouts + gems + watchlist
+  //   - newly under review (this run's watchlist)   → off scouts + gems
+  //   - newly confirmed (this run's scouts/gems)    → off watchlist (promoted)
   const _up = arr => (Array.isArray(arr) ? arr : []).map(s => String(s.ticker ?? s).toUpperCase());
   const baseRemove       = _up(reconcile_remove);
   const confirmedTickers = [..._up(scouts), ..._up(gems)];
@@ -153,27 +110,39 @@ export async function onRequestPost(context) {
   const dropFromBoards = new Set([...baseRemove, ...watchTickers]);     // off scouts/gems
   const dropFromWatch  = new Set([...baseRemove, ...confirmedTickers]); // off watchlist
 
-  async function pruneKey(kvKey, dropSet) {
-    if (dropSet.size === 0) return;
+  // Merge incoming entries into an accumulated board list (never replace
+  // wholesale), apply the reconciliation drops, sort by score, cap at 100 —
+  // and skip the KV write entirely when the result is byte-identical.
+  async function mergeBoard(kvKey, incoming, dropSet) {
+    const has = Array.isArray(incoming) && incoming.length > 0;
+    if (!has && dropSet.size === 0) return;
     try {
       const raw = await context.env.DD_KV.get(kvKey);
-      if (!raw) return;
-      let list;
-      try { list = JSON.parse(raw); } catch { return; }
-      if (!Array.isArray(list)) return;
-      const filtered = list.filter(s => !dropSet.has(String(s.ticker || "").toUpperCase()));
-      if (filtered.length !== list.length) {
-        await context.env.DD_KV.put(kvKey, JSON.stringify(filtered));
-        if (!written.includes(kvKey)) written.push(kvKey);
+      let existing = [];
+      if (raw) { try { existing = JSON.parse(raw) || []; } catch {} }
+      // Keyed by upper-cased ticker; entries without a ticker can't be deduped
+      // or reconciled — drop them.
+      const map = new Map((Array.isArray(existing) ? existing : [])
+        .filter(s => s && s.ticker)
+        .map(s => [String(s.ticker).toUpperCase(), s]));
+      for (const s of (has ? incoming : [])) {
+        if (s && s.ticker) map.set(String(s.ticker).toUpperCase(), s);
       }
+      for (const t of dropSet) map.delete(t);
+      const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
+      const out = JSON.stringify(merged);
+      if (out === raw) return; // unchanged — save the write
+      await context.env.DD_KV.put(kvKey, out);
+      kvOps++;
+      written.push(kvKey);
     } catch (e) {
-      failed.push({ key: `${kvKey} (reconcile)`, error: e.message });
+      failed.push({ key: kvKey, error: e.message });
     }
   }
 
-  await pruneKey("dd:scouts", dropFromBoards);
-  await pruneKey("dd:gems", dropFromBoards);
-  await pruneKey("dd:watchlist", dropFromWatch);
+  await mergeBoard("dd:scouts", scouts, dropFromBoards);
+  await mergeBoard("dd:gems", gems, dropFromBoards);
+  await mergeBoard("dd:watchlist", watchlist, dropFromWatch);
 
   // Scoreboard snapshot (signal performance vs benchmark, from
   // signal_analysis.py) — replaced wholesale: it's a computed artifact,
@@ -181,6 +150,7 @@ export async function onRequestPost(context) {
   if (scoreboard && typeof scoreboard === "object") {
     try {
       await context.env.DD_KV.put("dd:scoreboard", JSON.stringify(scoreboard));
+      kvOps++;
       written.push("dd:scoreboard");
     } catch (e) {
       failed.push({ key: "dd:scoreboard", error: e.message });
@@ -200,6 +170,7 @@ export async function onRequestPost(context) {
     if (data && typeof data === "object" && Object.keys(data).length > 0) {
       try {
         await context.env.DD_KV.put(kvKey, JSON.stringify(data));
+        kvOps++;
         written.push(kvKey);
       } catch (e) {
         failed.push({ key: kvKey, error: e.message });
@@ -220,6 +191,7 @@ export async function onRequestPost(context) {
       keysWritten:  written.length,
       ok:           failed.length === 0,
     }));
+    kvOps++;
     written.push("dd:meta");
   } catch (e) {
     failed.push({ key: "dd:meta", error: e.message });
@@ -229,5 +201,8 @@ export async function onRequestPost(context) {
     ok: failed.length === 0,
     written,
     failed,
+    // KV write-budget observability — upload_kv.py prints this and ops-alerts
+    // when a single upload's op count looks like it would blow the daily cap.
+    kvWrites: kvOps,
   });
 }

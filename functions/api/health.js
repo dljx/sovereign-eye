@@ -103,6 +103,14 @@ async function pingSupabase(env) {
 }
 
 export async function onRequestGet(context) {
+  // 4-min edge cache: the dashboard polls health every 5 min per client, and
+  // an uncached call costs ~3 kv.list ops (a day-long open tab approached the
+  // 1,000/day free-tier LIST ceiling) plus two live upstream pings.
+  const cacheKey = new Request(new URL(context.request.url).toString());
+  const cache = caches.default;
+  const edgeCached = await cache.match(cacheKey);
+  if (edgeCached) return edgeCached;
+
   const kv      = context.env.DD_KV;
   const fhKey   = (context.env.FINNHUB_API_KEY || '').trim();
   const gemKeyCount = geminiKeys(context.env).length;
@@ -167,5 +175,9 @@ export async function onRequestGet(context) {
     },
   ].map(api => ({ ...api, used: null, quota: 0 }));
 
-  return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
+  const response = Response.json(result, {
+    headers: { 'Cache-Control': 'public, s-maxage=240' },
+  });
+  context.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
 }
