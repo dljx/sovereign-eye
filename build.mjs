@@ -74,6 +74,9 @@ for (const f of HTML) {
   let html = readFileSync(join(ROOT, f), "utf8");
   html = html.replace(/[ \t]*<script\b[^>]*@babel\/standalone[^>]*><\/script>\s*\n?/g, "");
   html = html.replace(/\s*type="text\/babel"/g, "");
+  // Dev React is for source-mode only — production serves the minified builds
+  // (the dev UMD bundles are ~3x larger and run extra invariant checks).
+  html = html.replace(/react(-dom)?\.development\.js/g, m => m.replace("development", "production.min"));
   html = html.replace(/(src|href)="([^":?]+?)(\?v=[^"]*)?"/g, (m, attr, path) => {
     const base = path.split("/").pop();
     return built[base] ? `${attr}="${built[base]}"` : m;

@@ -128,7 +128,11 @@ function ImportModal({ open, positions, onClose, onSave }) {
     const curMap = new Map((positions || []).map(p => [p.ticker, p]));
 
     diff.adds.forEach(p => {
-      if (selected[p._key]) curMap.set(p.ticker, { ...p });
+      // Manual rows with no/invalid ticker are placeholders — never saved.
+      const tk = String(p.ticker || '').toUpperCase().trim();
+      if (selected[p._key] && /^[A-Z0-9.\-]{1,10}$/.test(tk)) {
+        curMap.set(tk, { ...p, ticker: tk });
+      }
     });
     diff.upds.forEach(p => {
       if (selected[p._key]) {
@@ -163,6 +167,32 @@ function ImportModal({ open, positions, onClose, onSave }) {
 
   const allRows = useMemo(() => diff ? [...diff.adds, ...diff.upds, ...diff.rems] : [], [diff]);
   const checkedCount = Object.values(selected).filter(Boolean).length;
+
+  // Inline corrections: vision parsing misreads qty/avg often enough that
+  // accept/reject alone isn't a usable review — every add/update row is
+  // editable, and manual rows (no screenshot at all) can be appended.
+  const editRow = useCallback((key, patch) => {
+    setDiff(d => d && ({
+      ...d,
+      adds: d.adds.map(r => (r._key === key ? { ...r, ...patch } : r)),
+      upds: d.upds.map(r => (r._key === key ? { ...r, ...patch } : r)),
+    }));
+  }, []);
+
+  const addManualRow = useCallback(() => {
+    const key = 'manual-' + Date.now();
+    setDiff(d => {
+      const base = d || { adds: [], upds: [], rems: [] };
+      return { ...base, adds: [...base.adds, {
+        kind: 'add', _key: key, _manual: true,
+        ticker: '', name: 'Manual entry', qty: 0, avg: 0,
+        broker: broker || 'Manual',
+      }] };
+    });
+    setSelected(s => ({ ...s, [key]: true }));
+    setIncoming(inc => inc || []);
+    setStep('diff');
+  }, [broker]);
 
   if (!open) return null;
 
@@ -289,10 +319,17 @@ function ImportModal({ open, positions, onClose, onSave }) {
                   <label className={`diff-row ${r.kind}`} key={r._key}>
                     <input type="checkbox" checked={!!selected[r._key]}
                       onChange={e => setSelected(s => ({ ...s, [r._key]: e.target.checked }))} />
-                    <span className="diff-tk">{r.ticker}</span>
+                    <span className="diff-tk">
+                      {r._manual ? (
+                        <input value={r.ticker} placeholder="TICKER"
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => editRow(r._key, { ticker: e.target.value.toUpperCase() })}
+                          style={{ width: 64, background: 'var(--bg-2)', border: '1px solid var(--border-1)', color: 'var(--fg-0)', font: 'inherit', padding: '2px 4px' }} />
+                      ) : r.ticker}
+                    </span>
                     <span className="diff-change">
                       {r.kind === 'add' && (
-                        <span><span className="diff-marker" style={{ display: 'inline-block', width: 12 }}>+</span> Add new position · {r.name}</span>
+                        <span><span className="diff-marker" style={{ display: 'inline-block', width: 12 }}>+</span> {r._manual ? 'Manual entry' : `Add new position · ${r.name}`}</span>
                       )}
                       {r.kind === 'upd' && (
                         <span>
@@ -308,11 +345,29 @@ function ImportModal({ open, positions, onClose, onSave }) {
                         <span><span className="diff-marker" style={{ display: 'inline-block', width: 12 }}>−</span> Remove from portfolio · {r.name}</span>
                       )}
                     </span>
-                    <span style={{ textAlign: 'right' }}>{r.qty != null ? r.qty : ''}</span>
-                    <span style={{ textAlign: 'right' }}>{r.avg != null ? fmtUSD(r.avg) : ''}</span>
+                    <span style={{ textAlign: 'right' }}>
+                      {r.kind === 'rem' ? (r.qty != null ? r.qty : '') : (
+                        <input type="number" value={r.qty ?? ''} step="any"
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => editRow(r._key, { qty: e.target.value === '' ? 0 : +e.target.value })}
+                          style={{ width: 68, background: 'var(--bg-2)', border: '1px solid var(--border-1)', color: 'var(--fg-0)', font: 'inherit', padding: '2px 4px', textAlign: 'right' }} />
+                      )}
+                    </span>
+                    <span style={{ textAlign: 'right' }}>
+                      {r.kind === 'rem' ? (r.avg != null ? fmtUSD(r.avg) : '') : (
+                        <input type="number" value={r.avg ?? ''} step="any"
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => editRow(r._key, { avg: e.target.value === '' ? 0 : +e.target.value })}
+                          style={{ width: 80, background: 'var(--bg-2)', border: '1px solid var(--border-1)', color: 'var(--fg-0)', font: 'inherit', padding: '2px 4px', textAlign: 'right' }} />
+                      )}
+                    </span>
                   </label>
                 ))}
               </div>
+              <button className="btn" style={{ marginTop: 8 }} onClick={addManualRow}
+                title="Append a blank row and type ticker/qty/avg yourself">
+                + Add position manually
+              </button>
             </>
           )}
 
@@ -347,6 +402,9 @@ function ImportModal({ open, positions, onClose, onSave }) {
             <>
               <span className="mono dim" style={{ fontSize: 11 }}>Image sent to Gemini Vision API.</span>
               <span style={{ flex: 1 }} />
+              <button className="btn" onClick={addManualRow} title="No screenshot — type positions in by hand">
+                Enter manually
+              </button>
               <button className="btn" onClick={onClose}>Cancel</button>
             </>
           )}

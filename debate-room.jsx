@@ -9,7 +9,9 @@
 (function () {
 
 // ── Asset base URLs ───────────────────────────────────────────────────────────
-const REPO = 'https://raw.githubusercontent.com/pablodelucca/pixel-agents/main/webview-ui/public/assets/';
+// Pinned to a commit (not `main`) so an upstream force-push/rename can't
+// silently change or break the sprites. Bump deliberately when updating.
+const REPO = 'https://raw.githubusercontent.com/pablodelucca/pixel-agents/928ccd463bf516d67e0700af7e767ca083f795d8/webview-ui/public/assets/';
 const CHAR_BASE = REPO + 'characters/';
 const FLOOR_URL = REPO + 'floors/floor_0.png';
 const WALL_URL  = REPO + 'walls/wall_0.png';

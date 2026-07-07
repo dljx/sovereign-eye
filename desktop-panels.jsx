@@ -61,6 +61,17 @@ function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, on
     </th>
   );
 
+  if (!sorted.length) {
+    return (
+      <div style={{ padding: '28px 16px', textAlign: 'center', color: 'var(--fg-2)', fontSize: 12 }}>
+        <div style={{ marginBottom: 10 }}>No positions yet.</div>
+        <div style={{ fontSize: 11, opacity: 0.8 }}>
+          Use <b>Import</b> (top right) to load your portfolio from a broker screenshot.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <table className="holdings-table">
       <thead>
@@ -1094,10 +1105,10 @@ function ScoutPanel({ onPick }) {
                 <div className="scout-grade">{mode === 'review' && s.verdict ? `⚠ ${s.verdict}` : flagged ? `⚠ ${s.grade}` : s.grade}</div>
                 <div className="scout-rationale">{(mode === 'review' || flagged) && s.reviewReason ? s.reviewReason : s.rationale}</div>
                 <div className="scout-chips">
-                  {flagged && s.vscore != null && <span className="chip warn">⚠ {(+s.vscore).toFixed(1)}</span>}
-                  {!flagged && mode !== 'review' && s.vscore != null && <span className="chip ok">🛡 {(+s.vscore).toFixed(1)}</span>}
-                  {mode === 'review' && s.vscore != null && <span className="chip warn">verify {(+s.vscore).toFixed(1)}</span>}
-                  {s.rr != null && <span className="chip rr">R/R {(+s.rr).toFixed(1)}</span>}
+                  {flagged && s.vscore != null && <span className="chip warn" title="Red-team DOWNGRADE — real concerns, not fatal. Score is the prosecutor's conviction /10.">⚠ {(+s.vscore).toFixed(1)}</span>}
+                  {!flagged && mode !== 'review' && s.vscore != null && <span className="chip ok" title="Red-team CONFIRM — the bull thesis survived adversarial scrutiny. Score /10.">🛡 {(+s.vscore).toFixed(1)}</span>}
+                  {mode === 'review' && s.vscore != null && <span className="chip warn" title="Verification score from the red-team review /10">verify {(+s.vscore).toFixed(1)}</span>}
+                  {s.rr != null && <span className="chip rr" title="Computed reward-to-risk: upside vs conservative downside floor">R/R {(+s.rr).toFixed(1)}</span>}
                   {(s.filters || []).map((f, j) => (
                     <span className={`chip ${j === s.filters.length - 1 ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>
                   ))}
@@ -1282,9 +1293,9 @@ function ScoutDDModal({ scout, onClose }) {
             <div className="dd-section">
               <div className="dd-section-label">Setup</div>
               <div className="dd-thesis" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 18px' }}>
-                {scout.rr != null && <span><b>R/R:</b> {(+scout.rr).toFixed(1)}:1{scout.risk ? ` (${scout.risk} risk)` : ''}</span>}
-                {scout.asymmetry && <span><b>Asymmetry:</b> {scout.asymmetry}</span>}
-                {pos && pos.range && <span><b>Position:</b> {pos.range}{pos.reasoning ? ` — ${pos.reasoning}` : ''}</span>}
+                {scout.rr != null && <span title="Computed reward-to-risk: blended fair-value/analyst upside vs a conservative downside floor"><b>R/R:</b> {(+scout.rr).toFixed(1)}:1{scout.risk ? ` (${scout.risk} risk)` : ''}</span>}
+                {scout.asymmetry && <span title="The agents' stated upside:downside asymmetry"><b>Asymmetry:</b> {scout.asymmetry}</span>}
+                {pos && pos.range && <span><b>Position:</b> {pos.range}{_sizingHint(pos.range)}{pos.reasoning ? ` — ${pos.reasoning}` : ''}</span>}
                 {cycle && <span><b>Cycle:</b> {cycle.regime ? `${cycle.regime} — ` : ''}{cycle.phase}</span>}
               </div>
             </div>
@@ -1302,10 +1313,46 @@ function ScoutDDModal({ scout, onClose }) {
         <div className="modal-footer">
           <span className="mono dim" style={{ fontSize: 11 }}>Consensus from the scout debate · run a full DD to refresh</span>
           <span style={{ flex: 1 }} />
+          <ReverifyButton ticker={scout.tk} />
           <button className="btn" onClick={onClose}>Close</button>
         </div>
       </div>
     </div>
+  );
+}
+
+// "≈ S$X–Y at current NLV" suffix for a position_guidance range like "2-4%".
+// Display-only arithmetic on the guidance the agents already produced.
+function _sizingHint(range) {
+  const nlv = window.__NLV || 0;
+  const m = String(range || '').match(/([\d.]+)\s*[-–]\s*([\d.]+)\s*%/);
+  if (!nlv || !m) return '';
+  const lo = fmtUSDC(nlv * parseFloat(m[1]) / 100);
+  const hi = fmtUSDC(nlv * parseFloat(m[2]) / 100);
+  return ` (≈ ${lo}–${hi} of your portfolio)`;
+}
+
+// Re-runs the full DD via the existing trigger endpoint — the on-demand
+// complement to the pipeline's calm-window re-verification. Fresh results
+// land on the board/card after the run uploads (~4-6 min).
+function ReverifyButton({ ticker }) {
+  const [state, setState] = useState('idle'); // idle | busy | sent | err
+  const fire = async () => {
+    setState('busy');
+    try {
+      const r = await fetch('/api/dd/trigger', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker }),
+      });
+      setState(r.ok ? 'sent' : 'err');
+    } catch { setState('err'); }
+  };
+  if (state === 'sent') return <span className="mono pos" style={{ fontSize: 10 }}>DD queued — refreshes in ~5m</span>;
+  return (
+    <button className="btn" onClick={fire} disabled={state === 'busy'}
+      title="Dispatch a fresh full DD run (agents + verification) for this ticker">
+      {state === 'busy' ? 'Dispatching…' : state === 'err' ? 'Failed — retry?' : 'Re-run DD'}
+    </button>
   );
 }
 
@@ -1463,6 +1510,30 @@ function _sbPct(x, dec = 1) {
   return (x >= 0 ? '+' : '') + (x * 100).toFixed(dec) + '%';
 }
 
+// Flatten the scoreboard snapshot to CSV (one row per window × bucket entry,
+// plus per-window overall rows) — client-side download, no new endpoint.
+function _exportScoreboardCsv(sb) {
+  const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = [["window_weeks", "section", "bucket", "n", "hit_rate", "mean_excess", "median_excess"]];
+  for (const w of sb.windows || []) {
+    if (w.overall) {
+      rows.push([w.weeks, "overall", "ALL", w.overall.n, w.overall.hit, w.overall.mean, w.overall.median]);
+    }
+    for (const [section, entries] of Object.entries(w.buckets || {})) {
+      for (const r of entries || []) {
+        rows.push([w.weeks, section, r.k, r.n, r.hit, r.mean, r.median]);
+      }
+    }
+  }
+  const csv = rows.map(r => r.map(esc).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `scoreboard_${(sb.as_of || "latest").replace(/[^0-9a-z-]/gi, "")}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function ScoreboardPanel() {
   const [sb, setSb] = useState(window.SE_SEED?.scoreboard || null);
   const [src, setSrc] = useState('seed');
@@ -1496,6 +1567,13 @@ function ScoreboardPanel() {
           <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>
             VS {sb?.benchmark || 'VWRA.L'}
           </span>
+          {sb && (
+            <button className="btn" style={{ fontSize: 10, padding: '2px 8px' }}
+              title="Download the scoreboard snapshot (all windows + buckets) as CSV"
+              onClick={() => _exportScoreboardCsv(sb)}>
+              CSV
+            </button>
+          )}
           <SrcPill src={src} age={sb?.generated_at ? _relDate(sb.generated_at) : undefined} />
         </div>
       </div>
@@ -1562,10 +1640,18 @@ function ScoreboardPanel() {
                 <div className="dd-section-label">Best / worst vs index</div>
                 <div className="sb-movers">
                   {(w.top || []).map(t => (
-                    <span className="sb-mover up" key={'t' + t.ticker + t.excess}>▲ {t.ticker} {_sbPct(t.excess)}</span>
+                    <span className="sb-mover up" key={'t' + t.ticker + t.excess}
+                      style={{ cursor: 'pointer' }} title={`Open DD for ${t.ticker}`}
+                      onClick={() => { window.location.hash = `#dd/${t.ticker}`; }}>
+                      ▲ {t.ticker} {_sbPct(t.excess)}
+                    </span>
                   ))}
                   {(w.bottom || []).map(t => (
-                    <span className="sb-mover down" key={'b' + t.ticker + t.excess}>▼ {t.ticker} {_sbPct(t.excess)}</span>
+                    <span className="sb-mover down" key={'b' + t.ticker + t.excess}
+                      style={{ cursor: 'pointer' }} title={`Open DD for ${t.ticker}`}
+                      onClick={() => { window.location.hash = `#dd/${t.ticker}`; }}>
+                      ▼ {t.ticker} {_sbPct(t.excess)}
+                    </span>
                   ))}
                 </div>
               </div>

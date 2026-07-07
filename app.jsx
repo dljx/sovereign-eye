@@ -202,6 +202,59 @@ const NAV_ITEMS = [
   { id: 'system',   icon: 'activity',  label: 'System' },
 ];
 
+// Pipeline-freshness bell — replaces the dead "coming soon" notifications stub
+// with the signal that actually matters: is the data on screen fresh, and when
+// does the next scan land. Reads /api/health (edge-cached ~4 min).
+function FreshnessBell({ onRoute }) {
+  const [open, setOpen] = useState(false);
+  const [gh, setGh] = useState(null);
+  const load = () => {
+    fetch('/api/health').then(r => r.ok ? r.json() : null).then(rows => {
+      if (Array.isArray(rows)) setGh(rows.find(r => r.id === 'gh') || null);
+    }).catch(() => {});
+  };
+  useEffect(() => { load(); const id = setInterval(load, 5 * 60 * 1000); return () => clearInterval(id); }, []);
+
+  const tone = !gh ? 'dim' : gh.status === 'ok' ? 'pos' : gh.status === 'degraded' ? 'warn' : 'dim';
+  const nextScan = (() => {
+    const next = new Date();
+    next.setUTCMinutes(0, 0, 0);
+    next.setUTCHours(next.getUTCHours() + 4 - (next.getUTCHours() % 4));
+    return next.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  })();
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button className="btn-icon" title="Pipeline freshness" onClick={() => { setOpen(v => !v); if (!open) load(); }}
+        style={open ? { color: 'var(--acc)', borderColor: 'var(--acc)' } : null}>
+        <Icon name="bell" size={14} />
+        <span className={`dot ${tone}`} style={{ position: 'absolute', top: 3, right: 3 }} />
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '110%', right: 0, zIndex: 80, minWidth: 230,
+          background: 'var(--bg-1)', border: '1px solid var(--border-2)', borderRadius: 6,
+          padding: '10px 12px', boxShadow: '0 12px 32px rgba(0,0,0,0.45)', fontSize: 11,
+        }}>
+          <div className="mono uppercase" style={{ fontSize: 9, letterSpacing: '0.14em', color: 'var(--fg-2)', marginBottom: 6 }}>Pipeline</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '2px 0' }}>
+            <span style={{ color: 'var(--fg-2)' }}>Last data upload</span>
+            <span className={tone}>{gh ? gh.lastOk : '…'}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '2px 0' }}>
+            <span style={{ color: 'var(--fg-2)' }}>Next scout scan</span>
+            <span>≈ {nextScan}</span>
+          </div>
+          <button className="btn" style={{ width: '100%', marginTop: 8, justifyContent: 'center' }}
+            onClick={() => { setOpen(false); onRoute && onRoute('system'); }}>
+            System status →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Header({ totals, onImport, onToggleMobile, mobileOpen, route, onRoute, currency, onToggleCurrency }) {
   return (
     <div className="header">
@@ -236,11 +289,7 @@ function Header({ totals, onImport, onToggleMobile, mobileOpen, route, onRoute, 
 
       <div className="header-spacer" />
 
-      <div className="header-search" title="Ticker search — coming soon" style={{ opacity: 0.4, cursor: 'not-allowed', pointerEvents: 'none' }}>
-        <Icon name="search" size={13} />
-        <input placeholder="symbol or command…" readOnly tabIndex={-1} />
-        <span className="header-search-kbd">⌘K</span>
-      </div>
+      <HeaderSearch />
 
       <PipelineLink />
 
@@ -254,7 +303,7 @@ function Header({ totals, onImport, onToggleMobile, mobileOpen, route, onRoute, 
       <button className="btn" onClick={onImport} title="Import portfolio from screenshot">
         <Icon name="upload" size={12} /> Import
       </button>
-      <button className="btn-icon" title="Notifications — coming soon" disabled style={{ opacity: 0.4 }}><Icon name="bell" size={14} /></button>
+      <FreshnessBell onRoute={onRoute} />
       <button
         className="btn-icon"
         onClick={onToggleMobile}
@@ -265,7 +314,48 @@ function Header({ totals, onImport, onToggleMobile, mobileOpen, route, onRoute, 
           <rect x="6" y="2" width="12" height="20" rx="2" /><line x1="11" y1="18" x2="13" y2="18" />
         </svg>
       </button>
-      <button className="btn-icon" title="Settings"><Icon name="settings" size={14} /></button>
+      <button className="btn-icon" title="Settings (density · accent · effects)"
+        onClick={() => window.postMessage({ type: '__activate_edit_mode' }, '*')}>
+        <Icon name="settings" size={14} />
+      </button>
+    </div>
+  );
+}
+
+// Ticker search — Enter (or ⌘K to focus) opens the DD modal via the #dd/TICKER
+// deep link, the same route Telegram alert links land on.
+function HeaderSearch() {
+  const [val, setVal] = useState('');
+  const inputRef = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        inputRef.current && inputRef.current.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const go = () => {
+    const tk = val.trim().toUpperCase();
+    if (/^[A-Z0-9][A-Z0-9.\-]{0,9}$/.test(tk)) {
+      window.location.hash = `#dd/${tk}`;
+      setVal('');
+      inputRef.current && inputRef.current.blur();
+    }
+  };
+  return (
+    <div className="header-search" title="Open DD for a ticker (Enter)">
+      <Icon name="search" size={13} />
+      <input
+        ref={inputRef}
+        placeholder="ticker…"
+        value={val}
+        onChange={e => setVal(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') go(); if (e.key === 'Escape') setVal(''); }}
+      />
+      <span className="header-search-kbd">⌘K</span>
     </div>
   );
 }
@@ -441,6 +531,19 @@ function App() {
   const [hovered, setHovered] = useState(null);
   const [scoutPick, setScoutPick] = useState(null);
   const [currency, setCurrency] = useState(t.currency || 'USD');
+  const [deepTicker, setDeepTicker] = useState(null);
+
+  // #dd/TICKER deep link — used by the header search, scoreboard movers, and
+  // the URLs in Telegram alerts. Opens the full DD modal from anywhere.
+  useEffect(() => {
+    const onHash = () => {
+      const m = window.location.hash.match(/^#dd\/([A-Z0-9.\-]{1,10})$/i);
+      setDeepTicker(m ? m[1].toUpperCase() : null);
+    };
+    onHash();
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   // Positions — seed from positions.js, then overwrite from KV
   const [positions, setPositions] = useState(() =>
@@ -485,6 +588,10 @@ function App() {
   }, [quotes, positions]);
 
   const totals = useMemo(() => window.computeTotals(positions, quotes), [positions, quotes]);
+
+  // Panels outside the React tree of App props (e.g. the DD modal's position-
+  // sizing line) read portfolio value from this global.
+  useEffect(() => { window.__NLV = totals?.nlv || 0; }, [totals]);
 
   // Currency → global CCY context for formatters
   useEffect(() => {
@@ -558,6 +665,17 @@ function App() {
 
       <MobilePreviewPane open={mobileOpen} onClose={() => setMobileOpen(false)} />
       <ScoutDDModal scout={scoutPick} onClose={() => setScoutPick(null)} />
+      {deepTicker && (
+        <HoldingDDModal
+          ticker={deepTicker}
+          onClose={() => {
+            setDeepTicker(null);
+            if (window.location.hash.startsWith('#dd/')) {
+              history.replaceState(null, '', window.location.pathname + window.location.search);
+            }
+          }}
+        />
+      )}
 
       <TweaksPanel title="Tweaks">
         <TweakSection label="Display" />

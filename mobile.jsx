@@ -334,7 +334,33 @@ function MobileTabbar({ active, onChange }) {
 // =============================================================
 // PORTFOLIO SCREEN
 // =============================================================
-function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency }) {
+// Swipe-left-to-reveal-delete wrapper for list rows (uses the prebuilt
+// .m-swipe / .m-swipe-del styles). Vertical movement cedes to scrolling.
+function SwipeRow({ onDelete, disabled, children }) {
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const start = useRef(null);
+  const ts = e => { if (disabled) return; start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, dx }; setDragging(true); };
+  const tm = e => {
+    if (disabled || !start.current) return;
+    const ddx = e.touches[0].clientX - start.current.x;
+    if (Math.abs(e.touches[0].clientY - start.current.y) > 40) return;
+    setDx(Math.max(-88, Math.min(0, start.current.dx + ddx)));
+  };
+  const te = () => { if (disabled) return; start.current = null; setDragging(false); setDx(d => (d < -44 ? -88 : 0)); };
+  if (disabled) return children;
+  return (
+    <div className="m-swipe">
+      <button className="m-swipe-del" onClick={() => { setDx(0); onDelete(); }}>DELETE</button>
+      <div style={{ transform: `translateX(${dx}px)`, transition: dragging ? 'none' : 'transform 0.18s ease', position: 'relative', zIndex: 1, background: 'var(--bg-0)' }}
+        onTouchStart={ts} onTouchMove={tm} onTouchEnd={te}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency, onDelete }) {
   const totals = useMemo(() => {
     let nlv = 0, cost = 0, dayPnl = 0;
     positions.forEach(p => {
@@ -403,8 +429,15 @@ function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency
       </div>
 
       <div>
+        {!enriched.length && (
+          <div style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--fg-2)', fontSize: 12 }}>
+            No positions yet — import your portfolio from the <b>Settings</b> tab.
+          </div>
+        )}
         {enriched.map(p => (
-          <div key={p.ticker} className="m-position"
+          <SwipeRow key={p.ticker} disabled={!onDelete || p.ticker === 'USD'}
+            onDelete={() => onDelete(p.ticker)}>
+          <div className="m-position"
             onClick={() => onPick && p.ticker !== 'USD' && onPick(p.ticker)}
             title={`Open DD for ${p.ticker}`}
             style={{ cursor: 'pointer' }}>
@@ -427,6 +460,7 @@ function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency
               </div>
             </div>
           </div>
+          </SwipeRow>
         ))}
       </div>
     </div>
@@ -934,10 +968,10 @@ function MobileScout({ onPick }) {
               <div className="scout-grade">{mode === 'review' && s.verdict ? `⚠ ${s.verdict}` : flagged ? `⚠ ${s.grade}` : s.grade}</div>
               <div className="scout-rationale">{(mode === 'review' || flagged) && s.reviewReason ? s.reviewReason : s.rationale}</div>
               <div className="scout-chips">
-                {flagged && s.vscore != null && <span className="chip warn">⚠ {(+s.vscore).toFixed(1)}</span>}
-                {!flagged && mode !== 'review' && s.vscore != null && <span className="chip ok">🛡 {(+s.vscore).toFixed(1)}</span>}
-                {mode === 'review' && s.vscore != null && <span className="chip warn">verify {(+s.vscore).toFixed(1)}</span>}
-                {s.rr != null && <span className="chip rr">R/R {(+s.rr).toFixed(1)}</span>}
+                {flagged && s.vscore != null && <span className="chip warn" title="Red-team DOWNGRADE — real concerns, not fatal. Score is the prosecutor's conviction /10.">⚠ {(+s.vscore).toFixed(1)}</span>}
+                {!flagged && mode !== 'review' && s.vscore != null && <span className="chip ok" title="Red-team CONFIRM — the bull thesis survived adversarial scrutiny. Score /10.">🛡 {(+s.vscore).toFixed(1)}</span>}
+                {mode === 'review' && s.vscore != null && <span className="chip warn" title="Verification score from the red-team review /10">verify {(+s.vscore).toFixed(1)}</span>}
+                {s.rr != null && <span className="chip rr" title="Computed reward-to-risk: upside vs conservative downside floor">R/R {(+s.rr).toFixed(1)}</span>}
                 {(s.filters || []).map((f, j) => (
                   <span className={`chip ${j === (s.filters.length - 1) ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>
                 ))}
@@ -1431,9 +1465,31 @@ function MobileApp() {
   const openHolding = tk => setDdModal({ ticker: tk, scout: null });
   const openScout   = s  => setDdModal({ ticker: s.tk, scout: s });
 
+  // Swipe-to-delete on the holdings list — confirm, optimistic update, persist.
+  const deletePosition = tk => {
+    if (!window.confirm(`Remove ${tk} from your portfolio?`)) return;
+    const next = positions.filter(p => p.ticker !== tk);
+    setPositions(next);
+    fetch('/api/positions', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    }).catch(() => {});
+  };
+
+  // #dd/TICKER deep link — Telegram alert URLs land here on mobile.
+  useEffect(() => {
+    const onHash = () => {
+      const m = window.location.hash.match(/^#dd\/([A-Z0-9.\-]{1,10})$/i);
+      if (m) setDdModal({ ticker: m[1].toUpperCase(), scout: null });
+    };
+    onHash();
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
   return (
     <>
-      {screen === 'portfolio' && <MobilePortfolio positions={positions} quotes={quotes} onPick={openHolding} currency={currency} onToggleCurrency={setCurrency} />}
+      {screen === 'portfolio' && <MobilePortfolio positions={positions} quotes={quotes} onPick={openHolding} currency={currency} onToggleCurrency={setCurrency} onDelete={deletePosition} />}
       {screen === 'intel'     && <MobileIntel />}
       {screen === 'scout'     && <MobileScout onPick={openScout} />}
       {screen === 'detail'    && <MobileDetail />}
