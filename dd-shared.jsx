@@ -343,17 +343,42 @@ const FIRE_DEFAULTS = {
   cpfLifeMonthly: 0,
 };
 
+// Device-side mirror of the FIRE settings. Every save writes here FIRST, so a
+// failed/unreachable server can cost at most one round of typing — the form
+// hydrates from this copy whenever the server has nothing. (Learned the hard
+// way: the KV copy was lost once and the silent fall-back-to-defaults made it
+// look like saving never worked.)
+const FIRE_LS_KEY = 'fire:settings';
+function readLocalFire() {
+  try { return JSON.parse(localStorage.getItem(FIRE_LS_KEY) || 'null'); } catch { return null; }
+}
+
 function FireBody({ compact = false, onRate }) {
   const { useEffect } = React;
   const [s, setS] = useState(null);            // null = loading
   const [rawHist, setRawHist] = useState([]);  // [{date, navUsd}]
   const [sgdRate, setSgdRate] = useState(window.CCY_RATES?.SGD || 1.35);
   const [saveState, setSaveState] = useState('idle'); // idle | busy | saved | err
+  const [saveErr, setSaveErr] = useState('');
+  // Where the numbers on screen came from: server | local | defaults | local-offline
+  const [source, setSource] = useState('server');
 
   useEffect(() => {
-    fetch('/api/fire').then(r => r.ok ? r.json() : {})
-      .then(d => setS({ ...FIRE_DEFAULTS, ...(d || {}), cpf: { ...FIRE_DEFAULTS.cpf, ...((d || {}).cpf || {}) } }))
-      .catch(() => setS({ ...FIRE_DEFAULTS }));
+    const merged = (d) => ({ ...FIRE_DEFAULTS, ...(d || {}), cpf: { ...FIRE_DEFAULTS.cpf, ...((d || {}).cpf || {}) } });
+    fetch('/api/fire')
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(d => {
+        const hasServer = d && Object.keys(d).some(k => k !== 'updatedAt');
+        if (hasServer) { setS(merged(d)); setSource('server'); return; }
+        const local = readLocalFire();
+        setS(merged(local));
+        setSource(local ? 'local' : 'defaults');
+      })
+      .catch(() => {
+        const local = readLocalFire();
+        setS(merged(local));
+        setSource(local ? 'local-offline' : 'defaults');
+      });
     fetch('/api/nav-history').then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d?.raw?.dates) setRawHist(d.raw.dates.map((date, i) => ({ date, navUsd: d.raw.nav[i] })));
@@ -379,13 +404,25 @@ function FireBody({ compact = false, onRate }) {
   const setCpf = (k, v) => setS(prev => ({ ...prev, cpf: { ...prev.cpf, [k]: v } }));
   const save = async () => {
     setSaveState('busy');
+    setSaveErr('');
+    // Device copy first — unconditionally. The server write can fail; this can't.
+    try { localStorage.setItem(FIRE_LS_KEY, JSON.stringify(s)); } catch {}
     try {
       const r = await fetch('/api/fire', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s),
       });
-      setSaveState(r.ok ? 'saved' : 'err');
-      if (r.ok) setTimeout(() => setSaveState('idle'), 2000);
-    } catch { setSaveState('err'); }
+      if (r.ok) {
+        setSaveState('saved');
+        setSource('server');
+        setTimeout(() => setSaveState('idle'), 2000);
+      } else {
+        setSaveState('err');
+        setSaveErr(`server rejected the save (HTTP ${r.status}) — kept on this device only`);
+      }
+    } catch {
+      setSaveState('err');
+      setSaveErr('network error — kept on this device only');
+    }
   };
 
   const num = (k, label, step = 'any', nested = false) => (
@@ -443,6 +480,13 @@ function FireBody({ compact = false, onRate }) {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div className="dd-section-label">Your numbers (SGD)</div>
+          {source !== 'server' && (
+            <div className="mono" style={{ fontSize: 10, lineHeight: 1.5, color: 'var(--warn, #f59e0b)', border: '1px solid var(--warn, #f59e0b)', padding: '6px 8px', opacity: 0.9 }}>
+              {source === 'local' && 'The server has no saved settings — showing this device’s copy. Hit Save to store them server-side.'}
+              {source === 'local-offline' && 'Couldn’t reach the server — showing this device’s copy.'}
+              {source === 'defaults' && 'No saved settings found (server or device) — these are defaults. Key in your numbers and hit Save.'}
+            </div>
+          )}
           {num('monthlyExpenses', 'Monthly expenses')}
           {num('swr', 'Safe withdrawal rate %')}
           {num('inflation', 'Inflation %/yr')}
@@ -459,8 +503,11 @@ function FireBody({ compact = false, onRate }) {
             Count CPF balance as an asset (locked pre-55 — off = conservative)
           </label>
           <button className="btn" onClick={save} disabled={saveState === 'busy'} style={{ marginTop: 6 }}>
-            {saveState === 'busy' ? 'Saving…' : saveState === 'saved' ? '✓ Saved' : saveState === 'err' ? 'Failed — retry' : 'Save'}
+            {saveState === 'busy' ? 'Saving…' : saveState === 'saved' ? '✓ Saved to server' : saveState === 'err' ? 'Failed — retry' : 'Save'}
           </button>
+          {saveState === 'err' && saveErr && (
+            <div className="mono" style={{ fontSize: 10, color: 'var(--neg, #ef4444)', lineHeight: 1.5 }}>{saveErr}</div>
+          )}
           <div className="mono dim" style={{ fontSize: 9, lineHeight: 1.5 }}>
             A quarterly grounded check reviews these assumptions (SG inflation, CPF rates, CPF Life) and pings Telegram if any look stale. It never edits them — you do.
           </div>
