@@ -167,7 +167,7 @@ function useLiveData() {
 
   // Fetch quotes
   useEffect(() => {
-    const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(t => t && t !== 'USD');
+    const tickers = [...new Set((window.POSITIONS || []).map(p => p.ticker).filter(t => t && t !== 'USD'))];
     if (!tickers.length) return;
 
     const load = async () => {
@@ -410,7 +410,7 @@ function MobileIntel() {
   useEffect(() => {
     let interval = null;
     const start = () => {
-      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      const tickers = [...new Set((window.POSITIONS || []).map(p => p.ticker).filter(Boolean))];
       if (!tickers.length) return;
       const qs = tickers.join(',');
       const load = () =>
@@ -445,7 +445,7 @@ function MobileIntel() {
       } catch { return false; }
     };
     const start = () => {
-      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      const tickers = [...new Set((window.POSITIONS || []).map(p => p.ticker).filter(Boolean))];
       if (!tickers.length) return;
       const qs = tickers.join(',');
       const hadP = restoreLS(`se:news:v4:${qs}`, setLivePortfolio);

@@ -151,7 +151,7 @@ function IntelPanel() {
   useEffect(() => {
     let interval = null;
     const start = () => {
-      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      const tickers = [...new Set((window.POSITIONS || []).map(p => p.ticker).filter(Boolean))];
       if (!tickers.length) return;
       const qs = tickers.join(',');
       const load = () =>
@@ -269,7 +269,7 @@ function NewsPanel() {
     };
 
     const start = () => {
-      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      const tickers = [...new Set((window.POSITIONS || []).map(p => p.ticker).filter(Boolean))];
       if (!tickers.length) return;
       const qs = tickers.join(',');
 
@@ -502,7 +502,7 @@ function FilingsPanel() {
 
   useEffect(() => {
     const start = () => {
-      const tickers = (window.POSITIONS || []).map(p => p.ticker).filter(Boolean);
+      const tickers = [...new Set((window.POSITIONS || []).map(p => p.ticker).filter(Boolean))];
       if (!tickers.length) { setSrc('seed'); return; }
       const qs = tickers.join(',');
       fetch(`/api/filings?tickers=${qs}`)

@@ -98,3 +98,12 @@ export async function postNewsArchive(env, rows) {
     });
   } catch {}
 }
+
+// Cancel an unread Response body. The Workers runtime caps concurrent
+// in-flight requests per invocation and CANCELS the oldest response whose
+// body was never consumed — so dropping a non-ok response without draining
+// it can kill a healthy fetch elsewhere in the same invocation (observed
+// live on /api/quotes, 2026-07-09: "A stalled HTTP response was canceled").
+export function drain(res) {
+  try { if (res && res.body) res.body.cancel().catch(() => {}); } catch {}
+}

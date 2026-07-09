@@ -59,6 +59,9 @@ export async function geminiFetch(env, modelPath, body, opts = {}) {
     // Only rotate on rate-limit / transient server errors; other errors won't
     // be fixed by a different key, so return immediately.
     if (res.status !== 429 && res.status < 500) return res;
+    // Rotating past this response — cancel its unread body, or the runtime's
+    // in-flight cap may cancel a healthy fetch in this invocation instead.
+    try { if (res.body) res.body.cancel().catch(() => {}); } catch {}
   }
   // Every key failed. If they all threw (network/timeout) lastRes is null — return a
   // synthetic 502 so callers can always rely on a Response (res.ok / res.status).

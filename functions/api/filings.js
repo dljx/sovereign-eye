@@ -1,15 +1,68 @@
 /**
  * GET /api/filings?tickers=AMZN,MSFT,...
  *
- * Returns recent SEC filings for portfolio tickers via Finnhub,
- * with Gemini-generated TL;DRs and direct SEC.gov links.
- * KV-cached 60 minutes.
+ * Returns recent SEC filings for portfolio tickers with Gemini TL;DRs and
+ * direct SEC.gov links. Source: EDGAR itself (company Atom feeds) — Finnhub's
+ * filings endpoint was lagging EDGAR by ~a week and its GOOG mapping is
+ * frozen in 2016 (found 2026-07-09, when July 7 filings never appeared).
+ * EDGAR is free, keyless, and current to the minute. KV-cached 60 minutes.
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
+import { drain } from "./_util.js";
 
 const CACHE_TTL  = 3600;
 const MEANINGFUL = new Set(['8-K','10-Q','10-K','S-1','DEF 14A','6-K','10-K/A','8-K/A']);
+const SEC_UA     = { 'User-Agent': 'SovereignEye/1.0 daryl.lee97@gmail.com' };
+
+// ticker → zero-padded CIK, resolved once from SEC's canonical mapping and
+// cached (only the requested tickers — the full file is ~900KB).
+async function tickerCiks(kv, tickers) {
+  const cacheK = `sec:ciks:v1:${[...tickers].sort().join(',')}`;
+  if (kv) {
+    try {
+      const hit = await kv.get(cacheK, 'json');
+      if (hit) return hit;
+    } catch {}
+  }
+  try {
+    const r = await fetch('https://www.sec.gov/files/company_tickers.json',
+      { headers: SEC_UA, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) { drain(r); return {}; }
+    const all = await r.json();
+    const want = new Set(tickers);
+    const map = {};
+    for (const e of Object.values(all)) {
+      if (want.has(e.ticker)) map[e.ticker] = String(e.cik_str).padStart(10, '0');
+    }
+    if (kv) { try { await kv.put(cacheK, JSON.stringify(map), { expirationTtl: 7 * 86400 }); } catch {} }
+    return map;
+  } catch { return {}; }
+}
+
+// Parse an EDGAR company Atom feed into filing rows (regex — the feed is
+// small and rigidly structured; a real XML parser isn't available here).
+export function parseAtomFilings(xml) {
+  const out = [];
+  const entries = xml.split('<entry>').slice(1);
+  for (const e of entries) {
+    const type = (e.match(/<filing-type>([^<]+)<\/filing-type>/) || [])[1];
+    const date = (e.match(/<filing-date>([^<]+)<\/filing-date>/) || [])[1];
+    const href = (e.match(/<filing-href>([^<]+)<\/filing-href>/) || [])[1];
+    if (type && date) out.push({ form: type.trim(), filedDate: date.trim(), url: (href || '').trim() });
+  }
+  return out;
+}
+
+async function fetchEdgarFilings(tk, cik) {
+  try {
+    const r = await fetch(
+      `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}&type=&dateb=&owner=exclude&count=20&output=atom`,
+      { headers: SEC_UA, signal: AbortSignal.timeout(8000) });
+    if (!r.ok) { drain(r); return []; }
+    return parseAtomFilings(await r.text());
+  } catch { return []; }
+}
 
 function cleanHtml(html) {
   return html.replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
@@ -17,10 +70,23 @@ function cleanHtml(html) {
 
 async function fetchFilingSnippet(url) {
   if (!url) return '';
-  const headers = { 'User-Agent': 'SovereignEye/1.0 daryl.lee97@gmail.com' };
+  const headers = SEC_UA;
   try {
+    // EDGAR Atom hrefs point at the filing INDEX page — resolve to the
+    // primary document via the directory listing first.
+    if (/-index\.html?$/i.test(url)) {
+      const dirUrl = url.slice(0, url.lastIndexOf('/') + 1);
+      try {
+        const idxRes = await fetch(`${dirUrl}index.json`, { headers, signal: AbortSignal.timeout(5000) });
+        if (idxRes.ok) {
+          const items = (await idxRes.json())?.directory?.item || [];
+          const doc = items.find(f => /\.htm?$/i.test(f.name) && !/-index\.htm|^R\d+\.htm/i.test(f.name));
+          if (doc?.name) url = `${dirUrl}${doc.name}`;
+        } else { drain(idxRes); }
+      } catch {}
+    }
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(6000) });
-    if (!res.ok) return '';
+    if (!res.ok) { drain(res); return ''; }
     const text = cleanHtml(await res.text());
     const itemIdx = text.search(/Item\s+\d/);
     const start = itemIdx > 0 ? itemIdx : 0;
@@ -96,8 +162,8 @@ ${list}`;
       const res = await geminiFetch(env, `${model}:generateContent`, {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: config,
-      }, { timeoutMs: 45000 });
-      if (!res || !res.ok) continue;
+      }, { timeoutMs: 20000 });
+      if (!res || !res.ok) { drain(res); continue; }
       const data = await res.json();
       const parts = data?.candidates?.[0]?.content?.parts || [];
       const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || '';
@@ -110,41 +176,38 @@ ${list}`;
 }
 
 export async function onRequestGet(context) {
-  const kv     = context.env.DD_KV;
-  const fhKey  = (context.env.FINNHUB_API_KEY || '').trim();
-
-  if (!fhKey) return Response.json([]);
+  const kv = context.env.DD_KV;
 
   const url     = new URL(context.request.url);
-  const tickers = (url.searchParams.get('tickers') || '')
-    .split(',').map(t => t.trim().toUpperCase())
-    .filter(t => /^[A-Z]{1,10}$/.test(t)).slice(0, 10);
+  // Dedupe (same ticker at two brokers) and take up to 20 — the old cap of 10
+  // silently dropped a third of the portfolio once it grew past ten holdings.
+  const tickers = [...new Set((url.searchParams.get('tickers') || '')
+    .split(',').map(t => t.trim().toUpperCase()))]
+    .filter(t => /^[A-Z0-9.\-]{1,10}$/.test(t)).slice(0, 20);
   if (!tickers.length) return Response.json([]);
 
-  const cacheKey = `sec:filings:v12:${[...tickers].sort().join(',')}`;
+  const cacheKey = `sec:filings:v13:${[...tickers].sort().join(',')}`;
 
-  // Serve cache
+  // Serve cache (TLDR-less results are cached too, on a shorter TTL — the
+  // old "only cache when a TLDR exists" gate re-hammered every upstream on
+  // every poll whenever Gemini had a bad hour)
   if (kv) {
     try {
       const cached = await kv.get(cacheKey, 'json');
-      if (Array.isArray(cached) && cached.length && cached.some(f => f.tldr)) {
+      if (Array.isArray(cached) && cached.length) {
         return Response.json(cached, { headers: { 'X-Cache': 'HIT' } });
       }
     } catch (_) {}
   }
 
-  // Fetch Finnhub filings in parallel
+  // EDGAR company Atom feeds in parallel (keyless, current to the minute)
+  const ciks = await tickerCiks(kv, tickers);
   const results = await Promise.all(
-    tickers.map(t =>
-      fetch(`https://finnhub.io/api/v1/stock/filings?symbol=${t}&token=${fhKey}`)
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null)
-    )
+    tickers.map(async tk => ciks[tk] ? fetchEdgarFilings(tk, ciks[tk]) : [])
   );
 
   const filings = [];
   tickers.forEach((tk, i) => {
-    if (!Array.isArray(results[i])) return;
     results[i]
       .filter(f => MEANINGFUL.has(f.form))
       .slice(0, 2)
@@ -153,9 +216,9 @@ export async function onRequestGet(context) {
         tk,
         tldr:       '',
         sent:       'neutral',
-        when:       relDate(f.filedDate || f.reportDate || ''),
+        when:       relDate(f.filedDate),
         filedDate:  f.filedDate || '',
-        url:        f.reportUrl || f.filingUrl || '',
+        url:        f.url || '',
       }));
   });
 
@@ -170,9 +233,10 @@ export async function onRequestGet(context) {
     if (r?.sent && ['bull','neutral','bear'].includes(r.sent)) f.sent = r.sent;
   });
 
-  if (kv && top.length && top.some(f => f.tldr)) {
+  if (kv && top.length) {
     try {
-      await kv.put(cacheKey, JSON.stringify(top), { expirationTtl: CACHE_TTL });
+      await kv.put(cacheKey, JSON.stringify(top),
+        { expirationTtl: top.some(f => f.tldr) ? CACHE_TTL : 900 });
     } catch (_) {}
   }
 

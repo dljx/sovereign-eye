@@ -21,11 +21,11 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
-import { timeAgo, salvageArray, postNewsArchive, heuristicScore, heuristicSentiment, clipWord } from "./_util.js";
+import { timeAgo, salvageArray, postNewsArchive, heuristicScore, heuristicSentiment, clipWord, drain } from "./_util.js";
 
 const CACHE_VERSION  = "news:portfolio:v1";
 const CACHE_TTL_MS   = 45 * 60 * 1000;   // serve from cache for 45 min
-const MAX_TICKERS    = 15;
+const MAX_TICKERS    = 20;   // was 15 — a 17-holding portfolio silently lost coverage
 const MAX_PER_TICKER = 5;                 // headlines per ticker sent to Gemma
 
 const PREFLIGHT_NOISE = /^dow jones|^nasdaq|^s&p 500|futures (fall|rise|drop|surge)|week in review|weekly recap|top \d+ stocks?|best stocks? to buy|should you buy|buy or sell\??|is .{3,40} a (top|good) (stock|buy|invest)|small.cap|mid.cap|etf (could|may|might|is|are)|a (top|major|big) .{0,20}etf|ethereum|bitcoin|\bcrypto\b|market (wrap|recap|roundup|update)|premarket|pre-market|after.?hours|opening bell|closing bell/i;
@@ -34,15 +34,15 @@ function cacheKey(tickers) {
   return `${CACHE_VERSION}:${tickers.slice().sort().join(',')}`;
 }
 
-async function fetchTickerNews(sym, apiKey) {
+async function fetchTickerNews(sym, apiKey, signal) {
   const today       = new Date().toISOString().slice(0, 10);
   const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
   try {
     const res = await fetch(
       `https://finnhub.io/api/v1/company-news?symbol=${sym}&from=${twoWeeksAgo}&to=${today}&token=${apiKey}`,
-      { signal: AbortSignal.timeout(6000) }
+      { signal: signal || AbortSignal.timeout(6000) }
     );
-    if (!res.ok) return [];
+    if (!res.ok) { drain(res); return []; }
     const data = await res.json();
     if (!Array.isArray(data)) return [];
     const seen = new Set();
@@ -88,11 +88,14 @@ Headlines:
 ${numbered}`;
 
   try {
+    // 10s cap: the whole refresh lives inside a waitUntil that production
+    // terminates ~30s after the response — a slow Gemma call must lose the
+    // race gracefully (heuristic scores already written), not eat the budget.
     const res = await geminiFetch(env, "gemma-4-31b-it:generateContent", {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 2048 },
-    });
-    if (!res?.ok) return null;
+    }, { timeoutMs: 10000 });
+    if (!res?.ok) { drain(res); return null; }
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const txt   = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
@@ -121,40 +124,49 @@ ${numbered}`;
   } catch { return null; }
 }
 
-// Fetch all news + score in one pass, then write ONE KV key.
+async function writeCache(env, key, items, tickers, pending) {
+  try {
+    await env.DD_KV.put(
+      key,
+      JSON.stringify({ items, updatedAt: new Date().toISOString(), tickers,
+                       ...(pending ? { pending: true } : {}) }),
+      { expirationTtl: 24 * 3600 }
+    );
+  } catch {}
+}
+
+// Refresh the portfolio news cache. TIME BUDGET MATTERS: this runs inside a
+// waitUntil, which production kills ~30s after the response is sent — and it
+// dies SILENTLY (no exception, no log). That killed every refresh once the
+// portfolio grew past ~15 tickers (15 queued Finnhub fetches + one big Gemma
+// call > 30s), leaving the cache permanently empty (found 2026-07-09).
+// Defense: deadline the fetch phase (partial headlines beat none), write
+// heuristic-scored items IMMEDIATELY (the cache must exist even if we die
+// after this line), then attempt the capped Gemma upgrade as a second write.
 async function refreshCache(env, tickers, key) {
   const fhKey = env.FINNHUB_API_KEY;
   if (!fhKey || !env.DD_KV) return;
 
-  // Fetch all tickers in parallel — no company-name lookups needed
-  const rawArrays = await Promise.all(tickers.map(sym => fetchTickerNews(sym, fhKey)));
+  // One shared 8s deadline for the whole fetch phase (the runtime runs ~6
+  // fetches concurrently, so 15 tickers = 3 waves; stragglers get dropped).
+  const deadline = AbortSignal.timeout(8000);
+  const rawArrays = await Promise.all(tickers.map(sym => fetchTickerNews(sym, fhKey, deadline)));
   const allItems  = rawArrays.flat();
 
   if (!allItems.length) return;
 
-  // One Gemma call for everything
-  let items = geminiKeys(env).length ? await scoreAll(allItems, tickers, env) : null;
+  const heuristic = allItems.map(it => ({
+    ...it,
+    sentiment:  heuristicSentiment(it.headline),
+    importance: heuristicScore(it.headline),
+    why: '',
+  }));
+  await writeCache(env, key, heuristic, tickers, true); // guaranteed cache
 
-  // Heuristic fallback if Gemma unavailable or fails
-  if (!items) {
-    items = allItems.map(it => ({
-      ...it,
-      sentiment:  heuristicSentiment(it.headline),
-      importance: heuristicScore(it.headline),
-      why: '',
-    }));
-  }
-
-  if (!items.length) return;
-
-  // ONE KV write
-  try {
-    await env.DD_KV.put(
-      key,
-      JSON.stringify({ items, updatedAt: new Date().toISOString(), tickers }),
-      { expirationTtl: 24 * 3600 }
-    );
-  } catch {}
+  // Gemma upgrade (capped) — replaces the heuristic write when it makes it.
+  const scored = geminiKeys(env).length ? await scoreAll(allItems, tickers, env) : null;
+  const items  = scored?.length ? scored : heuristic;
+  if (scored?.length) await writeCache(env, key, scored, tickers, false);
 
   // Archive to Supabase (fire-and-forget)
   postNewsArchive(env, items.map(n => ({
@@ -193,8 +205,12 @@ export async function onRequestGet(context) {
   const fresh = cached?.items?.length && age < CACHE_TTL_MS;
 
   if (fresh) {
+    // A pending (heuristic-scored) cache younger than 3 min may still get its
+    // Gemma upgrade — report "scoring" so the client's 60s re-poll picks it
+    // up. Older pending = the upgrade lost its race; the heuristic stands.
+    const upgrading = cached.pending && age < 3 * 60 * 1000;
     return new Response(JSON.stringify(cached.items), {
-      headers: { "Content-Type": "application/json", "X-News-Status": "fresh", "Cache-Control": "no-store" },
+      headers: { "Content-Type": "application/json", "X-News-Status": upgrading ? "scoring" : "fresh", "Cache-Control": "no-store" },
     });
   }
 

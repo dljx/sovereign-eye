@@ -6,6 +6,8 @@
  *
  * Response: { AMZN: { c, d, dp, pc, ... }, ... }  (Finnhub quote shape)
  */
+import { drain } from "./_util.js";
+
 const TICKER_RE = /^[A-Z0-9.\-]{1,12}$/; // allow exchange suffixes like .V / .TO
 
 async function finnhubQuote(ticker, key) {
@@ -14,7 +16,7 @@ async function finnhubQuote(ticker, key) {
       headers: { "User-Agent": "sovereign-eye" },
       signal: AbortSignal.timeout(6000),
     });
-    if (!r.ok) return null;
+    if (!r.ok) { drain(r); return null; }
     const q = await r.json();
     return q?.c > 0 ? q : null;
   } catch { return null; }
@@ -28,7 +30,7 @@ async function yahooQuote(ticker) {
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`,
       { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(6000) }
     );
-    if (!r.ok) return null;
+    if (!r.ok) { drain(r); return null; }
     const data = await r.json();
     const m = data?.chart?.result?.[0]?.meta;
     if (!m || !(m.regularMarketPrice > 0)) return null;
@@ -64,6 +66,8 @@ async function fxToUsd(ccy) {
     if (r.ok) {
       const p = (await r.json())?.chart?.result?.[0]?.meta?.regularMarketPrice;
       if (p > 0) rate = p;
+    } else {
+      drain(r);
     }
   } catch {}
   if (rate) _fxCache.set(ccy, { rate, ts: Date.now() });
@@ -84,8 +88,9 @@ export async function onRequestGet(context) {
 
   const url     = new URL(context.request.url);
   const raw     = url.searchParams.get("tickers") || "";
-  const tickers = raw.split(",")
-    .map(t => t.trim().toUpperCase())
+  // Dedupe — the same ticker held at two brokers arrives twice and would
+  // burn two Finnhub calls for one price.
+  const tickers = [...new Set(raw.split(",").map(t => t.trim().toUpperCase()))]
     .filter(t => TICKER_RE.test(t))
     .slice(0, 30);
 

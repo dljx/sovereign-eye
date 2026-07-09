@@ -7,7 +7,7 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
-import { timeAgo, postNewsArchive, heuristicScore, heuristicSentiment, clipWord } from "./_util.js";
+import { timeAgo, postNewsArchive, heuristicScore, heuristicSentiment, clipWord, drain } from "./_util.js";
 
 const CACHE_VERSION = "wire:feed:v8";
 const CACHE_TTL_MS = 20 * 60 * 1000;
@@ -20,7 +20,7 @@ async function fetchFinnhubGeneralNews(apiKey) {
   try {
     const res = await fetch(`https://finnhub.io/api/v1/news?category=general&token=${apiKey}`,
       { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) return [];
+    if (!res.ok) { drain(res); return []; }
     const data = await res.json();
     if (!Array.isArray(data)) return [];
     return data.slice(0, 15).map(n => ({
@@ -56,7 +56,7 @@ async function tavilySearch(keys, body) {
         body: JSON.stringify({ ...body, api_key: key }),
       });
       if (r.ok) return await r.json();
-      // non-ok (401/403/429/5xx) — fall through to the next key
+      drain(r); // non-ok (401/403/429/5xx) — fall through to the next key
     } catch { /* network error — try next key */ }
   }
   return null;
@@ -158,11 +158,14 @@ Headlines to evaluate:
 ${numbered}`;
 
   try {
+    // 12s cap — this runs in a waitUntil that production kills ~30s after the
+    // response; a slow Gemma call must lose gracefully (heuristic items are
+    // already written), not silently eat the whole budget.
     const res = await geminiFetch(env, "gemma-4-31b-it:generateContent", {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 8192 },
-    });
-    if (!res || !res.ok) return null;
+    }, { timeoutMs: 12000 });
+    if (!res || !res.ok) { drain(res); return null; }
     const data = await res.json();
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const raw = (parts.find(p => !p.thought) || parts[0] || {}).text || "";
@@ -232,10 +235,9 @@ function wireResponse(items, status) {
   });
 }
 
-async function buildWireItems(env, tickers) {
+async function fetchRawWire(env, tickers) {
   const fhKey = env.FINNHUB_API_KEY;
   const tvKeys = tavilyKeys(env);
-  const hasGemini = geminiKeys(env).length > 0;
 
   // Fetch raw items in parallel
   const [finnhubItems, tavilyItems] = await Promise.all([
@@ -245,52 +247,69 @@ async function buildWireItems(env, tickers) {
 
   // Deduplicate by headline prefix before sending to Gemma
   const seen = new Set();
-  const allRaw = [...tavilyItems, ...finnhubItems].filter(item => {
+  return [...tavilyItems, ...finnhubItems].filter(item => {
     const key = item.headline.slice(0, 60).toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-
-  // Run Gemma editorial filter
-  let items = hasGemini ? await filterWithGemma(allRaw, tickers, env) : null;
-
-  // Fallback: keyword filter + heuristic scoring when Gemma is unavailable
-  if (!items) {
-    const NOISE = /stock price|quote|buy or sell|market data|at a glance|weekly recap|week that was|today.*dow.*nasdaq|live updates/i;
-    items = allRaw
-      .filter(r => !NOISE.test(r.headline))
-      .slice(0, 12)
-      .map(r => {
-        const headline = clipWord(r.headline, 110);
-        return {
-          tag: r.hint === "MACRO" ? "MACRO" : "TICKER",
-          ticker_or_sector: r.hint,
-          source: r.source,
-          ago: r.ago,
-          datetime: r.datetime || 0,
-          headline,
-          importance: heuristicScore(headline),
-          sentiment: heuristicSentiment(headline),
-          why: "",
-          url: r.url || null,
-        };
-      })
-      .sort((a, b) => b.importance - a.importance);
-  }
-
-  return items;
 }
 
+// Keyword filter + heuristic scoring — the guaranteed-fast path.
+function heuristicWireItems(allRaw) {
+  const NOISE = /stock price|quote|buy or sell|market data|at a glance|weekly recap|week that was|today.*dow.*nasdaq|live updates/i;
+  return allRaw
+    .filter(r => !NOISE.test(r.headline))
+    .slice(0, 12)
+    .map(r => {
+      const headline = clipWord(r.headline, 110);
+      return {
+        tag: r.hint === "MACRO" ? "MACRO" : "TICKER",
+        ticker_or_sector: r.hint,
+        source: r.source,
+        ago: r.ago,
+        datetime: r.datetime || 0,
+        headline,
+        importance: heuristicScore(headline),
+        sentiment: heuristicSentiment(headline),
+        why: "",
+        url: r.url || null,
+      };
+    })
+    .sort((a, b) => b.importance - a.importance);
+}
+
+async function buildWireItems(env, tickers) {
+  const allRaw = await fetchRawWire(env, tickers);
+  const items = geminiKeys(env).length ? await filterWithGemma(allRaw, tickers, env) : null;
+  return items || heuristicWireItems(allRaw);
+}
+
+async function putWire(env, kvKey, items, pending) {
+  try {
+    await env.DD_KV.put(kvKey,
+      JSON.stringify({ items, updatedAt: new Date().toISOString(),
+                       ...(pending ? { pending: true } : {}) }),
+      { expirationTtl: 3600 });
+  } catch { /* served next poll from stale */ }
+}
+
+// Same waitUntil ~30s-kill defense as news.js refreshCache: production
+// terminates background work ~30s after the response, SILENTLY — so write
+// the fast heuristic items FIRST (the cache must exist even if we die
+// mid-Gemma), then attempt the capped Gemma editorial pass as an upgrade.
 async function refreshWire(env, tickers, kvKey) {
   try {
-    const items = await buildWireItems(env, tickers);
-    if (items.length > 0) {
-      try {
-        await env.DD_KV.put(kvKey, JSON.stringify({ items, updatedAt: new Date().toISOString() }),
-          { expirationTtl: 3600 });
-      } catch { /* served next poll from stale */ }
-    }
+    const allRaw = await fetchRawWire(env, tickers);
+    if (!allRaw.length) return;
+
+    const heuristic = heuristicWireItems(allRaw);
+    if (heuristic.length) await putWire(env, kvKey, heuristic, true);
+
+    const filtered = geminiKeys(env).length ? await filterWithGemma(allRaw, tickers, env) : null;
+    const items = filtered?.length ? filtered : heuristic;
+    if (filtered?.length) await putWire(env, kvKey, filtered, false);
+
     await archiveToSupabase(env, items);
   } catch { /* next poll retries */ }
 }
@@ -314,7 +333,10 @@ export async function onRequestGet(context) {
 
   const age = cached?.updatedAt ? Date.now() - new Date(cached.updatedAt).getTime() : Infinity;
   if (cached?.items?.length && age < CACHE_TTL_MS) {
-    return wireResponse(cached.items, "fresh");
+    // A pending (heuristic-only) cache younger than 3 min may still get its
+    // Gemma upgrade — report "scoring" so the client's re-poll picks it up.
+    const upgrading = cached.pending && age < 3 * 60 * 1000;
+    return wireResponse(cached.items, upgrading ? "scoring" : "fresh");
   }
 
   context.waitUntil(refreshWire(context.env, tickers, kvKey));

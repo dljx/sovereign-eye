@@ -81,7 +81,8 @@ function useQuotes(positions) {
   const fetchAll = useCallback(async () => {
     const sess = getMarketSession();
     setSession(sess);
-    const tickers = positions.map(p => p.ticker).filter(t => t && t !== 'USD');
+    // Set-dedupe: the same ticker held at two brokers must not double-fetch.
+    const tickers = [...new Set(positions.map(p => p.ticker).filter(t => t && t !== 'USD'))];
     if (!tickers.length) return;
 
     try {
