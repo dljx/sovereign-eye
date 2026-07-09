@@ -257,19 +257,26 @@ function FireChart({ history = [], settings: s, liquidNow, w = 680, h = 240 }) {
   const now = new Date();
   const baseYear = now.getFullYear();
 
+  // CPF in the plan: withdrawable OA joins the asset line, CPF Life offsets
+  // the FIRE line from 65 — same series crossover() uses internally.
+  const inPlan = !!(s.cpf && s.cpf.includeInPlan);
+  const sim = inPlan || Number(s.cpfLifeMonthly) > 0 ? FM.cpfSimulate(s, FM.MONTHS_HORIZON, now) : null;
+  const life = FM.cpfLifeOffset(s, sim);
+  const wd = inPlan && sim ? sim.withdrawable : null;
+
   // Horizon: crossover + 3y when reachable, else 15y.
   const xo = FM.crossover(s, liquidNow, now);
   const horizonMonths = Math.min(FM.MONTHS_HORIZON, (xo ? xo.months + 36 : 180));
 
-  const central = FM.project(s, liquidNow, horizonMonths, 0);
-  const low     = FM.project(s, liquidNow, horizonMonths, -2);
-  const high    = FM.project(s, liquidNow, horizonMonths, +2);
+  const central = FM.project(s, liquidNow, horizonMonths, 0, wd);
+  const low     = FM.project(s, liquidNow, horizonMonths, -2, wd);
+  const high    = FM.project(s, liquidNow, horizonMonths, +2, wd);
 
   const t0 = history.length ? new Date(history[0].date) : now;
   const tEnd = new Date(now.getFullYear(), now.getMonth() + horizonMonths + 1, 1);
   const span = tEnd - t0 || 1;
 
-  const fireAt = (d) => FM.fireNumberAt(d.getFullYear(), s, baseYear);
+  const fireAt = (d) => FM.fireNumberAt(d.getFullYear(), s, baseYear, life);
   const fireEnd = fireAt(tEnd);
   const maxV = Math.max(fireEnd, fireAt(now), high[high.length - 1] || 0,
                         liquidNow, ...history.map(p => p.value)) * 1.06;
@@ -339,9 +346,24 @@ function FireChart({ history = [], settings: s, liquidNow, w = 680, h = 240 }) {
 const FIRE_DEFAULTS = {
   monthlyExpenses: 4000, swr: 3.5, inflation: 2.5, expectedReturn: 6.0,
   monthlyContribution: 0, otherAssetsSGD: 0, birthYear: 1997,
-  cpf: { balance: 0, growthRate: 4.0, includeAsAsset: false },
+  // CPF modeled from official rules (see FireMath.CPF): balances today +
+  // total monthly inflow (employee + employer). includeInPlan turns on the
+  // full simulation — OA unlocks into the asset line at 55, RA becomes the
+  // CPF Life offset at 65. cpfLifeMonthly > 0 overrides the auto-estimate.
+  cpf: { oa: 0, sa: 0, ma: 0, monthlyContribution: 0, includeInPlan: false },
   cpfLifeMonthly: 0,
 };
+
+// Settings saved before the CPF engine (2026-07-09) had {balance, growthRate,
+// includeAsAsset} — map them onto the new shape instead of dropping them.
+function migrateFireSettings(d) {
+  if (!d || !d.cpf) return d;
+  const c = d.cpf;
+  if (c.oa == null && c.balance != null) {
+    d = { ...d, cpf: { oa: c.balance, sa: 0, ma: 0, monthlyContribution: 0, includeInPlan: !!c.includeAsAsset } };
+  }
+  return d;
+}
 
 // Device-side mirror of the FIRE settings. Every save writes here FIRST, so a
 // failed/unreachable server can cost at most one round of typing — the form
@@ -364,7 +386,10 @@ function FireBody({ compact = false, onRate }) {
   const [source, setSource] = useState('server');
 
   useEffect(() => {
-    const merged = (d) => ({ ...FIRE_DEFAULTS, ...(d || {}), cpf: { ...FIRE_DEFAULTS.cpf, ...((d || {}).cpf || {}) } });
+    const merged = (raw) => {
+      const d = migrateFireSettings(raw);
+      return { ...FIRE_DEFAULTS, ...(d || {}), cpf: { ...FIRE_DEFAULTS.cpf, ...((d || {}).cpf || {}) } };
+    };
     fetch('/api/fire')
       .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then(d => {
@@ -391,12 +416,16 @@ function FireBody({ compact = false, onRate }) {
 
   const FM = window.FireMath;
   const liquidNow = FM.liquidAssetsSGD(window.__NLV || 0, sgdRate, s);
-  // Historical points get today's extras/CPF added (their own history isn't
+  // Historical points get today's extras added (their own history isn't
   // tracked) — the line is "your assets as composed today, priced then".
   const extras = liquidNow - (window.__NLV || 0) * sgdRate;
   const history = rawHist.map(p => ({ date: p.date, value: p.navUsd * sgdRate + extras }));
   const yearNow = new Date().getFullYear();
-  const fireNow = FM.fireNumberAt(yearNow, s, yearNow);
+  const age = s.birthYear > 1900 ? yearNow - s.birthYear : null;
+  const cpfSim = s.cpf.includeInPlan ? FM.cpfSimulate(s, FM.MONTHS_HORIZON) : null;
+  const cpfLife = FM.cpfLifeOffset(s, cpfSim);
+  const cpfBand = age != null ? FM.cpfAlloc(age) : null;
+  const fireNow = FM.fireNumberAt(yearNow, s, yearNow, cpfLife);
   const pct = fireNow > 0 && isFinite(fireNow) ? (liquidNow / fireNow) * 100 : 0;
   const xo = FM.crossover(s, liquidNow);
 
@@ -472,9 +501,10 @@ function FireBody({ compact = false, onRate }) {
             w={compact ? 360 : 680} h={compact ? 200 : 240} />
           <div className="mono dim" style={{ fontSize: 10, marginTop: 8, lineHeight: 1.6 }}>
             <b>How this is computed</b> — FIRE number = annual expenses (inflated {s.inflation}%/yr) ÷ SWR {s.swr}%;
-            from age 65 CPF Life (S${s.cpfLifeMonthly}/mo, held fixed = conservative) offsets expenses first, so the amber line steps down.
+            from age 65 CPF Life ({cpfLife > 0 ? `S$${Math.round(cpfLife)}/mo, ${s.cpfLifeMonthly > 0 ? 'your override' : 'auto-estimated'}, ` : ''}fixed nominal from 65 = conservative) offsets expenses, stepping the amber line down.
             Projection compounds at {s.expectedReturn}%/yr nominal + S${s.monthlyContribution}/mo contributions; shaded band = ∓2pp return.
-            A projection is an assumption, not a promise.
+            {s.cpf.includeInPlan && <> CPF simulated on official 2026 rules (allocation by age, OA {window.FireMath.CPF.OA_RATE}% / SMRA {window.FireMath.CPF.SMRA_RATE}% + extra interest, MA capped at BHS, SA closes at 55 with RA set to your cohort FRS ≈ {fmtSgdCompact(window.FireMath.frsAt((s.birthYear || 0) + 55))}); OA joins your assets at 55 (kept at OA rates = conservative), SA/MA are never counted spendable.</>}
+            {' '}A projection is an assumption, not a promise.
           </div>
         </div>
 
@@ -491,17 +521,29 @@ function FireBody({ compact = false, onRate }) {
           {num('swr', 'Safe withdrawal rate %')}
           {num('inflation', 'Inflation %/yr')}
           {num('expectedReturn', 'Expected return %/yr')}
-          {num('monthlyContribution', 'Monthly contribution')}
+          {num('monthlyContribution', 'Monthly contribution (investments)')}
           {num('otherAssetsSGD', 'Other liquid assets')}
-          {num('birthYear', 'Birth year', '1')}
-          {num('cpfLifeMonthly', 'CPF Life payout from 65 (/mo)')}
+          {num('birthYear', age != null ? `Birth year (age ${age})` : 'Birth year', '1')}
           <div className="dd-section-label" style={{ marginTop: 4 }}>CPF</div>
-          {num('balance', 'CPF balance', 'any', true)}
-          {num('growthRate', 'CPF growth %/yr', 'any', true)}
+          {num('oa', 'OA balance', 'any', true)}
+          {num('sa', 'SA balance', 'any', true)}
+          {num('ma', 'MA balance', 'any', true)}
+          {num('monthlyContribution', 'CPF inflow /mo (you + employer)', 'any', true)}
+          {num('cpfLifeMonthly', 'CPF Life override (/mo, 0 = auto)')}
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 11, color: 'var(--fg-2)' }}>
-            <input type="checkbox" checked={!!s.cpf.includeAsAsset} onChange={e => setCpf('includeAsAsset', e.target.checked)} />
-            Count CPF balance as an asset (locked pre-55 — off = conservative)
+            <input type="checkbox" checked={!!s.cpf.includeInPlan} onChange={e => setCpf('includeInPlan', e.target.checked)} />
+            Model CPF in the plan — OA joins your assets at 55, RA pays CPF Life from 65
           </label>
+          {cpfBand && s.cpf.monthlyContribution > 0 && (
+            <div className="mono dim" style={{ fontSize: 9, lineHeight: 1.5 }}>
+              At {age}, S${s.cpf.monthlyContribution}/mo splits OA S${(s.cpf.monthlyContribution * cpfBand[1]).toFixed(0)}
+              {' '}· SA S${(s.cpf.monthlyContribution * cpfBand[2]).toFixed(0)}
+              {' '}· MA S${(s.cpf.monthlyContribution * cpfBand[3]).toFixed(0)}.
+              {cpfSim && cpfSim.raAt65 != null && s.cpfLifeMonthly <= 0 && (
+                <> RA at 65 ≈ {fmtSgdCompact(cpfSim.raAt65)} → CPF Life ≈ S${Math.round(cpfSim.lifeMonthly)}/mo (auto).</>
+              )}
+            </div>
+          )}
           <button className="btn" onClick={save} disabled={saveState === 'busy'} style={{ marginTop: 6 }}>
             {saveState === 'busy' ? 'Saving…' : saveState === 'saved' ? '✓ Saved to server' : saveState === 'err' ? 'Failed — retry' : 'Save'}
           </button>

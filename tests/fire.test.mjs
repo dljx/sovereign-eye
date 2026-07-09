@@ -46,11 +46,12 @@ const FM = require(join(__dirname, "..", "fire-math.js"));
 }
 
 {
-  // Liquid assets: NLV(USD)→SGD + extras, CPF only when opted in.
-  const s = { otherAssetsSGD: 50000, cpf: { balance: 100000, includeAsAsset: false } };
-  check("liquid excludes CPF by default", FM.liquidAssetsSGD(100000, 1.3, s) === 180000);
-  s.cpf.includeAsAsset = true;
-  check("liquid includes CPF when opted in", FM.liquidAssetsSGD(100000, 1.3, s) === 280000);
+  // Liquid assets: NLV(USD)→SGD + extras. CPF is NEVER in "liquid now" — it
+  // enters the plan via the projection (OA at 55) and CPF Life (65) instead.
+  const s = { otherAssetsSGD: 50000, cpf: { oa: 100000, includeInPlan: false } };
+  check("liquid excludes CPF when not in plan", FM.liquidAssetsSGD(100000, 1.3, s) === 180000);
+  s.cpf.includeInPlan = true;
+  check("liquid still excludes CPF when in plan (no double count)", FM.liquidAssetsSGD(100000, 1.3, s) === 180000);
 }
 
 {
