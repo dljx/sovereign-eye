@@ -1568,7 +1568,10 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 }
 .mobile-tabbar {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* one equal-width column per tab, however many exist — a fixed repeat()
+     count wraps onto a second row the moment a tab is added */
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
   border-top: 1px solid var(--border-1);
   background: var(--bg-1);
   padding-bottom: calc(18px + env(safe-area-inset-bottom));
@@ -1580,11 +1583,13 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
   justify-content: center;
   gap: 4px;
   padding: 8px 0;
+  min-width: 0;
   color: var(--fg-3);
   font-family: var(--mono);
   font-size: 9px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 .mobile-tab.active { color: var(--acc); }
 .mobile-tab svg { display: block; }
