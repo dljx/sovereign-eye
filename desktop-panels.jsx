@@ -1053,6 +1053,7 @@ function ScoutPanel({ onPick }) {
                   {flagged && s.vscore != null && <span className="chip warn" title="Red-team DOWNGRADE — real concerns, not fatal. Score is the prosecutor's conviction /10.">⚠ {(+s.vscore).toFixed(1)}</span>}
                   {!flagged && mode !== 'review' && s.vscore != null && <span className="chip ok" title="Red-team CONFIRM — the bull thesis survived adversarial scrutiny. Score /10.">🛡 {(+s.vscore).toFixed(1)}</span>}
                   {mode === 'review' && s.vscore != null && <span className="chip warn" title="Verification score from the red-team review /10">verify {(+s.vscore).toFixed(1)}</span>}
+                  {mode !== 'review' && s.verdict === 'UNVERIFIED' && <span className="chip dim" title="Confirmation gate never reached a verdict on this one — treat as unaudited">unverified</span>}
                   {s.rr != null && <span className="chip rr" title="Computed reward-to-risk: upside vs conservative downside floor">R/R {(+s.rr).toFixed(1)}</span>}
                   {(s.filters || []).map((f, j) => (
                     <span className={`chip ${j === s.filters.length - 1 ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>
@@ -1060,7 +1061,10 @@ function ScoutPanel({ onPick }) {
                 </div>
                 <div className="scout-meta">
                   <span>{s.sector}</span>
-                  <span>Path {s.valPath} · Open DD →</span>
+                  <span>
+                    {s.ageDays != null && <span className={`card-age${s.ageDays > 7 ? ' stale' : ''}`} title={`Analyzed ${s.analyzedAt}`}>{s.ageDays === 0 ? 'today' : `${s.ageDays}d`} · </span>}
+                    Path {s.valPath} · Open DD →
+                  </span>
                 </div>
               </div>
               );

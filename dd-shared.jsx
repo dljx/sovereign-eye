@@ -128,6 +128,8 @@ function applyNewsFilters(items, period, sortMode) {
 // panels render. Was duplicated per platform and had already drifted.
 function normalizeScoutCard(s) {
   const ver = s.verification || {};
+  const dated = s.analyzed_at || ver.checked_at || '';
+  const ts = Date.parse(dated);
   return {
     tk: s.ticker || s.tk || '—',
     score: s.score ?? 0,
@@ -146,7 +148,10 @@ function normalizeScoutCard(s) {
     cycle: s.cycle_position || null,
     rr: s.rr ?? null,
     risk: s.risk || null,
-    analyzedAt: s.analyzed_at || '',
+    analyzedAt: dated,
+    // Days since the debate ran (null when the card predates date stamping).
+    // A verdict is priced on run-date data — the age is part of the signal.
+    ageDays: Number.isFinite(ts) ? Math.max(0, Math.floor((Date.now() - ts) / 86400000)) : null,
     // Confirmation-gate fields (Under Review tab + v3 flagged DOWNGRADEs)
     verdict: ver.verdict || null,
     reviewReason: ver.strongest_bear_point || (ver.reasons || [])[0] || '',

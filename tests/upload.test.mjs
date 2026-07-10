@@ -122,7 +122,44 @@ function check(name, cond, detail = "") {
   check("no lowercased purge URL", !tickerPurges.some(u => u.endsWith("/api/dd/goog")));
 }
 
-// ── 5. bad auth still rejected ─────────────────────────────────────────────────
+// ── 5. board age-out: cards older than 14d prune on merge (2026-07-11) ────────
+{
+  const now = Date.now();
+  const iso = daysAgo => new Date(now - daysAgo * 86400000).toISOString();
+  const kv = mockKV({
+    "dd:scouts": JSON.stringify([
+      { ticker: "FRESH", score: 7.2, analyzed_at: iso(3) },
+      { ticker: "EDGE",  score: 7.3, analyzed_at: iso(13) },
+      { ticker: "OLD",   score: 9.9, analyzed_at: iso(20) },              // stale despite top score
+      { ticker: "OLDV",  score: 8.0, verification: { checked_at: iso(30) } }, // dated only via verdict
+      { ticker: "UNDATED", score: 7.0 },                                  // grandfathered
+    ]),
+  });
+  await onRequestPost(ctx(kv, { results: [], scouts: [{ ticker: "NEW", score: 8.0 }] }));
+  const scouts = JSON.parse(kv.store.get("dd:scouts")).map(s => s.ticker);
+  check("fresh + edge-of-window cards survive", scouts.includes("FRESH") && scouts.includes("EDGE"), scouts.join(","));
+  check("stale card pruned even at top score", !scouts.includes("OLD"), scouts.join(","));
+  check("verification.checked_at counts as the card date", !scouts.includes("OLDV"), scouts.join(","));
+  check("undated card grandfathered (stamp regression must not wipe boards)", scouts.includes("UNDATED"), scouts.join(","));
+  check("incoming card kept", scouts.includes("NEW"), scouts.join(","));
+}
+
+// ── 5b. age-out applies to the watchlist board independently ──────────────────
+{
+  const iso = daysAgo => new Date(Date.now() - daysAgo * 86400000).toISOString();
+  const kv = mockKV({
+    "dd:watchlist": JSON.stringify([
+      { ticker: "WFRESH", score: 7.5, verification: { verdict: "VETO", checked_at: iso(2) } },
+      { ticker: "WOLD",   score: 8.6, verification: { verdict: "REJECTED_STAGE1", checked_at: iso(19) } },
+    ]),
+  });
+  await onRequestPost(ctx(kv, { results: [], watchlist: [{ ticker: "WNEW", score: 7.1, analyzed_at: iso(0) }] }));
+  const watch = JSON.parse(kv.store.get("dd:watchlist")).map(s => s.ticker);
+  check("watchlist fresh reject survives", watch.includes("WFRESH") && watch.includes("WNEW"), watch.join(","));
+  check("watchlist stale reject pruned", !watch.includes("WOLD"), watch.join(","));
+}
+
+// ── 6. bad auth still rejected ─────────────────────────────────────────────────
 {
   const kv = mockKV();
   const res = await onRequestPost({

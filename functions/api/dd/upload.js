@@ -110,9 +110,24 @@ export async function onRequestPost(context) {
   const dropFromBoards = new Set([...baseRemove, ...watchTickers]);     // off scouts/gems
   const dropFromWatch  = new Set([...baseRemove, ...confirmedTickers]); // off watchlist
 
+  // Boards are accumulators, and a card only otherwise leaves when its ticker
+  // happens to be re-analyzed — which stale scout tickers never are. Without an
+  // age-out, three retired gate-policy eras piled up on the boards (June
+  // pre-gate cards, fail-open UNVERIFIED auto-passes, divergence-rule rejects)
+  // until "everything looked rejected or unknown" (found 2026-07-11). A debate
+  // verdict is priced on its run-date data; after two weeks it's not a signal.
+  const BOARD_MAX_AGE_DAYS = 14;
+  const pruneCutoff = Date.now() - BOARD_MAX_AGE_DAYS * 86400000;
+  const cardFresh = c => {
+    const d = Date.parse(c?.analyzed_at || (c?.verification || {}).checked_at || "");
+    // Undated cards are grandfathered: a future stamp regression must degrade
+    // to the old keep-forever behavior, never silently wipe the boards.
+    return !Number.isFinite(d) || d >= pruneCutoff;
+  };
+
   // Merge incoming entries into an accumulated board list (never replace
-  // wholesale), apply the reconciliation drops, sort by score, cap at 100 —
-  // and skip the KV write entirely when the result is byte-identical.
+  // wholesale), apply the reconciliation drops + age-out, sort by score, cap
+  // at 100 — and skip the KV write entirely when the result is byte-identical.
   async function mergeBoard(kvKey, incoming, dropSet) {
     const has = Array.isArray(incoming) && incoming.length > 0;
     if (!has && dropSet.size === 0) return;
@@ -129,7 +144,8 @@ export async function onRequestPost(context) {
         if (s && s.ticker) map.set(String(s.ticker).toUpperCase(), s);
       }
       for (const t of dropSet) map.delete(t);
-      const merged = [...map.values()].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
+      const merged = [...map.values()].filter(cardFresh)
+        .sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 100);
       const out = JSON.stringify(merged);
       if (out === raw) return; // unchanged — save the write
       await context.env.DD_KV.put(kvKey, out);
