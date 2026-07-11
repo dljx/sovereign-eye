@@ -800,11 +800,12 @@ const _HEAT_DIMS = [
   ['regime',      'Macro regime'],
 ];
 
-function AttributionHeatmap({ sb }) {
-  const windows = (sb?.windows || []).filter(w => w.overall);
+function AttributionHeatmap({ sb, dims: dimList = _HEAT_DIMS,
+                              label = 'Attribution × windows · mean excess' }) {
+  const windows = (sb?.windows || []).filter(w => w.buckets);
   if (!windows.length) return null;
 
-  const dims = _HEAT_DIMS.map(([key, label]) => {
+  const dims = dimList.map(([key, label]) => {
     const vals = [];
     for (const w of windows) {
       for (const r of (w.buckets?.[key] || [])) {
@@ -824,8 +825,8 @@ function AttributionHeatmap({ sb }) {
   return (
     <div className="sb-section">
       <div className="dd-section-label"
-        title="Mean excess return vs the benchmark per factor bucket × forward window. Grey cells have n<10 signals — too few to read. Nothing here is actionable until the pre-registered scoreboard reads.">
-        Attribution × windows · mean excess
+        title="Mean excess return vs the benchmark per bucket × forward window. Grey cells have n<10 — too few to read. Nothing here is actionable until the pre-registered scoreboard reads.">
+        {label}
       </div>
       <div style={{ overflowX: 'auto' }}>
         <table className="sb-heat">

@@ -1758,6 +1758,13 @@ function ScoreboardPanel() {
 
             <AttributionHeatmap sb={sb} />
 
+            {sb.holdings_analysis && (
+              <AttributionHeatmap sb={sb.holdings_analysis}
+                dims={[['agent_tilt', 'Agent tilt'], ['archetype', 'Archetype'],
+                       ['mos', 'Margin of safety']]}
+                label="Holdings archive · agent calibration (mean excess)" />
+            )}
+
             {sb.behavior_gap && (() => {
               const bg = sb.behavior_gap;
               const fmt = v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
