@@ -762,6 +762,18 @@ function MobileScoreboard() {
             </div>
           ) : null}
           {window.AttributionHeatmap && <window.AttributionHeatmap sb={sb} />}
+          {sb.behavior_gap && (
+            <div className="sb-section">
+              <div className="dd-section-label" title={sb.behavior_gap.note}>
+                Signal vs behavior · since {sb.behavior_gap.since}
+              </div>
+              <div className="mono" style={{ fontSize: 11, lineHeight: 1.9 }}>
+                Paper ({sb.behavior_gap.paper.n} CONFIRMs) {sb.behavior_gap.paper.mean_return_pct >= 0 ? '+' : ''}{sb.behavior_gap.paper.mean_return_pct?.toFixed(1)}%
+                {' '}· VWRA {sb.behavior_gap.vwra_pct != null ? `${sb.behavior_gap.vwra_pct >= 0 ? '+' : ''}${sb.behavior_gap.vwra_pct.toFixed(1)}%` : '—'}
+                {' '}· Real TWR {sb.behavior_gap.real_twr_pct != null ? `${sb.behavior_gap.real_twr_pct >= 0 ? '+' : ''}${sb.behavior_gap.real_twr_pct.toFixed(1)}%` : '—'}
+              </div>
+            </div>
+          )}
           <div className="sb-note">
             excess vs {sb.benchmark} · {sb.n_signals} signals · updated {sb.generated_at ? _relDate(sb.generated_at) : '—'} ago
           </div>

@@ -265,6 +265,10 @@ export async function onRequestGet(context) {
           nav,
           spy: spy.map(v => +v.toFixed(2)),
           ...(vwra ? { vwra: vwra.map(v => +v.toFixed(2)) } : {}),
+          // deposit/withdrawal rows — lets dd's behavior-gap tracker compute
+          // subrange TWR with the same chain formula
+          flows: [...flows.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)
+            .map(([date, amount]) => ({ date, amount })),
         },
         perf,
         income,

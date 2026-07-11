@@ -1729,6 +1729,26 @@ function ScoreboardPanel() {
 
             <AttributionHeatmap sb={sb} />
 
+            {sb.behavior_gap && (() => {
+              const bg = sb.behavior_gap;
+              const fmt = v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
+              return (
+                <div className="sb-section">
+                  <div className="dd-section-label" title={bg.note}>
+                    Signal vs behavior · since {bg.since}
+                  </div>
+                  <div className="mono" style={{ fontSize: 11, lineHeight: 1.9 }}>
+                    Paper ({bg.paper.n} CONFIRMs, eq-weight):{' '}
+                    <b className={bg.paper.mean_return_pct >= 0 ? 'pos' : 'neg'}>{fmt(bg.paper.mean_return_pct)}</b>
+                    {' '}· VWRA <span className="dim">{fmt(bg.vwra_pct)}</span>
+                    {' '}· Real TWR{' '}
+                    <b className={(bg.real_twr_pct ?? 0) >= 0 ? 'pos' : 'neg'}>{fmt(bg.real_twr_pct)}</b>
+                    <span className="dim" style={{ fontSize: 10 }}> — direction, not precision (small n)</span>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="sb-note">
               excess = signal forward return − {sb.benchmark} over the matched window
               · {sb.n_signals} signals logged ({sb.n_scout} scout · {sb.n_gems} gems)
