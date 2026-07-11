@@ -747,6 +747,7 @@ function MobileScoreboard() {
               </div>
             </div>
           ) : null}
+          {window.AttributionHeatmap && <window.AttributionHeatmap sb={sb} />}
           <div className="sb-note">
             excess vs {sb.benchmark} · {sb.n_signals} signals · updated {sb.generated_at ? _relDate(sb.generated_at) : '—'} ago
           </div>

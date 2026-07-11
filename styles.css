@@ -2110,3 +2110,12 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
   font-size: 11px;
   letter-spacing: 0.08em;
 }
+
+/* Attribution heatmap (Scoreboard) — factor buckets × forward windows */
+.sb-heat { border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 10px; width: 100%; }
+.sb-heat th { color: var(--fg-3); font-weight: 400; padding: 3px 6px; text-align: center; letter-spacing: 0.08em; }
+.sb-heat td { border: 1px solid var(--border-1); padding: 3px 6px; text-align: center; color: var(--fg-1); white-space: nowrap; }
+.sb-heat td.k { text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2); text-align: left; }
+.sb-heat tr.dim td { border: none; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.1em; font-size: 9px; padding: 8px 0 2px; text-align: left; }
+.sb-heat td.thin, .sb-heat td.empty { color: var(--fg-4); }
+.sb-heat .hn { display: block; font-size: 8px; color: var(--fg-4); line-height: 1.1; }

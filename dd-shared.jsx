@@ -598,9 +598,90 @@ function FireBody({ compact = false, onRate }) {
   );
 }
 
+// =============================================================
+// ATTRIBUTION HEATMAP — factor buckets × forward windows
+// Cell = mean excess vs benchmark; n<10 cells render grey ("thin") because
+// they're too small to read — the greying IS the feature. No cell is
+// actionable until the pre-registered scoreboard reads (see sovereign-dd
+// docs/ADAPTATION_PROTOCOL.md).
+// =============================================================
+const _HEAT_DIMS = [
+  ['verdict',     'Gate verdict'],
+  ['mom_12_1',    'Momentum 12-1'],
+  ['quality',     'Quality'],
+  ['eps_rev_mom', 'EPS revisions'],
+  ['fcf_yield',   'FCF yield'],
+  ['roic',        'ROIC'],
+  ['regime',      'Macro regime'],
+];
+
+function AttributionHeatmap({ sb }) {
+  const windows = (sb?.windows || []).filter(w => w.overall);
+  if (!windows.length) return null;
+
+  const dims = _HEAT_DIMS.map(([key, label]) => {
+    const vals = [];
+    for (const w of windows) {
+      for (const r of (w.buckets?.[key] || [])) {
+        if (r.k !== 'n/a' && !vals.includes(r.k)) vals.push(r.k);
+      }
+    }
+    return { key, label, vals };
+  }).filter(d => d.vals.length > 1); // a one-value dimension can't attribute anything
+  if (!dims.length) return null;
+
+  const cell = (w, key, k) => (w.buckets?.[key] || []).find(r => r.k === k) || null;
+  const shade = mean => { // color intensity capped at ±10% excess
+    const a = Math.min(Math.abs(mean) / 0.10, 1) * 0.5;
+    return mean >= 0 ? `rgba(52,211,153,${a})` : `rgba(251,113,133,${a})`;
+  };
+
+  return (
+    <div className="sb-section">
+      <div className="dd-section-label"
+        title="Mean excess return vs the benchmark per factor bucket × forward window. Grey cells have n<10 signals — too few to read. Nothing here is actionable until the pre-registered scoreboard reads.">
+        Attribution × windows · mean excess
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="sb-heat">
+          <thead>
+            <tr><th></th>{windows.map(w => <th key={w.weeks}>{w.weeks}W</th>)}</tr>
+          </thead>
+          <tbody>
+            {dims.map(d => [
+              <tr className="dim" key={d.key + '-hdr'}>
+                <td colSpan={windows.length + 1}>{d.label}</td>
+              </tr>,
+              ...d.vals.map(k => (
+                <tr key={d.key + '-' + k}>
+                  <td className="k">{k}</td>
+                  {windows.map(w => {
+                    const c = cell(w, d.key, k);
+                    if (!c) return <td key={w.weeks} className="empty">·</td>;
+                    const thin = c.n < 10;
+                    return (
+                      <td key={w.weeks} className={thin ? 'thin' : ''}
+                        style={thin ? undefined : { background: shade(c.mean) }}
+                        title={`${d.label} · ${k} · ${w.weeks}w — n=${c.n}, hit ${(c.hit * 100).toFixed(0)}%, mean ${(c.mean * 100).toFixed(1)}%, median ${(c.median * 100).toFixed(1)}%${thin ? ' — n<10: too few to read' : ''}`}>
+                        {(c.mean * 100).toFixed(1)}%
+                        <span className="hn">n{c.n}</span>
+                      </td>
+                    );
+                  })}
+                </tr>
+              )),
+            ])}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 Object.assign(window, {
   _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry, RRChip,
   holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireChart, FireBody, fmtSgdCompact,
+  AttributionHeatmap,
   NewsUtils: { NEWS_PERIOD_SECS, parseAgoMs, newsEffectiveTs, decayImp, applyNewsFilters },
 });
 })();
