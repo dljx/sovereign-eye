@@ -46,12 +46,22 @@ export async function onRequestPost(context) {
   }
 
   const { results = [], index, scouts, gems, watchlist, reconcile_remove, scoreboard } = body;
+  if (!Array.isArray(results)) {
+    return Response.json({ error: "results must be an array" }, { status: 400 });
+  }
   const written = [];
   const failed = [];
   let kvOps = 0; // puts + deletes actually performed (free tier: 1,000/day, shared)
 
   // Write individual ticker results + clean up live event keys
   for (const { key, value } of results) {
+    // Only dd:* result keys are writable through this path — an unrestricted
+    // key would let a malformed payload clobber positions:daryl / fire:daryl /
+    // nav:broker:v1, bypassing their merge guards (2026-07-11 audit, P2).
+    if (typeof key !== "string" || !/^dd:[A-Z0-9.\-]{1,12}$/.test(key)) {
+      failed.push({ key, error: "key outside dd:<TICKER> allowlist" });
+      continue;
+    }
     try {
       await context.env.DD_KV.put(key, JSON.stringify(value));
       kvOps++;

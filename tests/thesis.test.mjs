@@ -114,6 +114,21 @@ const doc = kv => JSON.parse(kv.store.get("thesis:daryl"));
   check("entry intact when held[] is absent", !!doc(kv).KEEP);
 }
 
+// ── 4b. empty held[] must NEVER wipe the registry (audit P1) ───────────────────
+{
+  const kv = mockKV({
+    "thesis:daryl": JSON.stringify({
+      AMZN: { thesis: "manual anchor", source: "manual" },
+      GOOG: { thesis: "system", source: "system" },
+    }),
+  });
+  const res = await onRequestPost(ctx(kv, { checks: {}, held: [] }, asDd));
+  const body = await res.json();
+  const d = doc(kv);
+  check("held:[] prunes nothing", !!d.AMZN && !!d.GOOG && body.removed.length === 0,
+        JSON.stringify(body));
+}
+
 // ── 5. validation ──────────────────────────────────────────────────────────────
 {
   const kv = mockKV();

@@ -104,6 +104,14 @@ export async function postNewsArchive(env, rows) {
 // body was never consumed — so dropping a non-ok response without draining
 // it can kill a healthy fetch elsewhere in the same invocation (observed
 // live on /api/quotes, 2026-07-09: "A stalled HTTP response was canceled").
+
+// Only http(s) URLs may reach an href — a javascript: URL riding a news feed
+// or search result would execute in the authenticated dashboard origin on
+// click (2026-07-11 audit, P2).
+export function safeUrl(u) {
+  return typeof u === "string" && /^https?:\/\//i.test(u.trim()) ? u.trim() : null;
+}
+
 export function drain(res) {
   try { if (res && res.body) res.body.cancel().catch(() => {}); } catch {}
 }

@@ -88,6 +88,13 @@ export async function onRequestPost(context) {
     if (!Array.isArray(rows)) {
       return Response.json({ error: `brokers.${broker} must be an array` }, { status: 400 });
     }
+    // NB: an empty array is a VALID payload — it means a genuinely emptied
+    // account (full exit) and wipes that broker's equity rows by design.
+    // Protection against a *misparsed* statement masquerading as empty lives
+    // dd-side: broker_sync refuses statements with position elements that
+    // parse to zero rows, and omits a broker entirely on fetch failure.
+    // (2026-07-11 audit finding #7 considered and rejected — rejecting []
+    // here would break the locked full-exit contract in test_broker_sync.)
     const cleaned = [];
     for (const r of rows) {
       const ticker = String(r?.ticker || "").toUpperCase().trim();

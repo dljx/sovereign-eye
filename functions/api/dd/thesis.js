@@ -117,9 +117,12 @@ export async function onRequestPost(context) {
     });
   }
 
-  // Departed positions leave the registry (only when the caller says what's held).
+  // Departed positions leave the registry — only when the caller supplies a
+  // NON-EMPTY holdings list. An empty array (e.g. a transiently-failed
+  // positions fetch upstream) must never wipe the registry: it would delete
+  // every manually-authored thesis in one write (2026-07-11 audit, P1).
   const removed = [];
-  if (Array.isArray(body.held)) {
+  if (Array.isArray(body.held) && body.held.length > 0) {
     const held = new Set(body.held.map(t => String(t || "").toUpperCase().trim()));
     for (const t of Object.keys(doc)) {
       if (!held.has(t)) {

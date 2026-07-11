@@ -11,6 +11,22 @@ const BEARER_PATHS = [
   "/api/fire",         // quarterly fire_check reads settings (GET-only for bearer, self-validates)
 ];
 
+// Constant-time string equality via SHA-256 digests — `a === b` short-circuits
+// on the first differing byte, a (remote-impractical but free-to-close) timing
+// channel on the dashboard password (2026-07-11 audit, P2). Comparing fixed-
+// length digests makes time independent of where the strings differ.
+async function timingSafeEqual(a, b) {
+  const enc = new TextEncoder();
+  const [da, db] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(a)),
+    crypto.subtle.digest("SHA-256", enc.encode(b)),
+  ]);
+  const va = new Uint8Array(da), vb = new Uint8Array(db);
+  let diff = 0;
+  for (let i = 0; i < va.length; i++) diff |= va[i] ^ vb[i];
+  return diff === 0;
+}
+
 async function handleRequest(context) {
   const auth = context.request.headers.get("Authorization");
 
@@ -37,7 +53,7 @@ async function handleRequest(context) {
       // shared DASHBOARD_PASSWORD. Lets you add a viewer without a code change.
       const allowed = (context.env.DASHBOARD_USERS || "daryl")
         .split(",").map(u => u.trim()).filter(Boolean);
-      if (allowed.includes(user) && pass === storedPass) {
+      if (allowed.includes(user) && await timingSafeEqual(pass, storedPass)) {
         return await context.next();
       }
     }

@@ -7,7 +7,7 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
-import { timeAgo, postNewsArchive, heuristicScore, heuristicSentiment, clipWord, drain } from "./_util.js";
+import { timeAgo, postNewsArchive, heuristicScore, heuristicSentiment, clipWord, drain, safeUrl } from "./_util.js";
 
 const CACHE_VERSION = "wire:feed:v8";
 const CACHE_TTL_MS = 20 * 60 * 1000;
@@ -28,7 +28,7 @@ async function fetchFinnhubGeneralNews(apiKey) {
       ago: timeAgo(new Date((n.datetime || 0) * 1000).toISOString()),
       datetime: n.datetime || 0,
       headline: clipWord(n.headline, 150),
-      url: n.url || null,
+      url: safeUrl(n.url),
       hint: "MACRO",
     }));
   } catch { return []; }
@@ -88,7 +88,7 @@ async function fetchTavilyItems(tickers, keys) {
           ago: r.published_date ? timeAgo(r.published_date) : "?",
           datetime: r.published_date ? Math.floor(new Date(r.published_date).getTime() / 1000) : 0,
           headline,
-          url: r.url || null,
+          url: safeUrl(r.url),
           hint: ticker,
         });
       });
@@ -113,7 +113,7 @@ async function fetchTavilyItems(tickers, keys) {
       if (!headline) return;
       let source = "unknown";
       try { source = new URL(r.url).hostname.replace("www.", ""); } catch {}
-      raw.push({ source, ago: r.published_date ? timeAgo(r.published_date) : "?", datetime: r.published_date ? Math.floor(new Date(r.published_date).getTime() / 1000) : 0, headline, url: r.url || null, hint: "MACRO" });
+      raw.push({ source, ago: r.published_date ? timeAgo(r.published_date) : "?", datetime: r.published_date ? Math.floor(new Date(r.published_date).getTime() / 1000) : 0, headline, url: safeUrl(r.url), hint: "MACRO" });
     });
   })
   .catch(() => {});
@@ -204,7 +204,7 @@ ${numbered}`;
         sentiment,
         importance,
         why: clipWord(item.why, 80),
-        url: orig?.url || null,
+        url: safeUrl(orig?.url),
       };
     }).filter(item => item.headline);
   } catch { return null; }
@@ -219,7 +219,7 @@ async function archiveToSupabase(env, items) {
     why:          n.why ?? null,
     importance:   n.importance ?? null,
     severity:     n.severity ?? null,
-    url:          n.url ?? null,
+    url:          safeUrl(n.url),
     published_at: n.datetime ? new Date(n.datetime * 1000).toISOString() : null,
   }));
   await postNewsArchive(env, rows);
@@ -273,7 +273,7 @@ function heuristicWireItems(allRaw) {
         importance: heuristicScore(headline),
         sentiment: heuristicSentiment(headline),
         why: "",
-        url: r.url || null,
+        url: safeUrl(r.url),
       };
     })
     .sort((a, b) => b.importance - a.importance);

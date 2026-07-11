@@ -103,9 +103,11 @@ async function pingSupabase(env) {
 }
 
 export async function onRequestGet(context) {
-  // 4-min edge cache: the dashboard polls health every 5 min per client, and
-  // an uncached call costs ~3 kv.list ops (a day-long open tab approached the
-  // 1,000/day free-tier LIST ceiling) plus two live upstream pings.
+  // Edge cache MUST outlive the poll interval: the dashboard polls health
+  // every 5 min per client and an uncached call costs ~3 kv.list ops. The old
+  // 240s TTL was SHORTER than the 300s poll, so every poll missed the cache —
+  // one day-long tab ≈ 1,700 LIST ops vs the 1,000/day free-tier ceiling
+  // (2026-07-11 audit, P1). 600s halves it and still refreshes every other poll.
   const cacheKey = new Request(new URL(context.request.url).toString());
   const cache = caches.default;
   const edgeCached = await cache.match(cacheKey);
@@ -176,7 +178,7 @@ export async function onRequestGet(context) {
   ].map(api => ({ ...api, used: null, quota: 0 }));
 
   const response = Response.json(result, {
-    headers: { 'Cache-Control': 'public, s-maxage=240' },
+    headers: { 'Cache-Control': 'public, s-maxage=600', 'Vary': 'Authorization' },
   });
   context.waitUntil(cache.put(cacheKey, response.clone()));
   return response;

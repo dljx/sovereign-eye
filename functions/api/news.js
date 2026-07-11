@@ -21,7 +21,7 @@
  */
 
 import { geminiFetch, geminiKeys } from "./_gemini.js";
-import { timeAgo, salvageArray, postNewsArchive, heuristicScore, heuristicSentiment, clipWord, drain } from "./_util.js";
+import { timeAgo, salvageArray, postNewsArchive, heuristicScore, heuristicSentiment, clipWord, drain, safeUrl } from "./_util.js";
 
 const CACHE_VERSION  = "news:portfolio:v1";
 const CACHE_TTL_MS   = 45 * 60 * 1000;   // serve from cache for 45 min
@@ -54,7 +54,7 @@ async function fetchTickerNews(sym, apiKey, signal) {
         datetime: n.datetime || 0,
         ago:      timeAgo(n.datetime || 0),
         headline: clipWord(n.headline, 150),
-        url:      n.url || null,
+        url:      safeUrl(n.url),
       }))
       .filter(n => {
         if (!n.headline || PREFLIGHT_NOISE.test(n.headline)) return false;

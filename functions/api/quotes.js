@@ -118,8 +118,11 @@ export async function onRequestGet(context) {
     q._ccy = "USD";
   }));
 
+  // Vary: Authorization — the edge micro-cache sits behind the auth middleware
+  // (unauth'd requests never reach cache.match), but a downstream shared proxy
+  // must not serve this authed response across credentials (2026-07-11 audit).
   const response = Response.json(quotes, {
-    headers: { "Cache-Control": "public, s-maxage=25" },
+    headers: { "Cache-Control": "public, s-maxage=25", "Vary": "Authorization" },
   });
   context.waitUntil(cache.put(cacheKey, response.clone()));
   return response;

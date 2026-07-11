@@ -122,6 +122,29 @@ function check(name, cond, detail = "") {
   check("no lowercased purge URL", !tickerPurges.some(u => u.endsWith("/api/dd/goog")));
 }
 
+// ── 4b. results key allowlist: only dd:<TICKER> is writable (audit P2) ────────
+{
+  const kv = mockKV({ "positions:daryl": JSON.stringify([{ ticker: "AMZN", qty: 1 }]) });
+  const res = await onRequestPost(ctx(kv, {
+    results: [
+      { key: "positions:daryl", value: [] },          // clobber attempt
+      { key: "fire:daryl", value: {} },               // clobber attempt
+      { key: "dd:scouts", value: [] },                // lowercase board key — not a ticker
+      { key: "dd:GOOG", value: { ticker: "GOOG" } },  // legit
+    ],
+  }));
+  const body = await res.json();
+  check("non-ticker keys rejected, legit key written",
+        body.written.includes("dd:GOOG")
+        && !body.written.some(k => ["positions:daryl", "fire:daryl", "dd:scouts"].includes(k)),
+        JSON.stringify(body.written));
+  check("positions:daryl untouched",
+        JSON.parse(kv.store.get("positions:daryl"))[0].qty === 1);
+  check("rejected keys reported as failed", body.failed.length === 3, JSON.stringify(body.failed));
+  const res2 = await onRequestPost(ctx(kv, { results: "not-an-array" }));
+  check("non-array results -> 400", res2.status === 400);
+}
+
 // ── 5. board age-out: cards older than 14d prune on merge (2026-07-11) ────────
 {
   const now = Date.now();

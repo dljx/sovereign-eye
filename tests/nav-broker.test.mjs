@@ -167,6 +167,25 @@ const IBKR = {
   check("empty doc -> null", combineBrokerNav({}) === null && combineBrokerNav(null) === null);
 }
 
+// ── 6b. combineBrokerNav: no fabricated jump on calendar-mismatched inception ──
+{
+  // Tiger (calendar days) starts 07-05, a Sunday = the common start; IBKR
+  // (business days) started earlier and has NO 07-05 point — its balance must
+  // be forward-filled from 07-03, not appear from 0 on 07-06 (audit P0).
+  const doc = {
+    IBKR: { navs: [{ date: "2026-07-02", nav: 500 }, { date: "2026-07-03", nav: 510 },
+                   { date: "2026-07-06", nav: 512 }], flows: [], income: [] },
+    Tiger: { navs: [{ date: "2026-07-05", nav: 100 }, { date: "2026-07-06", nav: 101 }],
+             flows: [], income: [] },
+  };
+  const c = combineBrokerNav(doc);
+  check("start is latest inception", c.dates[0] === "2026-07-05", c.dates.join(","));
+  check("day one includes the forward-filled broker", c.nav[0] === 610, `nav=${c.nav.join(",")}`);
+  check("no fabricated jump on day two", c.nav[1] === 613, `nav=${c.nav.join(",")}`);
+  const twr = twrPct(c.dates, c.nav, c.flows);
+  check("TWR reflects real movement only (~0.5%, not ~84%)", Math.abs(twr) < 1, `twr=${twr}`);
+}
+
 // ── 7. twrPct: deposits are not returns ────────────────────────────────────────
 {
   const flows = new Map([["2026-07-02", 100]]);

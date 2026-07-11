@@ -18,6 +18,7 @@ export async function onRequestGet(context) {
       headers: {
         "Content-Type": "application/json",
         "Cache-Control": "public, s-maxage=3600",
+        "Vary": "Authorization",
       },
     });
     context.waitUntil(cache.put(cacheKey, response.clone()));

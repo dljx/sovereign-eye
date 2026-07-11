@@ -55,7 +55,16 @@ export function combineBrokerNav(doc) {
     .filter(d => d >= start).sort();
   if (!dates.length) return null;
 
+  // Seed each broker with its most recent value at-or-before the common start.
+  // Without this, a broker with no point exactly ON start (calendar mismatch:
+  // one broker reports weekends, the other doesn't) contributes 0 on day one
+  // and its full balance the next day — a fabricated NAV jump that twrPct
+  // reads as return (2026-07-11 audit, P0).
   const last = new Map();
+  for (const s of series) {
+    const prior = [...s.m.keys()].filter(d => d <= start).sort().at(-1);
+    if (prior !== undefined) last.set(s.name, s.m.get(prior));
+  }
   const nav = dates.map(d => {
     let sum = 0;
     for (const s of series) {
@@ -113,7 +122,10 @@ export function alignCloses(dates, closeMap) {
 
 async function yahooCloses(context, symbol, startDate) {
   const period1 = Math.floor(Date.parse(startDate + "T00:00:00Z") / 1000) - 86400 * 7;
-  const period2 = Math.floor(Date.now() / 1000) + 86400;
+  // Day-bucketed (midnight UTC tomorrow): period2 in raw seconds changed the
+  // URL — and therefore the cache key — every second, so the "1h edge cache"
+  // never hit and every render refetched Yahoo (2026-07-11 audit, P1).
+  const period2 = (Math.floor(Date.now() / 86400000) + 1) * 86400;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}` +
               `?interval=1d&period1=${period1}&period2=${period2}`;
   const cache = caches.default;
