@@ -152,6 +152,10 @@ function normalizeScoutCard(s) {
     // Days since the debate ran (null when the card predates date stamping).
     // A verdict is priced on run-date data — the age is part of the signal.
     ageDays: Number.isFinite(ts) ? Math.max(0, Math.floor((Date.now() - ts) / 86400000)) : null,
+    // Next earnings within 14d of the analysis (dd-side stamp) — a fresh BUY
+    // this close to a report is a pre-earnings bet and gets flagged.
+    earningsInDays: Number.isFinite(Number(s.earnings_in_days)) && s.earnings_in_days != null
+      ? Number(s.earnings_in_days) : null,
     // Confirmation-gate fields (Under Review tab + v3 flagged DOWNGRADEs)
     verdict: ver.verdict || null,
     reviewReason: ver.strongest_bear_point || (ver.reasons || [])[0] || '',
