@@ -2119,3 +2119,6 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 .sb-heat tr.dim td { border: none; color: var(--fg-3); text-transform: uppercase; letter-spacing: 0.1em; font-size: 9px; padding: 8px 0 2px; text-align: left; }
 .sb-heat td.thin, .sb-heat td.empty { color: var(--fg-4); }
 .sb-heat .hn { display: block; font-size: 8px; color: var(--fg-4); line-height: 1.1; }
+
+/* Thesis-adherence dot (Portfolio tab) — 🟢 intact / 🟡 strained / 🔴 broken */
+.thesis-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; cursor: pointer; vertical-align: middle; }

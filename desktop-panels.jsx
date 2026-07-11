@@ -13,6 +13,82 @@ const { holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireBody, F
 // =============================================================
 // HOLDINGS PANEL
 // =============================================================
+// Thesis-status dot (anti-drift registry, /api/dd/thesis). Grey = no verdict
+// yet; the daily portfolio run fills these in.
+function ThesisDot({ entry, onClick }) {
+  const status = entry?.status || (entry?.thesis ? 'UNKNOWN' : null);
+  const color = { INTACT: 'var(--pos)', STRAINED: 'var(--warn)', BROKEN: 'var(--neg)' }[status] || 'var(--fg-4)';
+  const title = entry
+    ? `Thesis ${status || '—'}${entry.adherence != null ? ` · adherence ${entry.adherence}/10` : ''}`
+      + (entry.reason ? `\n${entry.reason}` : '')
+      + (entry.thesis ? `\n\nRegistered (${entry.source || 'system'}): ${entry.thesis}` : '')
+      + '\n\nClick to edit the registered thesis'
+    : 'No registered thesis yet — seeds on the next portfolio run, or click to write yours now.';
+  return <span className="thesis-dot" style={{ background: color }} title={title}
+               onClick={e => { e.stopPropagation(); onClick(); }} />;
+}
+
+function ThesisEditModal({ ticker, entry, onClose, onSaved }) {
+  const [thesis, setThesis] = useState(entry?.thesis || '');
+  const [swing, setSwing] = useState(entry?.key_swing || '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const put = async body => {
+    setBusy(true); setErr('');
+    try {
+      const r = await fetch('/api/dd/thesis', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker, ...body }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      onSaved(await r.json());
+      onClose();
+    } catch (e) {
+      setErr(`Save failed (${e.message}) — nothing changed`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 90,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+         onClick={onClose}>
+      <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border-1)', padding: 18,
+                    width: 'min(560px, 92vw)', display: 'flex', flexDirection: 'column', gap: 10 }}
+           onClick={e => e.stopPropagation()}>
+        <div className="dd-section-label">Registered thesis — {ticker}</div>
+        <div className="mono dim" style={{ fontSize: 10, lineHeight: 1.5 }}>
+          This is the anchor the daily adherence check judges against. Write YOUR actual
+          reason for owning it — editing marks it "manual" and the system stops touching the text.
+        </div>
+        <textarea value={thesis} onChange={e => setThesis(e.target.value)} rows={5}
+          placeholder="Why do you own this?"
+          style={{ background: 'var(--bg-2)', border: '1px solid var(--border-1)', color: 'var(--fg-0)',
+                   font: 'inherit', fontSize: 12, padding: 8, resize: 'vertical' }} />
+        <input value={swing} onChange={e => setSwing(e.target.value)}
+          placeholder="Key swing factor (optional)"
+          style={{ background: 'var(--bg-2)', border: '1px solid var(--border-1)', color: 'var(--fg-0)',
+                   font: 'inherit', fontSize: 12, padding: '6px 8px' }} />
+        {err && <div className="mono" style={{ fontSize: 10, color: 'var(--neg)' }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          {entry && (
+            <button className="btn" disabled={busy} style={{ marginRight: 'auto' }}
+              title="Delete the entry — the next portfolio run re-seeds it from the system's analysis"
+              onClick={() => put({ reset: true })}>
+              Reset to system
+            </button>
+          )}
+          <button className="btn" disabled={busy} onClick={onClose}>Cancel</button>
+          <button className="btn" disabled={busy || !thesis.trim()}
+            onClick={() => put({ thesis: thesis.trim(), key_swing: swing.trim() })}>
+            {busy ? 'Saving…' : 'Save (manual)'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, onHover, onLeave, hoveredTk, onRowClick }) {
   // Re-render when real sparklines arrive from /api/sparks
   const [_sv, setSv] = useState(0);
@@ -21,6 +97,17 @@ function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, on
     window.addEventListener('se:sparks', h);
     return () => window.removeEventListener('se:sparks', h);
   }, []);
+
+  // Thesis registry (anti-drift): status dots per holding + click-to-edit.
+  const [theses, setTheses] = useState({});
+  const [editTk, setEditTk] = useState(null);
+  const loadTheses = () => {
+    fetch('/api/dd/thesis')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && typeof d === 'object') setTheses(d); })
+      .catch(() => {});
+  };
+  useEffect(loadTheses, []);
 
   const enriched = useMemo(() => positions.map(p => {
     const q = quotes[p.ticker] || {};
@@ -60,11 +147,16 @@ function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, on
   }
 
   return (
+    <>
     <table className="holdings-table">
       <thead>
         <tr>
           <Sort k="ticker" align="left">Ticker</Sort>
           <th style={{ textAlign: 'left' }}>Broker</th>
+          <th style={{ textAlign: 'center' }}
+              title="Thesis adherence — 🟢 intact · 🟡 strained · 🔴 broken · grey = unchecked. Judged daily against the REGISTERED owning thesis, not today's price.">
+            Th
+          </th>
           <Sort k="qty">Qty</Sort>
           <Sort k="avg">Avg</Sort>
           <Sort k="px">Last</Sort>
@@ -91,6 +183,10 @@ function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, on
             <td style={{ textAlign: 'left' }}>
               <span className={`broker-tag ${(p.broker || '').toLowerCase()}`}>{p.broker}</span>
             </td>
+            <td style={{ textAlign: 'center' }}>
+              {p.ticker !== 'USD' &&
+                <ThesisDot entry={theses[p.ticker]} onClick={() => setEditTk(p.ticker)} />}
+            </td>
             <td className="dim">{p.qty}</td>
             <td className="dim">{fmtUSD(p.avg)}</td>
             <td>{fmtUSD(p.px || 0)}</td>
@@ -106,6 +202,11 @@ function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, on
         ))}
       </tbody>
     </table>
+    {editTk && (
+      <ThesisEditModal ticker={editTk} entry={theses[editTk]}
+        onClose={() => setEditTk(null)} onSaved={loadTheses} />
+    )}
+    </>
   );
 }
 

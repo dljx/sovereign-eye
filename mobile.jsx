@@ -288,6 +288,14 @@ function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency
     return { ...p, ...q, mv, upnl, upnlPct };
   }).sort((a, b) => b.mv - a.mv), [positions, quotes]);
 
+  // Thesis-status dots (registry editable on desktop; display-only here)
+  const [theses, setTheses] = useState({});
+  useEffect(() => {
+    fetch('/api/dd/thesis').then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && typeof d === 'object') setTheses(d); })
+      .catch(() => {});
+  }, []);
+
   const dayPnlPct = (totals.nlv - totals.dayPnl) > 0 ? (totals.dayPnl / (totals.nlv - totals.dayPnl)) * 100 : 0;
 
   return (
@@ -352,6 +360,12 @@ function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency
               <div className="m-pos-tk">
                 <span className={`broker-dot ${(p.broker || '') === 'Tiger' ? 'tiger' : ''}`} />
                 {p.ticker}
+                {(() => {
+                  const t = theses[p.ticker];
+                  const c = t && { INTACT: 'var(--pos)', STRAINED: 'var(--warn)', BROKEN: 'var(--neg)' }[t.status];
+                  return c ? <span className="thesis-dot" style={{ background: c, marginLeft: 6 }}
+                                   title={`Thesis ${t.status}${t.reason ? ` — ${t.reason}` : ''}`} /> : null;
+                })()}
               </div>
               <div className="m-pos-nm">{p.name}</div>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
