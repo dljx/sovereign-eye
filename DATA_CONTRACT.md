@@ -44,7 +44,8 @@ So the Scout board always reflects the latest analysis of each ticker.
 | `dd:live:<TICKER>` | `/api/dd/live` POST | `/api/dd/live/:ticker` | live debate events, TTL 1h |
 | `scout:history` / `scout:notified` | upload.js | `/api/dd/history` | CI cold-cache recovery |
 | `positions:daryl` | `/api/positions` PUT | `/api/positions`, nav, sparks, news, **`/api/dd/positions`** | portfolio (source of truth for the pre-market screen) |
-| `nav:snapshots:v1` | `/api/nav-history` | same | daily NAV vs SPY |
+| `nav:snapshots:v1` | `/api/nav-history` | same | daily NAV vs SPY (legacy quote-derived fallback; still stamped daily) |
+| `nav:broker:v1` | `/api/dd/nav-broker` POST (broker_sync.py) | `/api/nav-history` | real daily broker NAV/flows/income, USD, broker-scoped: `{IBKR: {navs:[{date,nav}], flows:[{date,amount}], income:[{date,amount,type,ticker}], twr, updated}, Tiger: {...}}`. When present, `/api/nav-history` serves it (common-span sum + VWRA/SPY benchmarks + flow-adjusted TWR in `perf`) instead of snapshots. |
 | `sparks:v1` | `/api/sparks` | same | sparkline cache, TTL 30m |
 | `news:tk:v15:<SYM>` | `/api/news` | same | per-ticker scored news |
 | `wire:feed:v7` | `/api/wire` | same | editorial wire, TTL 20m |

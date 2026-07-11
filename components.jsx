@@ -208,11 +208,11 @@ function AgentPixel({ kind = 'valuation', talking = false }) {
   );
 }
 
-function MacroChart({ nav, spx, w = 360, h = 180 }) {
+function MacroChart({ nav, spx, vwra, w = 360, h = 180 }) {
   const padL = 28, padR = 8, padT = 8, padB = 18;
   const innerW = w - padL - padR;
   const innerH = h - padT - padB;
-  const all = [...(nav||[]), ...(spx||[])];
+  const all = [...(nav||[]), ...(spx||[]), ...(vwra||[])];
   if (!all.length) return null;
   const min = Math.min(...all), max = Math.max(...all);
   const range = max - min || 1;
@@ -241,6 +241,9 @@ function MacroChart({ nav, spx, w = 360, h = 180 }) {
         </g>
       ))}
       {spx && <path d={points(spx)} stroke="var(--fg-3)" strokeWidth="1.25" fill="none" />}
+      {vwra && vwra.length > 0 &&
+        <path d={points(vwra)} stroke="var(--warn)" strokeWidth="1.25" fill="none"
+              strokeDasharray="4 3" opacity="0.8" />}
       {nav && <path d={points(nav)} stroke="var(--acc)" strokeWidth="1.75" fill="none" />}
       {nav && nav.length > 0 && (() => {
         const i = nav.length - 1;

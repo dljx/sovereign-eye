@@ -469,12 +469,18 @@ function MacroPanel() {
   const ms = liveMs || window.MACRO_SERIES || { nav: [], spx: [] };
   const lastNav = ms.nav[ms.nav.length - 1] || 100;
   const lastSpx = ms.spx[ms.spx.length - 1] || 100;
+  const vwra = ms.vwra || null;
+  const lastVwra = vwra ? vwra[vwra.length - 1] || 100 : null;
+  const perf = ms.perf || null; // flow-adjusted TWR block (broker-NAV source only)
+  const beatVwra = perf && perf.vwraPct != null ? perf.twrPct - perf.vwraPct : null;
   return (
     <>
       <div className="panel-header">
         <div className="panel-title"><span className="num">05</span> Macro Correlation</div>
         <div className="panel-actions">
-          <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>14M · MONTHLY</span>
+          <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>
+            {perf ? `BROKER NAV · SINCE ${perf.since}` : '14M · MONTHLY'}
+          </span>
           <SrcPill src={src} age={src === 'live' ? 'now' : 'seed'} />
         </div>
       </div>
@@ -482,9 +488,22 @@ function MacroPanel() {
         <div className="chart-legend">
           <span><span className="dot" style={{ background: 'var(--acc)' }} /> NAV · {lastNav.toFixed(1)} ({(lastNav - 100).toFixed(1)}%)</span>
           <span><span className="dot" style={{ background: 'var(--fg-3)' }} /> SPX · {lastSpx.toFixed(1)} ({(lastSpx - 100).toFixed(1)}%)</span>
+          {lastVwra != null &&
+            <span><span className="dot" style={{ background: 'var(--warn)' }} /> VWRA · {lastVwra.toFixed(1)} ({(lastVwra - 100).toFixed(1)}%)</span>}
         </div>
+        {perf && (
+          <div className="mono dim" style={{ fontSize: 10, letterSpacing: '0.06em', margin: '2px 0 4px' }}
+               title="Time-weighted return, deposit/withdrawal-adjusted, from daily broker NAV">
+            TWR {perf.twrPct >= 0 ? '+' : ''}{perf.twrPct.toFixed(1)}%
+            {beatVwra != null && (
+              <span style={{ color: beatVwra >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
+                {' '}· {beatVwra >= 0 ? 'BEATS' : 'TRAILS'} VWRA BY {Math.abs(beatVwra).toFixed(1)}pp
+              </span>
+            )}
+          </div>
+        )}
         <div ref={wrap} className="chart-wrap">
-          <MacroChart nav={ms.nav} spx={ms.spx} w={w || 360} h={200} />
+          <MacroChart nav={ms.nav} spx={ms.spx} vwra={vwra} w={w || 360} h={200} />
         </div>
       </div>
     </>

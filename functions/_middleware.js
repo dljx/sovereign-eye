@@ -5,6 +5,7 @@
 //     reachable with an arbitrary Bearer — it now requires the dashboard's Basic auth.
 const BEARER_PATHS = [
   "/api/dd/upload", "/api/dd/live", "/api/dd/history", "/api/dd/positions",
+  "/api/dd/nav-broker", // broker_sync pushes daily NAV/flows/income (POST, self-validates)
   "/api/nav-history",  // dd cron stamps the daily NAV snapshot (GET, self-validates)
   "/api/fire",         // quarterly fire_check reads settings (GET-only for bearer, self-validates)
 ];

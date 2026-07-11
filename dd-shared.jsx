@@ -384,6 +384,7 @@ function FireBody({ compact = false, onRate }) {
   const { useEffect } = React;
   const [s, setS] = useState(null);            // null = loading
   const [rawHist, setRawHist] = useState([]);  // [{date, navUsd}]
+  const [navIncome, setNavIncome] = useState(null);  // broker income rows (USD)
   const [sgdRate, setSgdRate] = useState(window.CCY_RATES?.SGD || 1.35);
   const [saveState, setSaveState] = useState('idle'); // idle | busy | saved | err
   const [saveErr, setSaveErr] = useState('');
@@ -412,6 +413,7 @@ function FireBody({ compact = false, onRate }) {
     fetch('/api/nav-history').then(r => r.ok ? r.json() : null)
       .then(d => {
         if (d?.raw?.dates) setRawHist(d.raw.dates.map((date, i) => ({ date, navUsd: d.raw.nav[i] })));
+        if (Array.isArray(d?.income) && d.income.length) setNavIncome(d.income);
       }).catch(() => {});
     fetch('/api/sgd-rate').then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.rate) { setSgdRate(d.rate); onRate && onRate(d.rate); } }).catch(() => {});
@@ -511,6 +513,34 @@ function FireBody({ compact = false, onRate }) {
             {s.cpf.includeInPlan && <> CPF simulated on official 2026 rules (allocation by age, OA {window.FireMath.CPF.OA_RATE}% / SMRA {window.FireMath.CPF.SMRA_RATE}% + extra interest, MA capped at BHS, SA closes at 55 with RA set to your cohort FRS ≈ {fmtSgdCompact(window.FireMath.frsAt((s.birthYear || 0) + 55))}); OA joins your assets at 55 (kept at OA rates = conservative), SA/MA are never counted spendable.</>}
             {' '}A projection is an assumption, not a promise.
           </div>
+          {navIncome && (() => {
+            // Broker cash line items (IBKR Flex, trailing statement window),
+            // bucketed. USD at today's rate — indicative, not accounting.
+            const buckets = { div: 0, wht: 0, fees: 0, interest: 0, other: 0 };
+            for (const r of navIncome) {
+              const t = (r.type || '').toLowerCase();
+              if (t.includes('dividend')) buckets.div += r.amount;
+              else if (t.includes('withholding') || t.includes('tax')) buckets.wht += r.amount;
+              else if (t.includes('fee') || t.includes('commission')) buckets.fees += r.amount;
+              else if (t.includes('interest')) buckets.interest += r.amount;
+              else buckets.other += r.amount;
+            }
+            const sgd = v => fmtSgdCompact(v * sgdRate);
+            const net = buckets.div + buckets.wht + buckets.fees + buckets.interest + buckets.other;
+            return (
+              <div style={{ marginTop: 10 }}>
+                <div className="dd-section-label">Portfolio income · last 12m (broker-reported)</div>
+                <div className="mono" style={{ fontSize: 10, lineHeight: 1.8, color: 'var(--fg-2)' }}>
+                  Dividends {sgd(buckets.div)}
+                  {buckets.interest !== 0 && <> · Interest {sgd(buckets.interest)}</>}
+                  {buckets.wht !== 0 && <> · Withholding {sgd(buckets.wht)}</>}
+                  {buckets.fees !== 0 && <> · Fees {sgd(buckets.fees)}</>}
+                  {buckets.other !== 0 && <> · Other {sgd(buckets.other)}</>}
+                  {' '}· <span style={{ color: net >= 0 ? 'var(--pos)' : 'var(--neg)' }}>Net {sgd(net)}</span>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

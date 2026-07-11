@@ -394,7 +394,14 @@ function MobileIntel() {
   const [liveSynth, setLiveSynth] = useState(null);
   const [synthSrc, setSynthSrc] = useState('seed');
   const tabs = ['synthesis','news','filings','macro'];
-  const ms = window.MACRO_SERIES || { nav: [], spx: [] };
+  const [liveMs, setLiveMs] = useState(null);
+  useEffect(() => {   // live NAV series (broker TWR + VWRA when available)
+    fetch('/api/nav-history')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.nav?.length && d?.spx?.length) setLiveMs(d); })
+      .catch(() => {});
+  }, []);
+  const ms = liveMs || window.MACRO_SERIES || { nav: [], spx: [] };
 
   // Normalize live (or seeded) synthesis into {tag, body, meta} items per bucket.
   const synthesis = useMemo(() => {
@@ -628,8 +635,20 @@ function MobileIntel() {
           <div className="chart-legend">
             <span><span className="dot" style={{ background: 'var(--acc)' }} /> NAV</span>
             <span><span className="dot" style={{ background: 'var(--fg-3)' }} /> SPX</span>
+            {ms.vwra && <span><span className="dot" style={{ background: 'var(--warn)' }} /> VWRA</span>}
           </div>
-          <MacroChart nav={ms.nav} spx={ms.spx} w={350} h={200} />
+          {ms.perf && (
+            <div className="mono dim" style={{ fontSize: 10, letterSpacing: '0.06em', margin: '2px 0 4px' }}>
+              TWR {ms.perf.twrPct >= 0 ? '+' : ''}{ms.perf.twrPct.toFixed(1)}%
+              {ms.perf.vwraPct != null && (
+                <span style={{ color: ms.perf.twrPct - ms.perf.vwraPct >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
+                  {' '}· {ms.perf.twrPct - ms.perf.vwraPct >= 0 ? 'BEATS' : 'TRAILS'} VWRA BY{' '}
+                  {Math.abs(ms.perf.twrPct - ms.perf.vwraPct).toFixed(1)}pp
+                </span>
+              )}
+            </div>
+          )}
+          <MacroChart nav={ms.nav} spx={ms.spx} vwra={ms.vwra} w={350} h={200} />
         </div>
       )}
     </div>
