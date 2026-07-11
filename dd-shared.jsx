@@ -716,6 +716,15 @@ function FireBody({ compact = false, onRate }) {
             }
             const sgd = v => fmtSgdCompact(v * sgdRate);
             const net = buckets.div + buckets.wht + buckets.fees + buckets.interest + buckets.other;
+            // Per-holding dividend attribution — the income rows always
+            // carried the ticker; it was aggregated away (audit #9).
+            const byTicker = {};
+            for (const r of navIncome) {
+              if ((r.type || '').toLowerCase().includes('dividend') && r.ticker) {
+                byTicker[r.ticker] = (byTicker[r.ticker] || 0) + r.amount;
+              }
+            }
+            const topPayers = Object.entries(byTicker).sort((a, b) => b[1] - a[1]).slice(0, 5);
             return (
               <div style={{ marginTop: 10 }}>
                 <div className="dd-section-label">Portfolio income · last 12m (broker-reported)</div>
@@ -726,6 +735,11 @@ function FireBody({ compact = false, onRate }) {
                   {buckets.fees !== 0 && <> · Fees {sgd(buckets.fees)}</>}
                   {buckets.other !== 0 && <> · Other {sgd(buckets.other)}</>}
                   {' '}· <span style={{ color: net >= 0 ? 'var(--pos)' : 'var(--neg)' }}>Net {sgd(net)}</span>
+                  {topPayers.length > 0 && (
+                    <>
+                      <br />Top payers: {topPayers.map(([t, v]) => `${t} ${sgd(v)}`).join(' · ')}
+                    </>
+                  )}
                 </div>
               </div>
             );

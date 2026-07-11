@@ -258,6 +258,20 @@ export async function onRequestGet(context) {
         new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
 
       const twr = twrPct(dates, nav, flows);
+      // Per-broker TWR over the same window (each broker's own navs+flows) —
+      // the per-broker curves were collapsed into the sum with no attribution
+      // view (2026-07-11 dormant-data audit #8).
+      const byBroker = {};
+      for (const [name, b] of Object.entries(brokerDoc || {})) {
+        if (!Array.isArray(b?.navs)) continue;
+        const pts = b.navs.filter(p => p?.date >= dates[0])
+          .sort((a, b2) => a.date < b2.date ? -1 : 1);
+        if (pts.length < 2) continue;
+        const fl = new Map((b.flows || []).filter(f => f?.date >= dates[0])
+          .map(f => [f.date, Number(f.amount) || 0]));
+        byBroker[name] = +twrPct(pts.map(p => p.date),
+                                 pts.map(p => Number(p.nav)), fl).toFixed(2);
+      }
       const perf = {
         source: 'broker',
         since: dates[0],
@@ -265,6 +279,7 @@ export async function onRequestGet(context) {
         spyPct: +(((spy.at(-1) / spy[0]) - 1) * 100).toFixed(2),
         vwraPct: vwra ? +(((vwra.at(-1) / vwra[0]) - 1) * 100).toFixed(2) : null,
         ibkrTwrPct: Number.isFinite(brokerDoc?.IBKR?.twr) ? brokerDoc.IBKR.twr : null,
+        byBroker,
       };
 
       return Response.json({
