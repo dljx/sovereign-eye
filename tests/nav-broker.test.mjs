@@ -91,6 +91,16 @@ const IBKR = {
   check("income ticker uppercased", doc.IBKR.income[0].ticker === "GOOG");
 }
 
+// ── 2b. twr null is preserved (Number(null) === 0 must not fake a 0% TWR) ─────
+{
+  const kv = mockKV();
+  await onRequestPost(ctx(kv, { brokers: { IBKR: {
+    navs: [{ date: "2026-07-09", nav: 100 }], twr: null,
+  } } }));
+  const doc = JSON.parse(kv.store.get("nav:broker:v1"));
+  check("null twr stays null (not 0)", doc.IBKR.twr === null, `twr=${doc.IBKR.twr}`);
+}
+
 // ── 3. idempotent re-POST skips the write ──────────────────────────────────────
 {
   const kv = mockKV();

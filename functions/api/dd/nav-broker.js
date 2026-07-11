@@ -72,7 +72,8 @@ function cleanBundle(broker, raw) {
   // Dedup navs by date (last wins), sort everything chronologically, cap size.
   const byDate = new Map(navs.map(p => [p.date, p]));
   const sortedNavs = [...byDate.values()].sort((a, b) => a.date < b.date ? -1 : 1);
-  const twr = Number.isFinite(Number(raw.twr)) ? Number(raw.twr) : null;
+  // null/undefined stays null — Number(null) is 0, which would fake a 0% TWR
+  const twr = raw.twr != null && Number.isFinite(Number(raw.twr)) ? Number(raw.twr) : null;
   return {
     bundle: {
       navs:   sortedNavs.slice(-CAPS.navs),
