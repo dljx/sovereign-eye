@@ -156,6 +156,9 @@ function normalizeScoutCard(s) {
     // this close to a report is a pre-earnings bet and gets flagged.
     earningsInDays: Number.isFinite(Number(s.earnings_in_days)) && s.earnings_in_days != null
       ? Number(s.earnings_in_days) : null,
+    // Entry-time factor stamp (mom/quality/roic/fcf_yield/regime) — carried on
+    // every card since v3, never rendered until 2026-07-11 (audit).
+    factors: s.factors && typeof s.factors === 'object' ? s.factors : null,
     // Confirmation-gate fields (Under Review tab + v3 flagged DOWNGRADEs)
     verdict: ver.verdict || null,
     reviewReason: ver.strongest_bear_point || (ver.reasons || [])[0] || '',
@@ -233,6 +236,8 @@ function DDResultFull({ data }) {
           </div>
         </div>
       )}
+      <WhyThisScore result={data} />
+      <EvidenceSection dossier={data._dossier} />
       {Array.isArray(data.transcript) && data.transcript.length > 0 && (
         <div className="dd-section">
           <div className="dd-section-label dd-transcript-toggle" onClick={() => setShowTranscript(v => !v)}>
@@ -246,6 +251,186 @@ function DDResultFull({ data }) {
         </div>
       )}
     </>
+  );
+}
+
+// =============================================================
+// WHY THIS SCORE — per-agent pillar decomposition + moderator adjustments.
+// Computed on every debate and dropped on the floor until 2026-07-11 (audit:
+// score_decomposition/score_adjustments had zero render sites).
+// =============================================================
+const _EV_PILLARS = [
+  ['structural_moat', 'Moat'], ['fundamental_quality', 'Quality'],
+  ['valuation_gap', 'Value gap'], ['catalyst_risk', 'Catalyst risk'],
+  ['market_structure', 'Mkt structure'],
+];
+
+function WhyThisScore({ result }) {
+  const dec = result.score_decomposition;
+  const adj = result.score_adjustments;
+  const agents = dec && typeof dec === 'object'
+    ? Object.entries(dec).filter(([, b]) => b && typeof b === 'object') : [];
+  const steps = adj && typeof adj === 'object'
+    ? Object.entries(adj).filter(([, v]) => v && typeof v === 'object' && v.result != null) : [];
+  if (!agents.length && !steps.length) return null;
+  return (
+    <div className="dd-section">
+      <div className="dd-section-label">Why this score</div>
+      {agents.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="sb-heat">
+            <thead><tr><th></th>{_EV_PILLARS.map(([k, l]) => <th key={k}>{l}</th>)}</tr></thead>
+            <tbody>
+              {agents.map(([agent, b]) => (
+                <tr key={agent}>
+                  <td className="k">{agent}</td>
+                  {_EV_PILLARS.map(([k]) => (
+                    <td key={k} className={b[k] == null ? 'empty' : ''}>
+                      {b[k] == null ? '·' : Number(b[k]).toFixed(1)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {steps.length > 0 && (
+        <div className="mono dim" style={{ fontSize: 10, lineHeight: 1.7, marginTop: 6 }}>
+          {typeof adj.raw === 'number' && <span>raw {adj.raw.toFixed(2)}</span>}
+          {steps.map(([name, v]) => (
+            <span key={name}> → {name.replace(/_/g, ' ')} {Number(v.result).toFixed(2)}</span>
+          ))}
+          {typeof adj.final === 'number' && <b> → final {adj.final.toFixed(2)}</b>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================
+// EVIDENCE — the raw dossier the agents argued over. It has always shipped to
+// the browser inside dd:<TICKER> and was never displayed (2026-07-11 audit:
+// ~15 rich sections dormant). Guarded per-field: older dossiers lack pieces.
+// =============================================================
+function EvRow({ k, v, title }) {
+  if (v == null || v === '') return null;
+  return (
+    <div className="ev-row" title={title}>
+      <span className="ev-k">{k}</span><span className="ev-v">{v}</span>
+    </div>
+  );
+}
+
+function EvidenceSection({ dossier }) {
+  const [open, setOpen] = useState(false);
+  if (!dossier || typeof dossier !== 'object') return null;
+  const tech = dossier.technicals || {};
+  const ratios = (dossier.financials || {}).ratios_ttm || {};
+  const av = dossier.av_overview || {};
+  const ins = dossier.insiders || {};
+  const mspr = dossier.insider_sentiment_mspr || {};
+  const rec = dossier.recommendation_trends || {};
+  const peers = Array.isArray(dossier.peer_comps) ? dossier.peer_comps.filter(p => p && p.ticker) : [];
+  const surp = Array.isArray(dossier.earnings_surprises) ? dossier.earnings_surprises : [];
+  const gov = dossier.government_contracts || {};
+  const macro = dossier.macro || {};
+  const dq = dossier.data_quality || {};
+  const price = (dossier.quote || {}).price;
+
+  const n = (v, d = 1) => (v == null || !isFinite(v) ? null : Number(v).toFixed(d));
+  const pctFrac = v => (v == null ? null : `${(v * 100).toFixed(1)}%`);
+  const usd = v => (v == null ? null : `$${Math.abs(v) >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : Math.round(v / 1e3) + 'k'}`);
+  const wacc = ratios.wacc;
+  const roicSpread = ratios.roic != null && wacc != null
+    ? `${n(ratios.roic)}% vs WACC ${n(wacc * 100)}% (${n(ratios.roic - wacc * 100)}pp)` : n(ratios.roic) && `${n(ratios.roic)}%`;
+  const targetUpside = av.analyst_target_price != null && price > 0
+    ? ` (${((av.analyst_target_price / price - 1) * 100).toFixed(0)}% vs px)` : '';
+
+  return (
+    <div className="dd-section">
+      <div className="dd-section-label dd-transcript-toggle" onClick={() => setOpen(v => !v)}>
+        {open ? '▼' : '▶'} Evidence — the data behind the debate
+      </div>
+      {open && (
+        <div className="ev-grid">
+          <div>
+            <div className="ev-h">Technicals</div>
+            <EvRow k="Price vs SMA200" v={tech.above_sma200 != null ? (tech.above_sma200 ? 'above' : 'below') : null} />
+            <EvRow k="RSI 14" v={n(tech.rsi_14)} />
+            <EvRow k="MACD" v={tech.macd_bullish != null ? (tech.macd_bullish ? 'bullish' : 'bearish') : null} />
+            <EvRow k="From 52w high" v={tech.pct_from_52w_high != null ? `${tech.pct_from_52w_high}%` : null} />
+            <EvRow k="Momentum 12-1" v={pctFrac(tech.mom_12_1)} />
+            <EvRow k="Momentum 6m / 1m" v={tech.mom_6m != null || tech.mom_1m != null ? `${pctFrac(tech.mom_6m) || '·'} / ${pctFrac(tech.mom_1m) || '·'}` : null} />
+          </div>
+          <div>
+            <div className="ev-h">Quality & valuation</div>
+            <EvRow k="ROIC" v={roicSpread} title="Return on invested capital vs cost of capital — the spread is the compounding engine" />
+            <EvRow k="FCF yield" v={pctFrac(ratios.fcf_yield)} />
+            <EvRow k="Rule of 40" v={n(ratios.rule_of_40)} />
+            <EvRow k="Gross / net margin" v={ratios.gross_margin != null || ratios.net_margin != null ? `${n(ratios.gross_margin) ?? '·'}% / ${n(ratios.net_margin) ?? '·'}%` : null} />
+            <EvRow k="PE / fwd PE" v={ratios.pe != null || ratios.fwd_pe != null ? `${n(ratios.pe) ?? '·'} / ${n(ratios.fwd_pe) ?? '·'}` : null} />
+            <EvRow k="Fwd PEG" v={n(ratios.fwd_peg, 2)} />
+            <EvRow k="EPS revision momentum" v={pctFrac(ratios.eps_revision_momentum)} title="30-day change in consensus NTM EPS" />
+            <EvRow k="Debt/equity" v={n(ratios.debt_equity)} />
+            <EvRow k="Short %" v={ratios.short_pct != null ? `${n(ratios.short_pct)}%` : null} />
+          </div>
+          <div>
+            <div className="ev-h">Street & insiders</div>
+            <EvRow k="Analyst target" v={av.analyst_target_price != null ? `$${n(av.analyst_target_price, 2)}${targetUpside}` : null} />
+            <EvRow k="Rec trend" v={rec.strong_buy != null ? `${(rec.strong_buy || 0) + (rec.buy || 0)} buy · ${rec.hold || 0} hold · ${(rec.sell || 0) + (rec.strong_sell || 0)} sell` : null} title={rec.period ? `Period ${rec.period}` : undefined} />
+            <EvRow k="Insider net (12m)" v={ins.net_insider_usd != null && (ins.buy_count || ins.sell_count) ? usd(ins.net_insider_usd) : null} />
+            <EvRow k="Cluster buying" v={ins.cluster_buying ? `yes — ${ins.significant_buys || 0} significant buys` : null} title="≥2 distinct insiders buying within 14 days" />
+            <EvRow k="MSPR 3m avg" v={n(mspr.avg_mspr_3m)} title="Insider sentiment: positive = net buying pressure" />
+            <EvRow k="Gov contracts" v={gov.count ? `${gov.count} · ${usd(gov.total_value)}` : null} />
+            <EvRow k="Div yield / PEG" v={av.dividend_yield != null || av.peg_ratio != null ? `${pctFrac(av.dividend_yield) ?? '·'} / ${n(av.peg_ratio, 2) ?? '·'}` : null} />
+            <EvRow k="Qtr rev growth YoY" v={pctFrac(av.quarterly_revenue_growth_yoy)} />
+          </div>
+          {surp.length > 0 && (
+            <div>
+              <div className="ev-h">Earnings surprises (last {Math.min(surp.length, 8)}q)</div>
+              <div className="ev-surp">
+                {surp.slice(0, 8).map((s, i) => (
+                  <span key={i}
+                    className={`ev-q ${s.beat_quality === 'MISS' ? 'neg' : s.beat_quality ? 'pos' : ''}`}
+                    title={`${s.date || ''} · EPS ${s.reported_eps ?? '?'} vs est ${s.estimated_eps ?? '?'} (${s.surprise_pct ?? '?'}%)${s.beat_quality === 'LARGE_BEAT' ? ' — >50% beat: often one-time items' : ''}`}>
+                    {s.beat_quality === 'LARGE_BEAT' ? '‼' : s.beat_quality === 'BEAT' ? '▲' : s.beat_quality === 'MISS' ? '▼' : '·'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {peers.length > 0 && (
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div className="ev-h">Peer comps</div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="sb-heat">
+                  <thead><tr><th></th><th>PE</th><th>fwd PE</th><th>EV/EBITDA</th><th>rev gr</th><th>GM</th></tr></thead>
+                  <tbody>
+                    {peers.map(p => (
+                      <tr key={p.ticker}>
+                        <td className="k">{p.ticker}</td>
+                        <td>{p.pe || '·'}</td><td>{p.fwd_pe || '·'}</td>
+                        <td>{p.ev_ebitda || '·'}</td><td>{p.rev_growth != null ? `${p.rev_growth}%` : '·'}</td>
+                        <td>{p.gross_margin != null ? `${p.gross_margin}%` : '·'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <div style={{ gridColumn: '1 / -1' }}>
+            <div className="mono dim" style={{ fontSize: 10, lineHeight: 1.6 }}>
+              {macro.regime && <span>Macro regime: {macro.regime}. </span>}
+              {dq.data_confidence && <span>Data confidence: {dq.data_confidence}. </span>}
+              {Array.isArray(dq.warnings) && dq.warnings.length > 0 &&
+                <span>⚠ {dq.warnings.length} data warning(s): {dq.warnings.slice(0, 3).join(' · ')}</span>}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

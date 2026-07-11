@@ -30,7 +30,10 @@ function MobileDDModal({ ticker, fallbackScout, onClose }) {
       .then(d => {
         if (cancelled) return;
         const result = d && !d.__empty ? (d.result || d) : null;
-        if (result && result.ticker) { setData(result); setState('ready'); }
+        if (result && result.ticker) {
+          setData({ ...result, _dossier: d.dossier || null }); // Evidence section
+          setState('ready');
+        }
         else if (fallbackScout) { setState('scout'); }
         else { setState('empty'); }
       })
@@ -877,6 +880,8 @@ function MobileScout({ onPick }) {
                 {mode === 'review' && s.vscore != null && <span className="chip warn" title="Verification score from the red-team review /10">verify {(+s.vscore).toFixed(1)}</span>}
                 {mode !== 'review' && s.verdict === 'UNVERIFIED' && <span className="chip dim" title="Confirmation gate never reached a verdict on this one — treat as unaudited">unverified</span>}
                 {s.earningsInDays != null && <span className={`chip ${s.earningsInDays <= 5 ? 'warn' : 'dim'}`} title="Earnings report due — the analysis is priced pre-print; expect a volatility event before buying">ER {s.earningsInDays === 0 ? 'today' : `in ${s.earningsInDays}d`}</span>}
+                {s.factors?.mom_12_1 != null && <span className="chip dim" title="12-1 momentum at signal time">mom {(s.factors.mom_12_1 * 100).toFixed(0)}%</span>}
+                {s.factors?.quality != null && <span className="chip dim" title="Quality composite at signal time /10">q {(+s.factors.quality).toFixed(1)}</span>}
                 {s.rr != null && <span className="chip rr" title="Computed reward-to-risk: upside vs conservative downside floor">R/R {(+s.rr).toFixed(1)}</span>}
                 {(s.filters || []).map((f, j) => (
                   <span className={`chip ${j === (s.filters.length - 1) ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>
@@ -926,7 +931,8 @@ function MobileDetail({ initialTicker }) {
       const data = await r.json();
       const d = data?.result || data;
       if (data && (d.consensus_score != null || d.score != null)) {
-        setResult(d); setTicker(d.ticker || tk); setPhase('result');
+        setResult({ ...d, _dossier: data?.dossier || null }); // Evidence section
+        setTicker(d.ticker || tk); setPhase('result');
       }
     } catch {}
   }, []);
@@ -960,7 +966,8 @@ function MobileDetail({ initialTicker }) {
           const d = data?.result || data;
           if (data && (d.consensus_score != null || d.score != null)) {
             stopAll();
-            setResult(d); setPhase('result');
+            setResult({ ...d, _dossier: data?.dossier || null }); // Evidence section
+            setPhase('result');
           }
         }
       } catch {}

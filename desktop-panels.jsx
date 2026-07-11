@@ -852,8 +852,12 @@ function DDPanel({ onTickerSelect }) {
             const mapped = _mapDDResult(data);
             // Keep the raw result too — the rich shared renderer (DDResultFull)
             // shows fair value/moat/banger/cycle/transcript that the reduced
-            // mapped shape drops.
-            if (mapped) { setResult({ ...mapped, _raw: d }); setState('result'); return; }
+            // mapped shape drops. _dossier feeds the Evidence section.
+            if (mapped) {
+              setResult({ ...mapped, _raw: { ...d, _dossier: data?.dossier || null } });
+              setState('result');
+              return;
+            }
           }
         } else {
           pollFailCount++;
@@ -1081,10 +1085,21 @@ function DDPanel({ onTickerSelect }) {
 // =============================================================
 // SOVEREIGN SCOUT PANEL — with live /api/dd/scouts fetch
 // =============================================================
+// Sort options for the scout board — score is the pipeline's default order;
+// the factor sorts read the entry-time factor stamp (missing values sink).
+const _SCOUT_SORTS = [
+  ['score',   'Score',     c => c.score ?? -1],
+  ['age',     'Freshest',  c => -(c.ageDays == null ? 9e9 : c.ageDays)],
+  ['mom',     'Momentum',  c => c.factors?.mom_12_1 ?? -9e9],
+  ['quality', 'Quality',   c => c.factors?.quality ?? -9e9],
+  ['fcf',     'FCF yield', c => c.factors?.fcf_yield ?? -9e9],
+];
+
 function ScoutPanel({ onPick }) {
   const [cards, setCards] = useState(null);
   const [src, setSrc] = useState('loading');
   const [mode, setMode] = useState('scouts'); // scouts | gems
+  const [sortKey, setSortKey] = useState('score');
 
   useEffect(() => {
     setCards(null);
@@ -1104,7 +1119,9 @@ function ScoutPanel({ onPick }) {
       .catch(() => setSrc('seed'));
   }, [mode]);
 
-  const display = cards || (mode === 'scouts' ? (window.SCOUTS || []) : []);
+  const displayRaw = cards || (mode === 'scouts' ? (window.SCOUTS || []) : []);
+  const sortFn = (_SCOUT_SORTS.find(([k]) => k === sortKey) || _SCOUT_SORTS[0])[2];
+  const display = [...displayRaw].sort((a, b) => sortFn(b) - sortFn(a));
   const age = src === 'live' ? 'now' : src === 'loading' ? '…' : 'seed';
 
   const nextRun = (() => {
@@ -1129,6 +1146,14 @@ function ScoutPanel({ onPick }) {
           ))}
         </div>
         <div className="panel-actions">
+          {mode !== 'review' && (
+            <select className="mono" value={sortKey} onChange={e => setSortKey(e.target.value)}
+              title="Sort the board — factor sorts use the entry-time factor stamp"
+              style={{ background: 'var(--bg-2)', border: '1px solid var(--border-1)',
+                       color: 'var(--fg-2)', fontSize: 10, padding: '2px 4px' }}>
+              {_SCOUT_SORTS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+          )}
           <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}>
             {display.length} {mode === 'review' ? 'UNDER REVIEW' : 'BUY SIGNALS'}
           </span>
@@ -1175,6 +1200,9 @@ function ScoutPanel({ onPick }) {
                   {mode === 'review' && s.vscore != null && <span className="chip warn" title="Verification score from the red-team review /10">verify {(+s.vscore).toFixed(1)}</span>}
                   {mode !== 'review' && s.verdict === 'UNVERIFIED' && <span className="chip dim" title="Confirmation gate never reached a verdict on this one — treat as unaudited">unverified</span>}
                   {s.earningsInDays != null && <span className={`chip ${s.earningsInDays <= 5 ? 'warn' : 'dim'}`} title="Earnings report due — the analysis is priced pre-print; expect a volatility event before buying">ER {s.earningsInDays === 0 ? 'today' : `in ${s.earningsInDays}d`}</span>}
+                  {s.factors?.mom_12_1 != null && <span className="chip dim" title="12-1 month price momentum at signal time">mom {(s.factors.mom_12_1 * 100).toFixed(0)}%</span>}
+                  {s.factors?.quality != null && <span className="chip dim" title="Quality composite at signal time (margins, returns, balance sheet) /10">q {(+s.factors.quality).toFixed(1)}</span>}
+                  {s.factors?.fcf_yield != null && <span className="chip dim" title="Free-cash-flow yield at signal time">fcf {(s.factors.fcf_yield * 100).toFixed(1)}%</span>}
                   {s.rr != null && <span className="chip rr" title="Computed reward-to-risk: upside vs conservative downside floor">R/R {(+s.rr).toFixed(1)}</span>}
                   {(s.filters || []).map((f, j) => (
                     <span className={`chip ${j === s.filters.length - 1 ? 'acc' : ''}`} key={f + '-' + j}>{f}</span>
@@ -1445,7 +1473,8 @@ function HoldingDDModal({ ticker, onClose }) {
         if (d.__empty) { setState('empty'); return; }
         const result = d.result || d;
         if (!result || !result.ticker) { setState('empty'); return; }
-        setData(result); setState('ready');
+        setData({ ...result, _dossier: d.dossier || null }); // Evidence section
+        setState('ready');
       })
       .catch(() => { if (!cancelled) setState('error'); });
     return () => { cancelled = true; };

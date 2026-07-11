@@ -2122,3 +2122,15 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 
 /* Thesis-adherence dot (Portfolio tab) — 🟢 intact / 🟡 strained / 🔴 broken */
 .thesis-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; cursor: pointer; vertical-align: middle; }
+
+/* Evidence section (DD view) — the dossier behind the debate */
+.ev-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px 18px; margin-top: 6px; }
+.ev-h { font: 9px 'JetBrains Mono', monospace; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 4px; }
+.ev-row { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; padding: 2px 0; border-bottom: 1px solid var(--border-1); }
+.ev-row:last-child { border-bottom: none; }
+.ev-k { color: var(--fg-2); }
+.ev-v { color: var(--fg-0); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; text-align: right; white-space: nowrap; }
+.ev-surp { display: flex; gap: 4px; font-size: 13px; }
+.ev-q { color: var(--fg-4); }
+.ev-q.pos { color: var(--pos); }
+.ev-q.neg { color: var(--neg); }
