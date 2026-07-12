@@ -42,6 +42,7 @@ export async function onRequestGet(context) {
     (Array.isArray(positions) ? positions : [])
       .map(p => String(p?.ticker || p?.symbol || "").toUpperCase().trim())
       .filter(Boolean)
+      .filter(t => t !== "USD")   // cash is not a security — never analyze/thesis it
   )];
 
   return Response.json({ tickers }, { headers: { "Cache-Control": "no-store" } });

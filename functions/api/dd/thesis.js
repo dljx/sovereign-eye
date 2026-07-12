@@ -84,6 +84,7 @@ export async function onRequestPost(context) {
   const seeded = [], updated = [];
   for (const [rawTicker, c] of Object.entries(checks)) {
     const ticker = String(rawTicker || "").toUpperCase().trim();
+    if (ticker === "USD") continue;   // cash is not a thesis-bearing holding
     if (!TICKER_RE.test(ticker)) {
       return Response.json({ error: `invalid ticker: ${rawTicker}` }, { status: 400 });
     }
