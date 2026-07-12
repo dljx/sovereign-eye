@@ -8,7 +8,10 @@ The implicit JSON contract between `sovereign-dd/upload_kv.py` (producer) and
 ```jsonc
 {
   "results":  [ { "key": "dd:<TICKER>", "value": { "result": {...}, "dossier": {...} } } ],
-  "index":    { "<TICKER>": { "score", "grade", "conf", "updated", "loops", "spread" } },
+  "index":    { "<TICKER>": { "score", "grade", "conf", "updated", "loops", "spread",
+                              "rr", "risk", "fv", "sizePct", "sector", "beta" } },
+  "scoreboard": { /* signal-performance snapshot — see dd:scoreboard below */ },
+  "watchlist":  [ /* under-review cards, same shape as a scout */ ],
   "scouts":   [ { "ticker", "score", "grade", "conf", "thesis", "key_swing",
                   "catalyst", "asymmetry_ratio", "banger", "position_guidance",
                   "cycle_position", "matched_filters", "path", "analyzed_at" } ],
@@ -37,10 +40,12 @@ So the Scout board always reflects the latest analysis of each ticker.
 
 | Key | Writer | Reader | Notes |
 |---|---|---|---|
-| `dd:index` | upload.js | `/api/dd/index` | per-ticker summary map |
+| `dd:index` | upload.js | `/api/dd/index` | per-ticker summary map; `rr/fv/sizePct/sector/beta` feed the Portfolio Edge & Exposure map (edge-math.js) |
 | `dd:<TICKER>` | upload.js | `/api/dd/:ticker` | full result + dossier |
 | `dd:scouts` | upload.js | `/api/dd/scouts` | accumulated BUY list, cap 100 |
 | `dd:gems` | upload.js | `/api/dd/gems` | accumulated gems BUY list, cap 100 |
+| `dd:watchlist` | upload.js | `/api/dd/watchlist` | under-review cards (below BUY, above drop), cap 100 |
+| `dd:scoreboard` | upload.js (signal_analysis.py) | `/api/dd/scoreboard` | signal-performance snapshot: `windows[]` (+ per-window attribution `buckets`), plus optional `backtest`, `behavior_gap` (`{since, note, paper:{n,mean_return_pct}, vwra_pct, real_twr_pct}`), `holdings_analysis`. Consumers must treat every sub-block as optional. |
 | `dd:live:<TICKER>` | `/api/dd/live` POST | `/api/dd/live/:ticker` | live debate events, TTL 1h |
 | `scout:history` / `scout:notified` | upload.js | `/api/dd/history` | CI cold-cache recovery |
 | `positions:daryl` | `/api/positions` PUT | `/api/positions`, nav, sparks, news, **`/api/dd/positions`** | portfolio (source of truth for the pre-market screen) |

@@ -772,7 +772,7 @@ function MobileScoreboard() {
           ) : null}
           {sb.backtest && window.BacktestSection && <window.BacktestSection bt={sb.backtest} />}
           {window.AttributionHeatmap && <window.AttributionHeatmap sb={sb} />}
-          {sb.behavior_gap && (
+          {sb.behavior_gap?.paper && (
             <div className="sb-section">
               <div className="dd-section-label" title={sb.behavior_gap.note}>
                 Signal vs behavior · since {sb.behavior_gap.since}

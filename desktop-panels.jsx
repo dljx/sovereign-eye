@@ -1776,7 +1776,7 @@ function ScoreboardPanel() {
                 label="Holdings archive · agent calibration (mean excess)" />
             )}
 
-            {sb.behavior_gap && (() => {
+            {sb.behavior_gap?.paper && (() => {
               const bg = sb.behavior_gap;
               const fmt = v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
               return (
