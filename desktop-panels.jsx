@@ -603,6 +603,16 @@ function MacroPanel() {
             )}
           </div>
         )}
+        {ms.risk && (
+          <div className="mono dim" style={{ fontSize: 10, letterSpacing: '0.06em', margin: '0 0 4px' }}
+               title="From daily broker NAV, flow-adjusted. Discipline layer for a concentrated book.">
+            maxDD <b style={{ color: 'var(--neg)' }}>{ms.risk.maxDDPct.toFixed(0)}%</b>
+            {ms.risk.currentDDPct < -1 && <> · now <b style={{ color: 'var(--warn)' }}>{ms.risk.currentDDPct.toFixed(0)}%</b></>}
+            {' '}· vol {ms.risk.annVolPct.toFixed(0)}%
+            {ms.risk.sharpe != null && <> · Sharpe <b>{ms.risk.sharpe.toFixed(2)}</b></>}
+            {ms.risk.sortino != null && <> · Sortino <b>{ms.risk.sortino.toFixed(2)}</b></>}
+          </div>
+        )}
         <div ref={wrap} className="chart-wrap">
           <MacroChart nav={ms.nav} spx={ms.spx} vwra={vwra} w={w || 360} h={200} />
         </div>

@@ -665,6 +665,12 @@ function MobileIntel() {
               )}
             </div>
           )}
+          {ms.risk && (
+            <div className="mono dim" style={{ fontSize: 10, letterSpacing: '0.06em', margin: '0 0 4px' }}>
+              maxDD {ms.risk.maxDDPct.toFixed(0)}% · vol {ms.risk.annVolPct.toFixed(0)}%
+              {ms.risk.sharpe != null && <> · Sharpe {ms.risk.sharpe.toFixed(2)}</>}
+            </div>
+          )}
           <MacroChart nav={ms.nav} spx={ms.spx} vwra={ms.vwra} w={350} h={200} />
         </div>
       )}

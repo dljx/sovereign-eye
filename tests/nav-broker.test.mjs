@@ -223,5 +223,22 @@ const IBKR = {
   check("empty trades -> null", realizedSummary([]) === null && realizedSummary(null) === null);
 }
 
+// ── 10. navRiskStats: drawdown / vol / Sharpe (F4) ─────────────────────────────
+{
+  const { navRiskStats } = await import(pathToFileURL(join(__dirname, "..", "functions", "api", "nav-history.js")).href);
+  const dts = n => Array.from({ length: n }, (_, i) => `2026-06-${String(i + 1).padStart(2, "0")}`);
+  // up 2%/day ×5, then a −10% drop, then flat — a clean drawdown to measure.
+  const nav = [100, 102, 104.04, 106.12, 108.24, 97.42, 97.42, 97.42];
+  const r = navRiskStats(dts(nav.length), nav, new Map());
+  check("maxDD captured (~ -10%)", r.maxDDPct <= -9 && r.maxDDPct >= -11, `${r.maxDDPct}`);
+  check("annualized vol positive", r.annVolPct > 0);
+  check("sharpe computed", r.sharpe !== null);
+  check("short series -> null", navRiskStats(["a", "b"], [100, 101], new Map()) === null);
+  // a same-day deposit must not read as a gain: NAV jumps 100→200 purely from a
+  // +100 deposit, then flat → flow-adjusted daily returns are ~0.
+  const flowed = navRiskStats(dts(5), [100, 200, 200, 200, 200], new Map([["2026-06-02", 100]]));
+  check("deposit stripped from flow-adjusted return", flowed === null || flowed.annVolPct < 1, JSON.stringify(flowed));
+}
+
 console.log(failed === 0 ? "\nALL NAV-BROKER TESTS PASSED" : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

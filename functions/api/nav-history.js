@@ -112,6 +112,53 @@ export function realizedSummary(trades, days = 365) {
   };
 }
 
+// Risk stats from the daily NAV series (drawdown/vol/Sharpe/Sortino). Uses
+// flow-adjusted daily returns so deposits don't masquerade as gains. rf is
+// annual risk-free (default ~4%). Discipline layer — helps avoid drawdown-
+// driven behavioral errors on a concentrated book.
+export function navRiskStats(dates, nav, flows, rf = 0.04) {
+  if (!Array.isArray(nav) || nav.length < 5) return null;
+  const flowMap = flows instanceof Map ? flows
+    : new Map((flows || []).map(f => [f.date, Number(f.amount) || 0]));
+  const rets = [];
+  for (let i = 1; i < nav.length; i++) {
+    const prev = nav[i - 1];
+    if (!(prev > 0)) continue;
+    const f = flowMap.get(dates[i]) || 0;
+    rets.push((nav[i] - f) / prev - 1);   // strip same-day flow from the return
+  }
+  if (rets.length < 4) return null;
+
+  // Max / current drawdown from the cumulative (flow-adjusted) curve.
+  let curve = 1, peak = 1, maxDD = 0;
+  for (const r of rets) {
+    curve *= (1 + r);
+    peak = Math.max(peak, curve);
+    maxDD = Math.min(maxDD, curve / peak - 1);
+  }
+  const currentDD = curve / peak - 1;
+
+  const mean = rets.reduce((s, r) => s + r, 0) / rets.length;
+  const variance = rets.reduce((s, r) => s + (r - mean) ** 2, 0) / rets.length;
+  const sd = Math.sqrt(variance);
+  const downside = rets.filter(r => r < 0);
+  const dsd = downside.length
+    ? Math.sqrt(downside.reduce((s, r) => s + r * r, 0) / rets.length) : 0;
+
+  const ann = 252;
+  const annRet = mean * ann;
+  const annVol = sd * Math.sqrt(ann);
+  const annDown = dsd * Math.sqrt(ann);
+  return {
+    days: rets.length,
+    annVolPct: +(annVol * 100).toFixed(1),
+    maxDDPct: +(maxDD * 100).toFixed(1),
+    currentDDPct: +(currentDD * 100).toFixed(1),
+    sharpe: annVol > 0 ? +((annRet - rf) / annVol).toFixed(2) : null,
+    sortino: annDown > 0 ? +((annRet - rf) / annDown).toFixed(2) : null,
+  };
+}
+
 // Flow-adjusted time-weighted return (%) with end-of-day flow convention:
 // r_t = (V_t - F_t) / V_{t-1} - 1, chained over the series.
 export function twrPct(dates, nav, flows) {
@@ -324,6 +371,7 @@ export async function onRequestGet(context) {
         perf,
         income,
         realized: realizedSummary(trades),
+        risk: navRiskStats(dates, nav, flows),
       });
     }
     // benchmark fetch failed → fall through to snapshots (never a bare series)
