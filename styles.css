@@ -2146,3 +2146,8 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 .ev-q.neg { color: var(--neg); }
 
 .edge-exposure { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-1); }
+
+/* Correlation heatmap (Edge & Exposure) */
+.corr-heat { border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 8px; }
+.corr-heat td { border: 1px solid var(--border-1); width: 22px; height: 16px; text-align: center; color: var(--fg-2); padding: 0; }
+.corr-heat td.hd { color: var(--fg-3); border: none; font-size: 8px; letter-spacing: 0; padding: 0 3px; white-space: nowrap; }

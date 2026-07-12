@@ -196,8 +196,92 @@
     };
   }
 
-  const EdgeMath = { computeEdgeMap, computeExposure, suggestedWeight, edgeScore, winProb,
-                     KELLY_FRACTION, KELLY_CAP };
+  // Return-correlation view — the RISK answer to "do these draw down together?".
+  // Realized co-movement from price history (NOT business-model embeddings:
+  // semantic similarity is a leaky proxy for co-movement and misses shared
+  // factor/macro/sentiment exposure, which is what actually drives correlated
+  // drawdowns). Collapses to the effective number of independent bets via
+  // N²/Σρ²  (closed form: for a correlation matrix Σλ² = Σ ρᵢⱼ²).
+  //
+  // closesBySymbol: { SYM: { "YYYY-MM-DD": close } }. weights optional (for
+  // cluster weight only). Returns null / {insufficient} when history is thin.
+  function correlationView(closesBySymbol, weights) {
+    const symbols = Object.keys(closesBySymbol || {}).filter(s => s !== "USD");
+    if (symbols.length < 2) return null;
+
+    // Common trading days across ALL symbols (correlation needs aligned dates).
+    let common = null;
+    for (const s of symbols) {
+      const days = new Set(Object.keys(closesBySymbol[s] || {}));
+      common = common == null ? days : new Set([...common].filter(d => days.has(d)));
+    }
+    const dates = [...(common || [])].sort();
+    if (dates.length < 30) return { insufficient: true, days: dates.length, symbols };
+
+    // Daily returns per symbol over the common calendar.
+    const rets = {};
+    for (const s of symbols) {
+      const c = closesBySymbol[s];
+      const r = [];
+      for (let i = 1; i < dates.length; i++) {
+        const p0 = c[dates[i - 1]], p1 = c[dates[i]];
+        r.push(p0 > 0 ? p1 / p0 - 1 : 0);
+      }
+      rets[s] = r;
+    }
+
+    const n = symbols.length;
+    const corr = (a, b) => {
+      const m = a.length;
+      let ma = 0, mb = 0;
+      for (let i = 0; i < m; i++) { ma += a[i]; mb += b[i]; }
+      ma /= m; mb /= m;
+      let cov = 0, va = 0, vb = 0;
+      for (let i = 0; i < m; i++) {
+        const da = a[i] - ma, db = b[i] - mb;
+        cov += da * db; va += da * da; vb += db * db;
+      }
+      return va > 0 && vb > 0 ? cov / Math.sqrt(va * vb) : 0;
+    };
+
+    const matrix = [];
+    let sumSq = 0, offSum = 0, offN = 0;
+    for (let i = 0; i < n; i++) {
+      matrix[i] = [];
+      for (let j = 0; j < n; j++) {
+        const c = i === j ? 1 : corr(rets[symbols[i]], rets[symbols[j]]);
+        matrix[i][j] = +c.toFixed(3);
+        sumSq += c * c;
+        if (i < j) { offSum += c; offN++; }
+      }
+    }
+
+    // Clusters of names that move together (pairwise ρ ≥ 0.7), via union-find.
+    const parent = symbols.map((_, i) => i);
+    const find = x => (parent[x] === x ? x : (parent[x] = find(parent[x])));
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+      if (matrix[i][j] >= 0.7) parent[find(i)] = find(j);
+    }
+    const groups = {};
+    for (let i = 0; i < n; i++) (groups[find(i)] ||= []).push(symbols[i]);
+    const wmap = weights || {};
+    const clusters = Object.values(groups).filter(g => g.length >= 2)
+      .map(g => ({ members: g, weightPct: +g.reduce((s, t) => s + (Number(wmap[t]) || 0), 0).toFixed(1) }))
+      .sort((a, b) => b.members.length - a.members.length);
+
+    return {
+      symbols, matrix,
+      days: dates.length,
+      avgCorr: offN ? +(offSum / offN).toFixed(3) : null,
+      // 1 (one bet in disguise) .. N (genuinely independent). Calm-market upper
+      // bound — correlations rise toward 1 in a real drawdown.
+      effectiveBets: +(n * n / sumSq).toFixed(1),
+      clusters,
+    };
+  }
+
+  const EdgeMath = { computeEdgeMap, computeExposure, correlationView, suggestedWeight,
+                     edgeScore, winProb, KELLY_FRACTION, KELLY_CAP };
   if (typeof window !== "undefined") window.EdgeMath = EdgeMath;
   if (typeof module !== "undefined" && module.exports) module.exports = EdgeMath;
 })();

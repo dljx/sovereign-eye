@@ -1851,6 +1851,7 @@ function EdgeExposurePanel({ positions, quotes }) {
   const [index, setIndex] = useState(null);
   const [theses, setTheses] = useState({});
   const [cards, setCards] = useState([]);
+  const [closes, setCloses] = useState(null);   // ~1y daily closes per holding
   const [src, setSrc] = useState('loading');
 
   useEffect(() => {
@@ -1867,20 +1868,28 @@ function EdgeExposurePanel({ positions, quotes }) {
       setCards([...(Array.isArray(scouts) ? scouts : []), ...(Array.isArray(gems) ? gems : [])]);
       setSrc('live');
     });
+    // Correlation history — separate (heavier, edge-cached 12h) so it never
+    // blocks the edge map.
+    fetch('/api/portfolio/correlation').then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelled && d?.closes) setCloses(d.closes); }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
   const EM = window.EdgeMath;
-  const { map, exposure } = useMemo(() => {
-    if (!EM || index == null) return { map: null, exposure: null };
+  const { map, exposure, corr } = useMemo(() => {
+    if (!EM || index == null) return { map: null, exposure: null, corr: null };
     // useQuotes normalizes to {px}; edge-math expects Finnhub {c}.
     const q = {};
     for (const [t, v] of Object.entries(quotes || {})) q[t] = { c: v.px };
+    const m = EM.computeEdgeMap(positions || [], q, index, theses, cards);
+    const weights = {};
+    for (const h of (m?.holdings || [])) weights[h.ticker] = h.actualPct;
     return {
-      map: EM.computeEdgeMap(positions || [], q, index, theses, cards),
+      map: m,
       exposure: EM.computeExposure(positions || [], q, index),
+      corr: closes && EM.correlationView ? EM.correlationView(closes, weights) : null,
     };
-  }, [EM, positions, quotes, index, theses, cards]);
+  }, [EM, positions, quotes, index, theses, cards, closes]);
 
   return (
     <>
@@ -1964,11 +1973,11 @@ function EdgeExposurePanel({ positions, quotes }) {
             </div>
             {exposure && (
               <div className="edge-exposure">
-                <div className="dd-section-label" title="Your true exposure — so concentration is deliberate, not accidental. Effective bets = 1/HHI: how many independent equity bets it really is.">
+                <div className="dd-section-label" title="Your true exposure — so concentration is deliberate, not accidental. Effective positions = 1/HHI: how spread your capital is by WEIGHT.">
                   True exposure
                 </div>
                 <div className="mono" style={{ fontSize: 11, lineHeight: 1.9 }}>
-                  <b>{exposure.effectiveBets}</b> effective bets
+                  <b>{exposure.effectiveBets}</b> effective positions <span className="dim">(by weight)</span>
                   {' · '}top-5 <b>{exposure.top5Pct.toFixed(0)}%</b>
                   {' · '}max name <b>{exposure.singleMaxPct.toFixed(0)}%</b>
                   {exposure.beta != null && <> · β <b>{exposure.beta.toFixed(2)}</b>
@@ -1980,6 +1989,45 @@ function EdgeExposurePanel({ positions, quotes }) {
                       {s.sector} <b style={{ color: s.pct >= 30 ? 'var(--warn)' : 'var(--fg-1)' }}>{s.pct.toFixed(0)}%</b>
                     </span>
                   ))}
+                </div>
+              </div>
+            )}
+            {corr && !corr.insufficient && (
+              <div className="edge-exposure">
+                <div className="dd-section-label" title="Realized return co-movement over ~1y. Independent bets = N²/Σρ²: how many genuinely separate bets your names are (1 = all one bet). Correlations rise toward 1 in a real drawdown — this is the calm-market upper bound.">
+                  Co-movement · do these draw down together?
+                </div>
+                <div className="mono" style={{ fontSize: 11, lineHeight: 1.9 }}>
+                  <b style={{ color: corr.effectiveBets < corr.symbols.length * 0.5 ? 'var(--warn)' : 'var(--fg-0)' }}>{corr.effectiveBets}</b> independent bets
+                  <span className="dim"> across {corr.symbols.length} names</span>
+                  {' · '}avg ρ <b>{corr.avgCorr.toFixed(2)}</b>
+                </div>
+                {corr.clusters.map((c, i) => (
+                  <div key={i} className="mono" style={{ fontSize: 10, color: 'var(--warn)', marginTop: 2 }}
+                    title="These names move together (ρ≥0.7) — effectively one bet at their combined size">
+                    ⚠ {c.members.join(' · ')} move as ~1 bet ({c.weightPct.toFixed(0)}% of book)
+                  </div>
+                ))}
+                <div style={{ overflowX: 'auto', marginTop: 6 }}>
+                  <table className="corr-heat"><tbody>
+                    <tr><td></td>{corr.symbols.map(s => <td key={s} className="hd">{s}</td>)}</tr>
+                    {corr.matrix.map((row, i) => (
+                      <tr key={i}>
+                        <td className="hd" style={{ textAlign: 'right' }}>{corr.symbols[i]}</td>
+                        {row.map((v, j) => {
+                          const a = Math.min(Math.abs(v), 1) * 0.7;
+                          const bg = i === j ? 'transparent'
+                            : v >= 0 ? `rgba(251,113,133,${a})` : `rgba(52,211,153,${a})`;
+                          return <td key={j} style={{ background: bg }}
+                            title={`${corr.symbols[i]}·${corr.symbols[j]} ρ=${v.toFixed(2)}`}>
+                            {i === j ? '' : (v * 100).toFixed(0)}</td>;
+                        })}
+                      </tr>
+                    ))}
+                  </tbody></table>
+                </div>
+                <div className="mono dim" style={{ fontSize: 9, marginTop: 2 }}>
+                  Red = moves together, green = moves opposite. {corr.days}d of returns. Correlations rise toward 1 in a real drawdown, so this understates tail co-movement.
                 </div>
               </div>
             )}

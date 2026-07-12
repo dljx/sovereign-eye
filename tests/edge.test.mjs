@@ -113,5 +113,31 @@ check("absent thesis mild discount", EM.edgeScore(8, null) === 7.36);
   check("empty positions -> null", EM.computeExposure([], {}, {}) === null);
 }
 
+// ── correlationView: effective bets / clusters ─────────────────────────────────
+{
+  // Build 40 days. A & B move together (same driver), C moves opposite/independent.
+  const dates = Array.from({ length: 40 }, (_, i) => `2026-05-${String(i + 1).padStart(2, "0")}`);
+  const mk = (base, fn) => { const o = {}; let p = base; dates.forEach((d, i) => { p *= (1 + fn(i)); o[d] = +p.toFixed(4); }); return o; };
+  const wave = i => Math.sin(i / 3) * 0.02;       // shared driver (A & B)
+  const A = mk(100, i => wave(i) + 0.001);
+  const B = mk(50, i => wave(i) * 0.98 + 0.0005); // ~ perfectly correlated with A
+  const C = mk(80, i => Math.sin(i / 1.7 + 2) * 0.02 + 0.0008); // independent driver
+  const cv = EM.correlationView({ A, B, C }, { A: 20, B: 20, C: 10 });
+  check("A/B strongly correlated (≥0.9)", cv.matrix[0][1] >= 0.9, `${cv.matrix[0][1]}`);
+  check("A/C ~ independent (|ρ|<0.5)", Math.abs(cv.matrix[0][2]) < 0.5, `${cv.matrix[0][2]}`);
+  check("effective bets ~2 (A,B one bet; C another)", cv.effectiveBets > 1.6 && cv.effectiveBets < 2.4, `${cv.effectiveBets}`);
+  check("A+B clustered with summed weight", cv.clusters.length === 1
+        && cv.clusters[0].members.sort().join() === "A,B" && cv.clusters[0].weightPct === 40,
+        JSON.stringify(cv.clusters));
+  check("avgCorr reported", typeof cv.avgCorr === "number");
+}
+{
+  // Thin history → insufficient, not a noisy number.
+  const short = { X: { "2026-05-01": 1, "2026-05-02": 1.1 }, Y: { "2026-05-01": 1, "2026-05-02": 0.9 } };
+  const cv = EM.correlationView(short);
+  check("thin history -> insufficient flag", cv.insufficient === true, JSON.stringify(cv));
+  check("single symbol -> null", EM.correlationView({ A: { "2026-05-01": 1 } }) === null);
+}
+
 console.log(failed === 0 ? "\nALL EDGE TESTS PASSED" : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
