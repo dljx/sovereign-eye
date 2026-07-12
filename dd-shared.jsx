@@ -385,6 +385,7 @@ function EvidenceSection({ dossier }) {
             <EvRow k="Gov contracts" v={gov.count ? `${gov.count} · ${usd(gov.total_value)}` : null} />
             <EvRow k="Div yield / PEG" v={av.dividend_yield != null || av.peg_ratio != null ? `${pctFrac(av.dividend_yield) ?? '·'} / ${n(av.peg_ratio, 2) ?? '·'}` : null} />
             <EvRow k="Qtr rev growth YoY" v={pctFrac(av.quarterly_revenue_growth_yoy)} />
+            <EvRow k="Smart money" v={dossier.capital_flow ? (dossier.capital_flow.smart_tilt >= 0 ? 'institutional-favored' : 'retail-favored') : null} title="Tiger capital distribution: institutional (big) net flow minus retail (small) net flow" />
           </div>
           {surp.length > 0 && (
             <div>
@@ -811,6 +812,7 @@ const _HEAT_DIMS = [
   ['eps_rev_mom', 'EPS revisions'],
   ['fcf_yield',   'FCF yield'],
   ['roic',        'ROIC'],
+  ['cap_smart_tilt', 'Smart money'],
   ['regime',      'Macro regime'],
 ];
 
