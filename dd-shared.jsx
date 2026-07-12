@@ -901,10 +901,61 @@ function AttributionHeatmap({ sb, dims: dimList = _HEAT_DIMS,
   );
 }
 
+// =============================================================
+// BACKTEST — follow-the-engine equity curve vs VWRA. A FRAMEWORK, not proof:
+// the caveat is the headline until data accrues (small n, backfilled entry
+// prices, imposed exit rule). Computed in signal_analysis.compute_backtest.
+// =============================================================
+function BacktestSection({ bt }) {
+  if (!bt || !Array.isArray(bt.equal) || bt.equal.length < 2) return null;
+  const w = 320, h = 120, padL = 4, padR = 4, padT = 6, padB = 6;
+  const series = [
+    { key: 'vwra', data: bt.vwra, color: 'var(--fg-3)', dash: '3 3' },
+    { key: 'score', data: bt.score, color: 'var(--acc-2)', dash: '4 3' },
+    { key: 'equal', data: bt.equal, color: 'var(--acc)', dash: '' },
+  ];
+  const all = series.flatMap(s => s.data || []);
+  const min = Math.min(...all), max = Math.max(...all), range = (max - min) || 1;
+  const path = arr => arr.map((v, i) => {
+    const x = padL + (i / Math.max(arr.length - 1, 1)) * (w - padL - padR);
+    const y = padT + (h - padT - padB) - ((v - min) / range) * (h - padT - padB);
+    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const st = bt.stats || {};
+  const excess = st.excess_total;
+  const pct = v => v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
+  return (
+    <div className="sb-section">
+      <div className="dd-section-label" title={bt.note}>
+        Follow-the-engine backtest · since {bt.since} · framework, not proof
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none"
+             style={{ display: 'block' }}>
+          {series.map(s => s.data && s.data.length > 1 &&
+            <path key={s.key} d={path(s.data)} fill="none" stroke={s.color}
+                  strokeWidth={s.key === 'equal' ? 1.8 : 1.1} strokeDasharray={s.dash} />)}
+        </svg>
+      </div>
+      <div className="mono" style={{ fontSize: 10, lineHeight: 1.8, marginTop: 4 }}>
+        <span style={{ color: 'var(--acc)' }}>Engine (eq) {pct(st.equal?.total)}</span>
+        {' · '}<span style={{ color: 'var(--acc-2)' }}>score-wt</span>
+        {' · '}<span className="dim">VWRA {pct(st.vwra?.total)}</span>
+        {excess != null && <> · <span className={excess >= 0 ? 'pos' : 'neg'}>excess {pct(excess)}</span></>}
+        {st.equal?.max_dd != null && <span className="dim"> · maxDD {(st.equal.max_dd * 100).toFixed(0)}%</span>}
+        {' · '}<span className="dim">{bt.n_confirms} CONFIRMs, {bt.hold_weeks}w hold</span>
+      </div>
+      <div className="mono dim" style={{ fontSize: 9, marginTop: 2 }}>
+        {bt.note}
+      </div>
+    </div>
+  );
+}
+
 Object.assign(window, {
   _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry, RRChip,
   holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireChart, FireBody, fmtSgdCompact,
-  AttributionHeatmap,
+  AttributionHeatmap, BacktestSection,
   NewsUtils: { NEWS_PERIOD_SECS, parseAgoMs, newsEffectiveTs, decayImp, applyNewsFilters },
 });
 })();

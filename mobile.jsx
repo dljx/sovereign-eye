@@ -764,6 +764,7 @@ function MobileScoreboard() {
               </div>
             </div>
           ) : null}
+          {sb.backtest && window.BacktestSection && <window.BacktestSection bt={sb.backtest} />}
           {window.AttributionHeatmap && <window.AttributionHeatmap sb={sb} />}
           {sb.behavior_gap && (
             <div className="sb-section">

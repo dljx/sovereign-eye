@@ -8,7 +8,7 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // Hold-mode labels + shared card/news helpers live in dd-shared.jsx (window
 // exports) so desktop and mobile can't drift apart.
-const { holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireBody, FireChart, fmtSgdCompact, AttributionHeatmap } = window;
+const { holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireBody, FireChart, fmtSgdCompact, AttributionHeatmap, BacktestSection } = window;
 
 // =============================================================
 // HOLDINGS PANEL
@@ -1756,6 +1756,7 @@ function ScoreboardPanel() {
               </div>
             ) : null}
 
+            {sb.backtest && <BacktestSection bt={sb.backtest} />}
             <AttributionHeatmap sb={sb} />
 
             {sb.holdings_analysis && (
