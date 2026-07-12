@@ -86,5 +86,32 @@ check("absent thesis mild discount", EM.edgeScore(8, null) === 7.36);
   check("stale holding on cold list", out.gaps.cold.some(c => c.ticker === "OLD" && c.reason === "no recent analysis"));
 }
 
+// ── computeExposure: HHI / effective-bets / portfolio beta ─────────────────────
+{
+  const positions = [
+    { ticker: "AAA", qty: 100, avg: 10 }, // mv 4000
+    { ticker: "BBB", qty: 100, avg: 10 }, // mv 4000 (same sector as AAA → hidden concentration)
+    { ticker: "CCC", qty: 100, avg: 10 }, // mv 2000
+    { ticker: "USD", qty: 1, avg: 1000 },
+  ];
+  const quotes = { AAA: { c: 40 }, BBB: { c: 40 }, CCC: { c: 20 } };
+  const index = {
+    AAA: { sector: "Technology", beta: 1.5 },
+    BBB: { sector: "Technology", beta: 1.3 },
+    CCC: { sector: "Energy", beta: 0.8 },
+  };
+  const ex = EM.computeExposure(positions, quotes, index);
+  // nlv = 4000+4000+2000+1000 = 11000; weights .3636/.3636/.1818 (+cash .0909)
+  // sector aggregation reveals hidden concentration (2 Tech names = 73% one theme);
+  // effective-bets measures weight dispersion (over EQUITY): .40/.40/.20 → ~2.78 < 3
+  check("sectors aggregated + sorted (Tech ~73%)", ex.sectors[0].sector === "Technology" && ex.sectors[0].pct > 70,
+        JSON.stringify(ex.sectors));
+  check("effective-bets over equity < position count", ex.effectiveBets < 3 && ex.effectiveBets > 2.5, `${ex.effectiveBets}`);
+  check("portfolio beta = weighted avg", Math.abs(ex.beta - ((0.3636*1.5 + 0.3636*1.3 + 0.1818*0.8) / (0.3636+0.3636+0.1818))) < 0.02, `${ex.beta}`);
+  check("beta coverage excludes cash", ex.betaCoverPct === 91, `${ex.betaCoverPct}`);
+  check("cash % reported", ex.cashPct > 9 && ex.cashPct < 10, `${ex.cashPct}`);
+  check("empty positions -> null", EM.computeExposure([], {}, {}) === null);
+}
+
 console.log(failed === 0 ? "\nALL EDGE TESTS PASSED" : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

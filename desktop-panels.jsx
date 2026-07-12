@@ -1861,12 +1861,15 @@ function EdgeExposurePanel({ positions, quotes }) {
   }, []);
 
   const EM = window.EdgeMath;
-  const map = useMemo(() => {
-    if (!EM || index == null) return null;
+  const { map, exposure } = useMemo(() => {
+    if (!EM || index == null) return { map: null, exposure: null };
     // useQuotes normalizes to {px}; edge-math expects Finnhub {c}.
     const q = {};
     for (const [t, v] of Object.entries(quotes || {})) q[t] = { c: v.px };
-    return EM.computeEdgeMap(positions || [], q, index, theses, cards);
+    return {
+      map: EM.computeEdgeMap(positions || [], q, index, theses, cards),
+      exposure: EM.computeExposure(positions || [], q, index),
+    };
   }, [EM, positions, quotes, index, theses, cards]);
 
   return (
@@ -1949,6 +1952,27 @@ function EdgeExposurePanel({ positions, quotes }) {
                 </div>
               )}
             </div>
+            {exposure && (
+              <div className="edge-exposure">
+                <div className="dd-section-label" title="Your true exposure — so concentration is deliberate, not accidental. Effective bets = 1/HHI: how many independent equity bets it really is.">
+                  True exposure
+                </div>
+                <div className="mono" style={{ fontSize: 11, lineHeight: 1.9 }}>
+                  <b>{exposure.effectiveBets}</b> effective bets
+                  {' · '}top-5 <b>{exposure.top5Pct.toFixed(0)}%</b>
+                  {' · '}max name <b>{exposure.singleMaxPct.toFixed(0)}%</b>
+                  {exposure.beta != null && <> · β <b>{exposure.beta.toFixed(2)}</b>
+                    <span className="dim" title={`vs US market (yfinance), ${exposure.betaCoverPct}% of equity has a beta`}> (US-mkt)</span></>}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px', marginTop: 4 }}>
+                  {exposure.sectors.slice(0, 8).map(s => (
+                    <span key={s.sector} className="mono" style={{ fontSize: 10, color: 'var(--fg-2)' }}>
+                      {s.sector} <b style={{ color: s.pct >= 30 ? 'var(--warn)' : 'var(--fg-1)' }}>{s.pct.toFixed(0)}%</b>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="mono dim" style={{ fontSize: 9, marginTop: 8, lineHeight: 1.5 }}>
               Edge = debate score adjusted for thesis health. The ¼-Kelly % is a conservative
               judgment aid (its win-prob map is unvalidated until the ~Sep scoreboard read) —

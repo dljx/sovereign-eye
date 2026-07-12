@@ -143,7 +143,60 @@
     };
   }
 
-  const EdgeMath = { computeEdgeMap, suggestedWeight, edgeScore, winProb,
+  // True-exposure: sector/HHI/portfolio-beta so concentration is DELIBERATE,
+  // not a diversification nag. Reveals when N names are really 1 bet (low
+  // effective-position count) and your true factor exposure. Sector/beta come
+  // from dd:index (sector is empty on raw position rows). Correlation matrix
+  // deliberately deferred (noisiest, most expensive).
+  function computeExposure(positions, quotes, index) {
+    index = index || {}; quotes = quotes || {};
+    let nlv = 0, cash = 0;
+    const eq = [];
+    for (const p of positions || []) {
+      const t = String(p && p.ticker || "").toUpperCase();
+      if (!t) continue;
+      if (t === "USD") { cash += Number(p.avg) || 0; nlv += Number(p.avg) || 0; continue; }
+      const mv = (Number((quotes[t] || {}).c) || 0) * (Number(p.qty) || 0);
+      nlv += mv;
+      const ix = index[t] || {};
+      eq.push({ ticker: t, mv,
+                sector: ix.sector || "Unclassified",
+                beta: Number.isFinite(Number(ix.beta)) ? Number(ix.beta) : null });
+    }
+    if (nlv <= 0 || !eq.length) return null;
+
+    const equityNlv = nlv - cash;
+    const sectorAgg = {};
+    let sumSq = 0, betaW = 0, betaCov = 0, maxW = 0;
+    for (const e of eq) {
+      const w = e.mv / nlv;                       // fraction of total NLV (concentration vs whole book)
+      const we = equityNlv > 0 ? e.mv / equityNlv : 0; // fraction of EQUITY (effective-bets)
+      sumSq += we * we;                           // HHI over equity → 1/HHI = effective # of equity bets
+      maxW = Math.max(maxW, w);
+      sectorAgg[e.sector] = (sectorAgg[e.sector] || 0) + w;
+      if (e.beta != null) { betaW += w * e.beta; betaCov += w; }
+    }
+    const sectors = Object.entries(sectorAgg)
+      .map(([sector, w]) => ({ sector, pct: +(w * 100).toFixed(1) }))
+      .sort((a, b) => b.pct - a.pct);
+    const top5 = [...eq].sort((a, b) => b.mv - a.mv).slice(0, 5)
+      .reduce((s, e) => s + e.mv, 0) / nlv;
+    return {
+      nlv: +nlv.toFixed(2),
+      cashPct: +(cash / nlv * 100).toFixed(1),
+      sectors,
+      hhi: +sumSq.toFixed(4),
+      effectiveBets: +(1 / sumSq).toFixed(1),   // 1/HHI: how many independent bets it really is
+      top5Pct: +(top5 * 100).toFixed(1),
+      singleMaxPct: +(maxW * 100).toFixed(1),
+      // Σ(weight×beta) over covered holdings, renormalized by covered weight so
+      // partial coverage isn't understated. Labelled vs-US-market (yfinance).
+      beta: betaCov > 0 ? +(betaW / betaCov).toFixed(2) : null,
+      betaCoverPct: +(betaCov * 100).toFixed(0),
+    };
+  }
+
+  const EdgeMath = { computeEdgeMap, computeExposure, suggestedWeight, edgeScore, winProb,
                      KELLY_FRACTION, KELLY_CAP };
   if (typeof window !== "undefined") window.EdgeMath = EdgeMath;
   if (typeof module !== "undefined" && module.exports) module.exports = EdgeMath;

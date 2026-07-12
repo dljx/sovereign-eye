@@ -2144,3 +2144,5 @@ a.filing-form:hover { border-color: var(--acc); color: var(--acc); }
 .ev-q { color: var(--fg-4); }
 .ev-q.pos { color: var(--pos); }
 .ev-q.neg { color: var(--neg); }
+
+.edge-exposure { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--border-1); }
