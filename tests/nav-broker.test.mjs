@@ -206,5 +206,22 @@ const IBKR = {
   check("empty closes -> null", alignCloses(["2026-07-02"], new Map()) === null);
 }
 
+// ── 9. realized-P&L summary (F1) ────────────────────────────────────────────────
+{
+  const { realizedSummary } = await import(pathToFileURL(join(__dirname, "..", "functions", "api", "nav-history.js")).href);
+  const d = daysAgo => new Date(Date.now() - daysAgo * 86400000).toISOString().slice(0, 10);
+  const trades = [
+    { date: d(10), ticker: "NVDA", realized: 500 },
+    { date: d(20), ticker: "MU", realized: -120 },
+    { date: d(30), ticker: "NVDA", realized: 300 },
+    { date: d(400), ticker: "OLD", realized: 9999 },   // outside 12m window
+  ];
+  const r = realizedSummary(trades);
+  check("realized nets recent lots only", r.realized === 680 && r.n === 3, JSON.stringify(r));
+  check("win rate computed", r.winRate === 0.667, `${r.winRate}`);
+  check("best aggregates by ticker", r.best[0].ticker === "NVDA" && r.best[0].realized === 800, JSON.stringify(r.best));
+  check("empty trades -> null", realizedSummary([]) === null && realizedSummary(null) === null);
+}
+
 console.log(failed === 0 ? "\nALL NAV-BROKER TESTS PASSED" : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

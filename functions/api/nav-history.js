@@ -85,7 +85,31 @@ export function combineBrokerNav(doc) {
   }
   const income = brokers.flatMap(([name, b]) =>
     (b.income || []).map(r => ({ ...r, broker: name })));
-  return { dates, nav, flows, income };
+  const trades = brokers.flatMap(([name, b]) =>
+    (b.trades || []).map(r => ({ ...r, broker: name })));
+  return { dates, nav, flows, income, trades };
+}
+
+// Realized-P&L summary over the trailing `days` (broker-reported closing lots).
+export function realizedSummary(trades, days = 365) {
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  const recent = (trades || []).filter(t => t?.date >= cutoff && Number.isFinite(t?.realized));
+  if (!recent.length) return null;
+  const wins = recent.filter(t => t.realized > 0);
+  const losses = recent.filter(t => t.realized < 0);
+  const sum = arr => arr.reduce((s, t) => s + t.realized, 0);
+  const byTicker = {};
+  for (const t of recent) byTicker[t.ticker] = (byTicker[t.ticker] || 0) + t.realized;
+  const ranked = Object.entries(byTicker).sort((a, b) => b[1] - a[1]);
+  return {
+    n: recent.length,
+    realized: +sum(recent).toFixed(2),
+    winRate: +(wins.length / recent.length).toFixed(3),
+    grossWin: +sum(wins).toFixed(2),
+    grossLoss: +sum(losses).toFixed(2),
+    best: ranked.slice(0, 3).map(([ticker, v]) => ({ ticker, realized: +v.toFixed(2) })),
+    worst: ranked.slice(-3).reverse().map(([ticker, v]) => ({ ticker, realized: +v.toFixed(2) })),
+  };
 }
 
 // Flow-adjusted time-weighted return (%) with end-of-day flow convention:
@@ -244,7 +268,7 @@ export async function onRequestGet(context) {
   const combined = combineBrokerNav(brokerDoc);
 
   if (combined && combined.dates.length >= 2) {
-    const { dates, nav, flows, income } = combined;
+    const { dates, nav, flows, income, trades } = combined;
     const [spyMap, vwraMap] = await Promise.all([
       yahooCloses(context, 'SPY', dates[0]),
       yahooCloses(context, 'VWRA.L', dates[0]),
@@ -299,6 +323,7 @@ export async function onRequestGet(context) {
         },
         perf,
         income,
+        realized: realizedSummary(trades),
       });
     }
     // benchmark fetch failed → fall through to snapshots (never a bare series)

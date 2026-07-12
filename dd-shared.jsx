@@ -575,6 +575,7 @@ function FireBody({ compact = false, onRate }) {
   const [s, setS] = useState(null);            // null = loading
   const [rawHist, setRawHist] = useState([]);  // [{date, navUsd}]
   const [navIncome, setNavIncome] = useState(null);  // broker income rows (USD)
+  const [navRealized, setNavRealized] = useState(null);  // realized-P&L summary (USD)
   const [sgdRate, setSgdRate] = useState(window.CCY_RATES?.SGD || 1.35);
   const [saveState, setSaveState] = useState('idle'); // idle | busy | saved | err
   const [saveErr, setSaveErr] = useState('');
@@ -604,6 +605,7 @@ function FireBody({ compact = false, onRate }) {
       .then(d => {
         if (d?.raw?.dates) setRawHist(d.raw.dates.map((date, i) => ({ date, navUsd: d.raw.nav[i] })));
         if (Array.isArray(d?.income) && d.income.length) setNavIncome(d.income);
+        if (d?.realized) setNavRealized(d.realized);
       }).catch(() => {});
     fetch('/api/sgd-rate').then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.rate) { setSgdRate(d.rate); onRate && onRate(d.rate); } }).catch(() => {});
@@ -741,6 +743,25 @@ function FireBody({ compact = false, onRate }) {
                       <br />Top payers: {topPayers.map(([t, v]) => `${t} ${sgd(v)}`).join(' · ')}
                     </>
                   )}
+                </div>
+              </div>
+            );
+          })()}
+          {navRealized && (() => {
+            const sgd = v => fmtSgdCompact(v * sgdRate);
+            const R = navRealized;
+            return (
+              <div style={{ marginTop: 10 }}>
+                <div className="dd-section-label">Realized P&L · last 12m (broker-reported)</div>
+                <div className="mono" style={{ fontSize: 10, lineHeight: 1.8, color: 'var(--fg-2)' }}>
+                  <span style={{ color: R.realized >= 0 ? 'var(--pos)' : 'var(--neg)' }}>Net {sgd(R.realized)}</span>
+                  {' '}· {R.n} closed lot{R.n === 1 ? '' : 's'} · win rate {(R.winRate * 100).toFixed(0)}%
+                  {' '}· gross +{sgd(R.grossWin)} / {sgd(R.grossLoss)}
+                  {R.best?.length > 0 && <><br />Best: {R.best.map(t => `${t.ticker} ${sgd(t.realized)}`).join(' · ')}</>}
+                  {R.worst?.length > 0 && R.worst[0].realized < 0 && <><br />Worst: {R.worst.filter(t => t.realized < 0).map(t => `${t.ticker} ${sgd(t.realized)}`).join(' · ')}</>}
+                </div>
+                <div className="mono dim" style={{ fontSize: 9, marginTop: 2 }}>
+                  Realized only (closed lots) — separate from unrealized NAV moves.
                 </div>
               </div>
             );

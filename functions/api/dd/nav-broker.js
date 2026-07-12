@@ -23,7 +23,8 @@ const KV_KEY = "nav:broker:v1";
 const NAV_BROKERS = ["IBKR", "Tiger"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // ~6y of daily navs fits comfortably; caps bound the KV value size (~25MB max)
-const CAPS = { navs: 2500, flows: 1000, income: 3000 };
+const CAPS = { navs: 2500, flows: 1000, income: 3000, trades: 3000 };
+const SIDE_RE = /^(BUY|SELL|)$/;
 
 function validBearer(context) {
   const uploadSecret = context.env.DD_UPLOAD_SECRET;
@@ -67,6 +68,20 @@ function cleanBundle(broker, raw) {
       ticker: String(r?.ticker || "").toUpperCase().slice(0, 12),
     });
   }
+  const trades = [];
+  for (const t of raw.trades || []) {
+    const realized = Number(t?.realized);
+    if (!DATE_RE.test(t?.date || "") || !Number.isFinite(realized)) {
+      return { error: `invalid trade in ${broker}: ${JSON.stringify(t)}` };
+    }
+    const side = String(t?.side || "").toUpperCase();
+    trades.push({
+      date: t.date, realized,
+      ticker: String(t?.ticker || "").toUpperCase().slice(0, 12),
+      qty: Number.isFinite(Number(t?.qty)) ? Number(t.qty) : 0,
+      side: SIDE_RE.test(side) ? side : "",
+    });
+  }
   if (!navs.length) return { error: `brokers.${broker} has no nav points` };
 
   // Dedup navs by date (last wins), sort everything chronologically, cap size.
@@ -79,6 +94,7 @@ function cleanBundle(broker, raw) {
       navs:   sortedNavs.slice(-CAPS.navs),
       flows:  flows.sort((a, b) => a.date < b.date ? -1 : 1).slice(-CAPS.flows),
       income: income.sort((a, b) => a.date < b.date ? -1 : 1).slice(-CAPS.income),
+      trades: trades.sort((a, b) => a.date < b.date ? -1 : 1).slice(-CAPS.trades),
       twr,
     },
   };
