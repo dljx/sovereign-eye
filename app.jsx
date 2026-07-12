@@ -439,7 +439,7 @@ function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
             <SrcPill src="live" age="now" />
           </div>
         </div>
-        <div className="panel-body flush" style={{ overflow: 'auto', maxHeight: 420 }}>
+        <div className="panel-body flush" style={{ overflow: 'auto' }}>
           <HoldingsPanel
             positions={positions}
             quotes={quotes}
