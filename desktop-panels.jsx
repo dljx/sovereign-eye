@@ -1821,9 +1821,149 @@ function FirePanel() {
   );
 }
 
+// =============================================================
+// EDGE & EXPOSURE — is your capital where your (validated) edge is?
+// Concentration-by-edge: ranks holdings by the conviction the engine already
+// computed, flags EARNED vs DRIFT concentration, shows actual weight vs a
+// ¼-Kelly suggestion (a judgment aid — the % rests on an unvalidated win-prob
+// map; the RANK and direction are the load-bearing outputs), and the
+// conviction-vs-holdings gaps. All math in edge-math.js (window.EdgeMath).
+// =============================================================
+const _KLASS = {
+  EARNED:      { label: 'earned',      cls: 'ok',   title: 'Big position, high conviction, thesis intact — concentration working' },
+  DRIFT:       { label: 'drift',       cls: 'warn', title: 'Big position but weak/broken/absent edge — concentration you may not have chosen' },
+  UNDERWEIGHT: { label: 'under-edge',  cls: 'acc',  title: 'High conviction, small position — the engine rates this above its weight' },
+  NEUTRAL:     { label: '',            cls: 'dim',  title: '' },
+};
+
+function EdgeExposurePanel({ positions, quotes }) {
+  const [index, setIndex] = useState(null);
+  const [theses, setTheses] = useState({});
+  const [cards, setCards] = useState([]);
+  const [src, setSrc] = useState('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetch('/api/dd/index').then(r => r.ok ? r.json() : {}).catch(() => ({})),
+      fetch('/api/dd/thesis').then(r => r.ok ? r.json() : {}).catch(() => ({})),
+      fetch('/api/dd/scouts').then(r => r.ok ? r.json() : []).catch(() => []),
+      fetch('/api/dd/gems').then(r => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([idx, th, scouts, gems]) => {
+      if (cancelled) return;
+      setIndex(idx && typeof idx === 'object' ? idx : {});
+      setTheses(th && typeof th === 'object' ? th : {});
+      setCards([...(Array.isArray(scouts) ? scouts : []), ...(Array.isArray(gems) ? gems : [])]);
+      setSrc('live');
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const EM = window.EdgeMath;
+  const map = useMemo(() => {
+    if (!EM || index == null) return null;
+    // useQuotes normalizes to {px}; edge-math expects Finnhub {c}.
+    const q = {};
+    for (const [t, v] of Object.entries(quotes || {})) q[t] = { c: v.px };
+    return EM.computeEdgeMap(positions || [], q, index, theses, cards);
+  }, [EM, positions, quotes, index, theses, cards]);
+
+  return (
+    <>
+      <div className="panel-header">
+        <div className="panel-title"><span className="num">03</span> Edge &amp; Exposure</div>
+        <div className="panel-actions">
+          <span className="mono dim" style={{ fontSize: 10, letterSpacing: '0.1em' }}
+            title="Is your capital concentrated in your highest-edge, thesis-intact names — or has it drifted?">
+            IS YOUR CONCENTRATION EARNED?
+          </span>
+          <SrcPill src={src === 'loading' ? 'cached' : src} age={src === 'live' ? 'now' : '…'} />
+        </div>
+      </div>
+      <div className="panel-body" style={{ overflow: 'auto' }}>
+        {!map ? (
+          <div className="sb-empty">Loading edge map…</div>
+        ) : !map.holdings.length ? (
+          <div className="sb-empty">No analyzed holdings yet — the daily portfolio run populates this.</div>
+        ) : (
+          <>
+            <table className="edge-table">
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Holding</th>
+                  <th>Edge</th>
+                  <th>Actual → ¼-Kelly</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {map.holdings.map(h => {
+                  const k = _KLASS[h.klass] || _KLASS.NEUTRAL;
+                  const over = h.deltaPct != null && h.deltaPct > 0;
+                  return (
+                    <tr key={h.ticker}>
+                      <td style={{ textAlign: 'left' }}>
+                        <span className="tk">{h.ticker}</span>
+                        {h.thesisStatus && <span className="thesis-dot" title={`Thesis ${h.thesisStatus}`}
+                          style={{ marginLeft: 6, background: { INTACT: 'var(--pos)', STRAINED: 'var(--warn)', BROKEN: 'var(--neg)' }[h.thesisStatus] || 'var(--fg-4)' }} />}
+                      </td>
+                      <td className="mono">{h.edge != null ? h.edge.toFixed(1) : '—'}</td>
+                      <td className="mono" title={h.suggestedPct == null ? 'No R:R — rank only' : `¼-Kelly suggestion (judgment aid, not a target)`}>
+                        {h.actualPct.toFixed(1)}%
+                        {h.suggestedPct != null && <span className="dim"> → {h.suggestedPct.toFixed(1)}%</span>}
+                        {h.deltaPct != null && Math.abs(h.deltaPct) >= 1 &&
+                          <span className={over ? 'neg' : 'pos'} style={{ marginLeft: 6, fontSize: 10 }}>
+                            {over ? '▲' : '▼'}{Math.abs(h.deltaPct).toFixed(0)}
+                          </span>}
+                      </td>
+                      <td>{k.label && <span className={`chip ${k.cls}`} title={k.title}>{k.label}</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <div className="edge-gaps">
+              {map.gaps.unowned.length > 0 && (
+                <div className="edge-gap">
+                  <div className="dd-section-label" title="The engine has a live CONFIRM here and you hold none of it">Conviction you don't own</div>
+                  {map.gaps.unowned.map(u => (
+                    <div key={u.ticker} className="mono" style={{ fontSize: 11, cursor: 'pointer' }}
+                      onClick={() => { window.location.hash = `#dd/${u.ticker}`; }}>
+                      <span className="tk">{u.ticker}</span> <span className="pos">{u.score.toFixed(1)}</span>
+                      {u.fv != null && u.price != null && u.price > 0 &&
+                        <span className="dim"> · {((u.fv / u.price - 1) * 100).toFixed(0)}% to FV</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {map.gaps.cold.length > 0 && (
+                <div className="edge-gap">
+                  <div className="dd-section-label" title="You hold this but the engine has no live bullish view — drift risk">Held, engine cold</div>
+                  {map.gaps.cold.map(c => (
+                    <div key={c.ticker} className="mono" style={{ fontSize: 11 }}>
+                      <span className="tk">{c.ticker}</span> <span className="dim">{c.actualPct.toFixed(1)}% · {c.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="mono dim" style={{ fontSize: 9, marginTop: 8, lineHeight: 1.5 }}>
+              Edge = debate score adjusted for thesis health. The ¼-Kelly % is a conservative
+              judgment aid (its win-prob map is unvalidated until the ~Sep scoreboard read) —
+              the rank and the drift/earned flags are the signal; the % is a prompt, not a target.
+              Cash {map.cashPct.toFixed(0)}%.
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
 Object.assign(window, {
   HoldingsPanel, HeatmapPanel, IntelPanel, NewsPanel, MacroPanel,
   FilingsPanel, DDPanel, ScoutPanel, ScoreboardPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
-  FirePanel,
+  FirePanel, EdgeExposurePanel,
 });
 })();

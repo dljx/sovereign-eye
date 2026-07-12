@@ -1,5 +1,5 @@
 /* global React, ReactDOM, window, Icon, SrcPill,
-   HoldingsPanel, HeatmapPanel, IntelPanel, NewsPanel, MacroPanel,
+   HoldingsPanel, HeatmapPanel, EdgeExposurePanel, IntelPanel, NewsPanel, MacroPanel,
    FilingsPanel, DDPanel, ScoutPanel, ScoreboardPanel, ApiHealthPanel, ScoutDDModal, HoldingDDModal,
    ImportModal, MobileFrame, MobileApp,
    computeTotals, fmtUSD, fmtUSDC, fmtMoney, fmtPct, sign, normQ,
@@ -465,6 +465,10 @@ function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
         <div className="panel-body flush">
           <HeatmapPanel positions={positions} quotes={quotes} totals={totals} />
         </div>
+      </div>
+
+      <div className="panel" style={{ gridArea: 'edge' }}>
+        <EdgeExposurePanel positions={positions} quotes={quotes} />
       </div>
 
       <div className="panel" style={{ gridArea: 'intel' }}><IntelPanel /></div>

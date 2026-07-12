@@ -448,11 +448,21 @@ input:focus, select:focus, textarea:focus {
 .dash-overview {
   grid-template-areas:
     "holdings heatmap"
+    "edge     edge"
     "intel    news"
     "filings  news"
     "macro    news";
   align-items: stretch;
 }
+/* Edge & Exposure table */
+.edge-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.edge-table th { color: var(--fg-3); font-weight: 400; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; text-align: right; padding: 3px 8px; }
+.edge-table td { padding: 4px 8px; text-align: right; border-bottom: 1px solid var(--border-1); }
+.edge-table td .tk { color: var(--fg-0); font-weight: 600; }
+.edge-table tr:last-child td { border-bottom: none; }
+.edge-gaps { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 12px; }
+.edge-gap { flex: 1; min-width: 160px; }
+.edge-gap .dd-section-label { margin-bottom: 4px; }
 /* News fills its spanned area and scrolls internally instead of forcing the
    left rows taller. */
 .dash-overview .panel-news { min-height: 0; overflow: hidden; }
