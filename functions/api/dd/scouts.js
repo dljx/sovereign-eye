@@ -8,6 +8,18 @@
  * Used for manual cleanup (e.g. removing pre-algorithm-upgrade entries).
  */
 export async function onRequestGet(context) {
+  // Bearer callers (dd's trigger engine) self-validate per the middleware
+  // contract — and MUST be rejected before the cache path, or a wrong token
+  // would be served a cached copy.
+  const _auth = context.request.headers.get("Authorization") || "";
+  const _m = _auth.match(/^Bearer\s*(.*)$/i);
+  if (_m) {
+    const _t = _m[1].trim();
+    if (!_t || !context.env.DD_UPLOAD_SECRET || _t !== context.env.DD_UPLOAD_SECRET) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+
   const cacheKey = new Request(new URL(context.request.url).toString());
   const cache = caches.default;
   const edgeCached = await cache.match(cacheKey);
@@ -29,6 +41,12 @@ export async function onRequestGet(context) {
 }
 
 export async function onRequestPut(context) {
+  // Manual-cleanup verb: dashboard Basic auth ONLY — any Bearer is rejected
+  // (mirrors /api/fire PUT; the pipeline has no business replacing boards).
+  if ((context.request.headers.get("Authorization") || "").match(/^Bearer/i)) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   let body;
   try {
     body = await context.request.json();

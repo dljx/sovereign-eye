@@ -32,6 +32,11 @@ async function check(name, auth, path, expected, env = ENV) {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name} -> ${r.status} (want ${expected})`);
 }
 
+function check2(name, ok, got) {
+  if (!ok) failed++;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : ` [got ${got}]`}`);
+}
+
 const basic = "Basic " + b64("daryl:secret");
 
 // The fix: an arbitrary Bearer must NOT reach /api/dd/trigger or the live reader.
@@ -63,6 +68,35 @@ const MULTI = { DASHBOARD_PASSWORD: "secret", DASHBOARD_USERS: "daryl,wife" };
 await check("unknown user bob -> 401 (default)", "Basic " + b64("bob:secret"), "/api/positions", 401);
 await check("wife with DASHBOARD_USERS -> 200", "Basic " + b64("wife:secret"), "/api/positions", 200, MULTI);
 await check("wife wrong pass -> 401", "Basic " + b64("wife:nope"), "/api/positions", 401, MULTI);
+
+// ── handler-level bearer self-validation (scouts/gems/index) ──────────────────
+// These GETs are in BEARER_PATHS, so the middleware forwards a valid-format
+// Bearer and the HANDLER must re-check the token. A 2026-07-12 heredoc bug
+// injected a literal backspace byte into the guard regex (/^Bearer<BS>\s*/),
+// so it matched nothing and a wrong token was served a 200 — lock it.
+{
+  globalThis.caches = { default: { match: async () => undefined, put: async () => {}, delete: async () => true } };
+  const hctx = auth => ({
+    env: { DD_UPLOAD_SECRET: "s3cret", DD_KV: { get: async () => [], put: async () => {} } },
+    request: { url: "https://x/api/dd/scouts",
+               headers: { get: k => (k === "Authorization" ? auth : null) },
+               json: async () => [] },
+    waitUntil: () => {},
+  });
+  for (const ep of ["scouts", "gems", "index"]) {
+    const mod = await import(pathToFileURL(join(__dirname, "..", "functions", "api", "dd", `${ep}.js`)).href);
+    const wrong = (await mod.onRequestGet(hctx("Bearer nope"))).status;
+    const browser = (await mod.onRequestGet(hctx(null))).status;
+    const good = (await mod.onRequestGet(hctx("Bearer s3cret"))).status;
+    check2(`${ep} GET wrong bearer -> 401`, wrong === 401, wrong);
+    check2(`${ep} GET browser (no bearer) -> 200`, browser === 200, browser);
+    check2(`${ep} GET valid bearer -> 200`, good === 200, good);
+    if (mod.onRequestPut) {
+      const putB = (await mod.onRequestPut(hctx("Bearer s3cret"))).status;
+      check2(`${ep} PUT with bearer -> 401 (Basic-only)`, putB === 401, putB);
+    }
+  }
+}
 
 rmSync(tmp, { recursive: true, force: true });
 console.log(failed === 0 ? "\nALL AUTH TESTS PASSED" : `\n${failed} FAILED`);
