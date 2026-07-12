@@ -120,7 +120,7 @@ const SEED = [
   // GET contract unchanged
   const g = await onRequestGet(ctx(kv, {}));
   const gt = await g.json();
-  check("GET still returns tickers", g.status === 200 && gt.tickers.includes("AMZN") && gt.tickers.includes("USD"));
+  check("GET returns equity tickers but NOT USD cash", g.status === 200 && gt.tickers.includes("AMZN") && !gt.tickers.includes("USD"));
   check("GET bare Bearer -> 401", (await onRequestGet(ctx(kv, { auth: "Bearer" }))).status === 401);
 }
 
