@@ -448,12 +448,15 @@ input:focus, select:focus, textarea:focus {
 .dash-overview {
   grid-template-areas:
     "holdings heatmap"
-    "edge     edge"
     "intel    news"
     "filings  news"
     "macro    news";
   align-items: stretch;
 }
+/* Portfolio tab: the Edge & Exposure suite lays out two-column with room. */
+.edge-body { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: start; }
+.edge-body .edge-caveat { grid-column: 1 / -1; }
+@media (max-width: 900px) { .edge-body { grid-template-columns: 1fr; } }
 /* Edge & Exposure table */
 .edge-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .edge-table th { color: var(--fg-3); font-weight: 400; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; text-align: right; padding: 3px 8px; }

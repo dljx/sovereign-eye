@@ -198,10 +198,11 @@ function PipelineLink() {
 // HEADER
 // =============================================================
 const NAV_ITEMS = [
-  { id: 'dash',     icon: 'dashboard', label: 'Dashboard' },
-  { id: 'research', icon: 'research',  label: 'Research' },
-  { id: 'fire',     icon: 'fire',      label: 'FIRE' },
-  { id: 'system',   icon: 'activity',  label: 'System' },
+  { id: 'dash',      icon: 'dashboard', label: 'Dashboard' },
+  { id: 'portfolio', icon: 'target',    label: 'Portfolio' },
+  { id: 'research',  icon: 'research',  label: 'Research' },
+  { id: 'fire',      icon: 'fire',      label: 'FIRE' },
+  { id: 'system',    icon: 'activity',  label: 'System' },
 ];
 
 // Pipeline-freshness bell — replaces the dead "coming soon" notifications stub
@@ -467,15 +468,19 @@ function DashView({ positions, quotes, totals, onHoverPosition, hoveredTk }) {
         </div>
       </div>
 
-      <div className="panel" style={{ gridArea: 'edge' }}>
-        <EdgeExposurePanel positions={positions} quotes={quotes} />
-      </div>
-
       <div className="panel" style={{ gridArea: 'intel' }}><IntelPanel /></div>
       <div className="panel panel-news" style={{ gridArea: 'news' }}><NewsPanel /></div>
       <div className="panel" style={{ gridArea: 'filings' }}><FilingsPanel /></div>
       <div className="panel" style={{ gridArea: 'macro' }}><MacroPanel /></div>
       {ddTicker && <HoldingDDModal ticker={ddTicker} onClose={() => setDdTicker(null)} />}
+    </div>
+  );
+}
+
+function PortfolioView({ positions, quotes }) {
+  return (
+    <div className="dash dash-portfolio" style={{ gridTemplateColumns: '1fr' }}>
+      <div className="panel"><EdgeExposurePanel positions={positions} quotes={quotes} /></div>
     </div>
   );
 }
@@ -654,6 +659,7 @@ function App() {
             hoveredTk={hoveredTk}
           />
         )}
+        {route === 'portfolio' && <PortfolioView positions={positions} quotes={quotes} />}
         {route === 'research' && <ResearchView onPickScout={s => setScoutPick(s)} />}
         {route === 'fire'     && <FireView />}
         {route === 'system'   && <SystemView />}

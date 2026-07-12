@@ -1909,7 +1909,8 @@ function EdgeExposurePanel({ positions, quotes }) {
         ) : !map.holdings.length ? (
           <div className="sb-empty">No analyzed holdings yet — the daily portfolio run populates this.</div>
         ) : (
-          <>
+          <div className="edge-body">
+            <div className="edge-col-left">
             <table className="edge-table">
               <thead>
                 <tr>
@@ -1971,6 +1972,8 @@ function EdgeExposurePanel({ positions, quotes }) {
                 </div>
               )}
             </div>
+            </div>
+            <div className="edge-col-right">
             {exposure && (
               <div className="edge-exposure">
                 <div className="dd-section-label" title="Your true exposure — so concentration is deliberate, not accidental. Effective positions = 1/HHI: how spread your capital is by WEIGHT.">
@@ -2031,13 +2034,14 @@ function EdgeExposurePanel({ positions, quotes }) {
                 </div>
               </div>
             )}
-            <div className="mono dim" style={{ fontSize: 9, marginTop: 8, lineHeight: 1.5 }}>
+            </div>
+            <div className="mono dim edge-caveat" style={{ fontSize: 9, marginTop: 8, lineHeight: 1.5 }}>
               Edge = debate score adjusted for thesis health. The ¼-Kelly % is a conservative
               judgment aid (its win-prob map is unvalidated until the ~Sep scoreboard read) —
               the rank and the drift/earned flags are the signal; the % is a prompt, not a target.
               Cash {map.cashPct.toFixed(0)}%.
             </div>
-          </>
+          </div>
         )}
       </div>
     </>
