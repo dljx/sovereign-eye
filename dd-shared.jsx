@@ -370,7 +370,7 @@ function EvidenceSection({ dossier }) {
             <EvRow k="Rule of 40" v={n(ratios.rule_of_40)} />
             <EvRow k="Gross / net margin" v={ratios.gross_margin != null || ratios.net_margin != null ? `${n(ratios.gross_margin) ?? '·'}% / ${n(ratios.net_margin) ?? '·'}%` : null} />
             <EvRow k="PE / fwd PE" v={ratios.pe != null || ratios.fwd_pe != null ? `${n(ratios.pe) ?? '·'} / ${n(ratios.fwd_pe) ?? '·'}` : null} />
-            <EvRow k="Fwd PEG" v={n(ratios.fwd_peg, 2)} />
+            <EvRow k="NTM PEG" v={n(ratios.fwd_peg, 2)} title="Fwd P/E ÷ NEXT-YEAR analyst EPS growth — a 1-year PEG. Quote services' PEGs use longer-horizon growth and read higher; a rebound year off a low base compresses this without implying durable cheapness (v4, 2026-07-13)" />
             <EvRow k="EPS revision momentum" v={pctFrac(ratios.eps_revision_momentum)} title="30-day change in consensus NTM EPS" />
             <EvRow k="Debt/equity" v={n(ratios.debt_equity)} />
             <EvRow k="Short %" v={ratios.short_pct != null ? `${n(ratios.short_pct)}%` : null} />
@@ -383,7 +383,10 @@ function EvidenceSection({ dossier }) {
             <EvRow k="Cluster buying" v={ins.cluster_buying ? `yes — ${ins.significant_buys || 0} significant buys` : null} title="≥2 distinct insiders buying within 14 days" />
             <EvRow k="MSPR 3m avg" v={n(mspr.avg_mspr_3m)} title="Insider sentiment: positive = net buying pressure" />
             <EvRow k="Gov contracts" v={gov.count ? `${gov.count} · ${usd(gov.total_value)}` : null} />
-            <EvRow k="Div yield / PEG" v={av.dividend_yield != null || av.peg_ratio != null ? `${pctFrac(av.dividend_yield) ?? '·'} / ${n(av.peg_ratio, 2) ?? '·'}` : null} />
+            {/* AV PEGRatio dropped 2026-07-13 (unstated basis; 0.28 for MNDY —
+                computed off the depressed GAAP base). Old dossiers may still
+                carry av.peg_ratio; deliberately not rendered. */}
+            <EvRow k="Div yield" v={pctFrac(av.dividend_yield)} />
             <EvRow k="Qtr rev growth YoY" v={pctFrac(av.quarterly_revenue_growth_yoy)} />
             <EvRow k="Smart money" v={dossier.capital_flow ? (dossier.capital_flow.smart_tilt >= 0 ? 'institutional-favored' : 'retail-favored') : null} title="Tiger capital distribution: institutional (big) net flow minus retail (small) net flow" />
           </div>
