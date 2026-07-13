@@ -370,7 +370,7 @@ function EvidenceSection({ dossier }) {
             <EvRow k="Rule of 40" v={n(ratios.rule_of_40)} />
             <EvRow k="Gross / net margin" v={ratios.gross_margin != null || ratios.net_margin != null ? `${n(ratios.gross_margin) ?? '·'}% / ${n(ratios.net_margin) ?? '·'}%` : null} />
             <EvRow k="PE / fwd PE" v={ratios.pe != null || ratios.fwd_pe != null ? `${n(ratios.pe) ?? '·'} / ${n(ratios.fwd_pe) ?? '·'}` : null} />
-            <EvRow k="NTM PEG" v={n(ratios.fwd_peg, 2)} title="Fwd P/E ÷ NEXT-YEAR analyst EPS growth — a 1-year PEG. Quote services' PEGs use longer-horizon growth and read higher; a rebound year off a low base compresses this without implying durable cheapness (v4, 2026-07-13)" />
+            <EvRow k="NTM / LT PEG" v={ratios.fwd_peg != null || ratios.peg_lt != null ? `${n(ratios.fwd_peg, 2) ?? '·'} / ${n(ratios.peg_lt, 2) ?? '·'}` : null} title="NTM = Fwd P/E ÷ next-year EPS growth (1-year PEG — a rebound year off a low base compresses it without implying durable cheapness). LT = Fwd P/E ÷ FY+1→FY+3 consensus EPS CAGR (FMP; blank for uncovered symbols). NTM cheap while LT ordinary = one-year-deep cheapness (v4, 2026-07-13)" />
             <EvRow k="EPS revision momentum" v={pctFrac(ratios.eps_revision_momentum)} title="30-day change in consensus NTM EPS" />
             <EvRow k="Debt/equity" v={n(ratios.debt_equity)} />
             <EvRow k="Short %" v={ratios.short_pct != null ? `${n(ratios.short_pct)}%` : null} />
