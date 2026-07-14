@@ -169,7 +169,10 @@ function HoldingsPanel({ positions, quotes, totals, sortKey, sortDir, onSort, on
       </thead>
       <tbody>
         {sorted.map(p => (
-          <tr key={p.ticker}
+          // Keyed ticker+broker: a name held at TWO brokers (live 2026-07-15:
+          // ANET at IBKR + Tiger) is two legitimate rows — a bare-ticker key
+          // duplicates React keys and renders a phantom empty row.
+          <tr key={`${p.ticker}-${p.broker || ''}`}
               onMouseEnter={() => onHover && onHover(p)}
               onMouseLeave={() => onLeave && onLeave()}
               onClick={() => onRowClick && p.ticker !== 'USD' && onRowClick(p.ticker)}
@@ -1857,7 +1860,10 @@ function EdgeExposurePanel({ positions, quotes }) {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      fetch('/api/dd/index').then(r => r.ok ? r.json() : {}).catch(() => ({})),
+      // NB: the index route is /api/dd (functions/api/dd/index.js maps to the
+      // DIRECTORY path). '/api/dd/index' routes to [ticker].js as dd:INDEX →
+      // 404 → this panel silently rendered every Edge as '—' (2026-07-15 fix).
+      fetch('/api/dd').then(r => r.ok ? r.json() : {}).catch(() => ({})),
       fetch('/api/dd/thesis').then(r => r.ok ? r.json() : {}).catch(() => ({})),
       fetch('/api/dd/scouts').then(r => r.ok ? r.json() : []).catch(() => []),
       fetch('/api/dd/gems').then(r => r.ok ? r.json() : []).catch(() => []),
@@ -1915,7 +1921,7 @@ function EdgeExposurePanel({ positions, quotes }) {
               <thead>
                 <tr>
                   <th style={{ textAlign: 'left' }}>Holding</th>
-                  <th>Edge</th>
+                  <th title="Edge = latest debate consensus score × thesis-health multiplier (×1.0 intact · ×0.8 strained · ×0.4 broken · ×0.92 unregistered). '—' = the engine has no analysis for this name yet.">Edge</th>
                   <th>Actual → ¼-Kelly</th>
                   <th></th>
                 </tr>
@@ -2011,6 +2017,25 @@ function EdgeExposurePanel({ positions, quotes }) {
                     ⚠ {c.members.join(' · ')} move as ~1 bet ({c.weightPct.toFixed(0)}% of book)
                   </div>
                 ))}
+                {corr.groups && corr.groups.length > 0 && (
+                  <div style={{ marginTop: 6 }}>
+                    <div className="dd-section-label"
+                      title="The bet decomposition behind the independent-bets number: names grouped when pairwise return-correlation ρ≥0.5 over the same window (softer than the ⚠ ρ≥0.7 clusters — 'related exposure', not 'identical'). ρ̄ = average correlation WITHIN the group. Sector labels come from the engine's dossiers.">
+                      What the bets are
+                    </div>
+                    {corr.groups.map((g, i) => {
+                      const secs = [...new Set(g.members.map(t => (index?.[t]?.sector) || '').filter(Boolean))];
+                      return (
+                        <div key={i} className="mono" style={{ fontSize: 10, marginTop: 2, lineHeight: 1.5 }}>
+                          <b style={{ color: 'var(--fg-0)' }}>{g.weightPct.toFixed(0)}%</b>
+                          {' '}<span className="tk">{g.members.join(' · ')}</span>
+                          {g.avgRho != null && <span className="dim"> ρ̄ {g.avgRho.toFixed(2)}</span>}
+                          {secs.length > 0 && <span className="dim"> — {secs.join(' / ')}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div style={{ overflowX: 'auto', marginTop: 6 }}>
                   <table className="corr-heat"><tbody>
                     <tr><td></td>{corr.symbols.map(s => <td key={s} className="hd">{s}</td>)}</tr>

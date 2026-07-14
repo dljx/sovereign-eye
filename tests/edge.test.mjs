@@ -139,5 +139,55 @@ check("absent thesis mild discount", EM.edgeScore(8, null) === 7.36);
   check("single symbol -> null", EM.correlationView({ A: { "2026-05-01": 1 } }) === null);
 }
 
+// ── multi-broker aggregation (2026-07-15) ──────────────────────────────────────
+// A name held at TWO brokers is ONE bet (live: ANET at IBKR + Tiger). Per-
+// account rows split its weight — understating concentration for the median
+// test, the Kelly comparison, and HHI/effective-bets — and duplicate React
+// keys upstream rendered a phantom empty row.
+{
+  const positions = [
+    { ticker: "ANET", qty: 80, avg: 143, broker: "IBKR" },
+    { ticker: "ANET", qty: 64, avg: 160, broker: "Tiger" },
+    { ticker: "GOOG", qty: 10, avg: 380, broker: "Tiger" },
+    { ticker: "USD",  qty: 1,  avg: 1000, broker: "Tiger" },
+  ];
+  const quotes = { ANET: { c: 100 }, GOOG: { c: 100 } }; // ANET mv=14400, GOOG mv=1000
+  const nowIso = new Date().toISOString();
+  const index = { ANET: { score: 8, rr: 3, updated: nowIso }, GOOG: { score: 8, rr: 3, updated: nowIso } };
+  const m = EM.computeEdgeMap(positions, quotes, index, {}, []);
+  check("aggregated: one row per NAME", m.holdings.length === 2, `${m.holdings.length}`);
+  const anet = m.holdings.find(h => h.ticker === "ANET");
+  check("qty summed across brokers", anet.qty === 144, `${anet.qty}`);
+  check("combined weight (14400/16400)", near(anet.actualPct, 87.8, 0.1), `${anet.actualPct}`);
+  check("brokers joined for display", anet.broker === "IBKR+Tiger", anet.broker);
+  check("nlv counts each lot once", near(m.nlv, 16400, 0.01), `${m.nlv}`);
+
+  const ex = EM.computeExposure(positions, quotes, index);
+  // Equity HHI on COMBINED weights: (14400/15400)^2+(1000/15400)^2 -> 1/HHI ~ 1.14,
+  // not the ~2 that per-account rows would fake.
+  check("exposure effectiveBets on combined weights", ex.effectiveBets < 1.3, `${ex.effectiveBets}`);
+  check("exposure singleMax reflects the combined name", ex.singleMaxPct > 80, `${ex.singleMaxPct}`);
+}
+
+// ── correlationView.groups: the bet decomposition (2026-07-15) ─────────────────
+{
+  const dates = Array.from({ length: 40 }, (_, i) => `2026-05-${String(i + 1).padStart(2, "0")}`);
+  const mk = (base, fn) => { const o = {}; let p = base; dates.forEach((d, i) => { p *= (1 + fn(i)); o[d] = +p.toFixed(4); }); return o; };
+  const wave = i => Math.sin(i / 3) * 0.02;
+  const A = mk(100, i => wave(i) + 0.001);
+  const B = mk(50, i => wave(i) * 0.98 + 0.0005);
+  const C = mk(80, i => Math.sin(i / 1.7 + 2) * 0.02 + 0.0008);
+  const cv = EM.correlationView({ A, B, C }, { A: 20, B: 20, C: 10 });
+  check("groups cover every symbol incl. singletons",
+        cv.groups.reduce((s, g) => s + g.members.length, 0) === 3, JSON.stringify(cv.groups));
+  const ab = cv.groups.find(g => g.members.length === 2);
+  check("A+B grouped as one bet with avg intra-rho", ab && ab.members.sort().join() === "A,B"
+        && ab.avgRho >= 0.9, JSON.stringify(ab));
+  const solo = cv.groups.find(g => g.members.length === 1);
+  check("singleton bet has null avg-rho (nothing to correlate within)", solo && solo.avgRho === null,
+        JSON.stringify(solo));
+  check("groups sorted by capital at risk", cv.groups[0].weightPct >= cv.groups[cv.groups.length - 1].weightPct);
+}
+
 console.log(failed === 0 ? "\nALL EDGE TESTS PASSED" : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

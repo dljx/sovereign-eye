@@ -52,6 +52,26 @@
     return Number.isFinite(t) ? (now - t) / 86400000 : Infinity;
   }
 
+  // Aggregate same-ticker position rows across brokers — a name held at two
+  // brokers is ONE bet (found live 2026-07-15: ANET at IBKR + Tiger). Per-
+  // account rows split its weight, understating concentration for the median
+  // test, the Kelly comparison, and HHI/effective-bets.
+  function aggregateByTicker(positions) {
+    let cash = 0;
+    const byTicker = new Map();
+    for (const p of positions || []) {
+      const ticker = String(p && p.ticker || "").toUpperCase();
+      if (!ticker) continue;
+      if (ticker === "USD") { cash += Number(p.avg) || 0; continue; }
+      const cur = byTicker.get(ticker) || { ticker, qty: 0, brokers: [] };
+      cur.qty += Number(p.qty) || 0;
+      const b = String(p.broker || "");
+      if (b && cur.brokers.indexOf(b) === -1) cur.brokers.push(b);
+      byTicker.set(ticker, cur);
+    }
+    return { cash, equities: [...byTicker.values()] };
+  }
+
   // positions: [{ticker,qty,avg,broker}] (+ a USD cash row). quotes: {T:{c}}.
   // index: {T:{score,rr,fv,sizePct,sector,beta,updated}}. theses: {T:{status,adherence}}.
   // confirmCards: [{ticker,score,verdict,fair_value_composite,price}] (scout/gems boards).
@@ -59,21 +79,20 @@
     const now = (opts && opts.now) || Date.now();
     index = index || {}; theses = theses || {}; quotes = quotes || {};
     const held = new Set();
-    let cash = 0, nlv = 0;
+    const aggd = aggregateByTicker(positions);
+    let cash = aggd.cash, nlv = aggd.cash;
 
     const rows = [];
-    for (const p of positions || []) {
-      const ticker = String(p && p.ticker || "").toUpperCase();
-      if (!ticker) continue;
-      if (ticker === "USD") { cash += Number(p.avg) || 0; nlv += Number(p.avg) || 0; continue; }
+    for (const p of aggd.equities) {
+      const ticker = p.ticker;
       held.add(ticker);
       const q = quotes[ticker] || {};
       const px = Number(q.c) || 0;
-      const mv = px * (Number(p.qty) || 0);
+      const mv = px * p.qty;
       nlv += mv;
       const ix = index[ticker] || null;
       const th = theses[ticker] || {};
-      rows.push({ ticker, broker: p.broker || "", qty: Number(p.qty) || 0, px, mv,
+      rows.push({ ticker, broker: p.brokers.join("+"), qty: p.qty, px, mv,
                   score: ix ? Number(ix.score) : null,
                   rr: ix ? Number(ix.rr) : null,
                   fv: ix ? Number(ix.fv) : null,
@@ -150,13 +169,13 @@
   // deliberately deferred (noisiest, most expensive).
   function computeExposure(positions, quotes, index) {
     index = index || {}; quotes = quotes || {};
-    let nlv = 0, cash = 0;
+    const aggd = aggregateByTicker(positions);   // per NAME, not per account row
+    const cash = aggd.cash;
+    let nlv = cash;
     const eq = [];
-    for (const p of positions || []) {
-      const t = String(p && p.ticker || "").toUpperCase();
-      if (!t) continue;
-      if (t === "USD") { cash += Number(p.avg) || 0; nlv += Number(p.avg) || 0; continue; }
-      const mv = (Number((quotes[t] || {}).c) || 0) * (Number(p.qty) || 0);
+    for (const p of aggd.equities) {
+      const t = p.ticker;
+      const mv = (Number((quotes[t] || {}).c) || 0) * p.qty;
       nlv += mv;
       const ix = index[t] || {};
       eq.push({ ticker: t, mv,
@@ -256,18 +275,41 @@
       }
     }
 
-    // Clusters of names that move together (pairwise ρ ≥ 0.7), via union-find.
-    const parent = symbols.map((_, i) => i);
-    const find = x => (parent[x] === x ? x : (parent[x] = find(parent[x])));
-    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
-      if (matrix[i][j] >= 0.7) parent[find(i)] = find(j);
-    }
-    const groups = {};
-    for (let i = 0; i < n; i++) (groups[find(i)] ||= []).push(symbols[i]);
+    // Grouping via union-find at a pairwise-ρ threshold. Returns member lists
+    // including singletons — a name that co-moves with nothing IS its own bet.
     const wmap = weights || {};
-    const clusters = Object.values(groups).filter(g => g.length >= 2)
-      .map(g => ({ members: g, weightPct: +g.reduce((s, t) => s + (Number(wmap[t]) || 0), 0).toFixed(1) }))
+    const groupAt = (thresh) => {
+      const parent = symbols.map((_, i) => i);
+      const find = x => (parent[x] === x ? x : (parent[x] = find(parent[x])));
+      for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+        if (matrix[i][j] >= thresh) parent[find(i)] = find(j);
+      }
+      const byRoot = {};
+      for (let i = 0; i < n; i++) (byRoot[find(i)] ||= []).push(i);
+      return Object.values(byRoot).map(idxs => {
+        let rSum = 0, rN = 0;
+        for (let a = 0; a < idxs.length; a++) for (let b = a + 1; b < idxs.length; b++) {
+          rSum += matrix[idxs[a]][idxs[b]]; rN++;
+        }
+        const members = idxs.map(i => symbols[i]);
+        return {
+          members,
+          weightPct: +members.reduce((s, t) => s + (Number(wmap[t]) || 0), 0).toFixed(1),
+          // Mean pairwise ρ WITHIN the group (null for singletons) — how tightly
+          // this "one bet" actually moves as one.
+          avgRho: rN ? +(rSum / rN).toFixed(2) : null,
+        };
+      });
+    };
+
+    // Tight clusters (ρ≥0.7): the "effectively ONE bet" warning.
+    const clusters = groupAt(0.7).filter(g => g.members.length >= 2)
       .sort((a, b) => b.members.length - a.members.length);
+    // Bet decomposition (ρ≥0.5, singletons included): the human-readable
+    // answer to "what ARE my N bets?" — softer threshold so related names
+    // (same factor/sector exposure) read as one bet even before they hit the
+    // tight-cluster bar. Sorted by capital at risk.
+    const groups = groupAt(0.5).sort((a, b) => b.weightPct - a.weightPct);
 
     return {
       symbols, matrix,
@@ -277,6 +319,7 @@
       // bound — correlations rise toward 1 in a real drawdown.
       effectiveBets: +(n * n / sumSq).toFixed(1),
       clusters,
+      groups,
     };
   }
 

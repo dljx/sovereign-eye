@@ -7,7 +7,10 @@ const BEARER_PATHS = [
   "/api/dd/upload", "/api/dd/live", "/api/dd/history", "/api/dd/positions",
   "/api/dd/nav-broker", // broker_sync pushes daily NAV/flows/income (POST, self-validates)
   "/api/dd/thesis",     // portfolio run reads registry + posts adherence checks (self-validates)
-  "/api/dd/scouts", "/api/dd/gems", "/api/dd/index", // trigger engine reads boards (GET self-validates)
+  // "/api/dd/index" removed 2026-07-15: no dd-side caller exists, and the path
+  // actually routes to [ticker].js (as dd:INDEX), which does NOT self-validate
+  // a bearer — listing it here violated this file's own contract.
+  "/api/dd/scouts", "/api/dd/gems", // trigger engine reads boards (GET self-validates)
   "/api/dd/alert-state", // trigger-engine dedup memory (GET/POST, self-validates)
   "/api/nav-history",  // dd cron stamps the daily NAV snapshot (GET, self-validates)
   "/api/fire",         // quarterly fire_check reads settings (GET-only for bearer, self-validates)

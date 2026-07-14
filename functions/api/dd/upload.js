@@ -4,7 +4,10 @@ async function purgeCdnCache(request, writtenKeys) {
   const urls = writtenKeys
     .filter(k => k === "dd:index" || k === "dd:scouts" || k === "dd:gems" || (k.startsWith("dd:") && !k.startsWith("dd:live:")))
     .map(k => {
-      if (k === "dd:index") return `${origin}/api/dd/index`;
+      // The index route is the DIRECTORY path /api/dd (index.js) — purging
+      // /api/dd/index hit the [ticker].js URL, leaving the real index edge-
+      // cache stale for its full s-maxage after every upload (2026-07-15 fix).
+      if (k === "dd:index") return `${origin}/api/dd`;
       if (k === "dd:scouts") return `${origin}/api/dd/scouts`;
       if (k === "dd:gems") return `${origin}/api/dd/gems`;
       // Keep the ticker's case: [ticker].js caches under the raw request URL

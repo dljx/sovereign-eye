@@ -353,7 +353,9 @@ function MobilePortfolio({ positions, quotes, onPick, currency, onToggleCurrency
           </div>
         )}
         {enriched.map(p => (
-          <SwipeRow key={p.ticker} disabled={!onDelete || p.ticker === 'USD'}
+          // ticker+broker key: a name held at two brokers is two real rows —
+          // a bare-ticker key duplicates React keys (phantom empty row).
+          <SwipeRow key={`${p.ticker}-${p.broker || ''}`} disabled={!onDelete || p.ticker === 'USD'}
             onDelete={() => onDelete(p.ticker)}>
           <div className="m-position"
             onClick={() => onPick && p.ticker !== 'USD' && onPick(p.ticker)}
