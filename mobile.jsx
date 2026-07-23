@@ -772,8 +772,10 @@ function MobileScoreboard() {
               </div>
             </div>
           ) : null}
+          {w.score_ic && window.ScoreICSection && <window.ScoreICSection sic={w.score_ic} />}
           {sb.backtest && window.BacktestSection && <window.BacktestSection bt={sb.backtest} />}
           {window.AttributionHeatmap && <window.AttributionHeatmap sb={sb} />}
+          {sb.holdings_analysis && window.AgentICSection && <window.AgentICSection ha={sb.holdings_analysis} weeks={w.weeks} />}
           {sb.behavior_gap?.paper && (
             <div className="sb-section">
               <div className="dd-section-label" title={sb.behavior_gap.note}>

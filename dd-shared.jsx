@@ -955,10 +955,149 @@ function BacktestSection({ bt }) {
   );
 }
 
+// =============================================================
+// SCORE IC — does the continuous score PREDICT forward excess?
+// The bucket tables answer "does the grade separate?"; this is the rank
+// information coefficient (Spearman) of consensus score vs forward excess,
+// with a quintile monotonicity chart. Computed in
+// signal_analysis.compute_score_ic. The CI is a pairs bootstrap and is
+// OPTIMISTIC (overlapping forward windows aren't independent) — a CI crossing
+// 0 means "no skill shown yet", never proof. IC withheld below n=10.
+// =============================================================
+function _icPct(v) { return `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`; }
+function _icNum(v) { return `${v >= 0 ? '+' : ''}${v.toFixed(2)}`; }
+function _icShade(mean, alpha = 0.55) {
+  return mean >= 0 ? `rgba(52,211,153,${alpha})` : `rgba(251,113,133,${alpha})`;
+}
+
+function ScoreICSection({ sic, label = 'Score → return · rank IC' }) {
+  if (!sic) return null;
+  const { ic } = sic;
+  const ci = sic.ic_ci90;
+  const qs = sic.quantiles || [];
+  const byv = (sic.by_version || []).filter(s => s.ic != null);
+  const CAP = 0.10; // ±10% excess = a full bar (matches the attribution heatmap)
+  return (
+    <div className="sb-section">
+      <div className="dd-section-label"
+        title="Spearman rank correlation of the consensus score vs forward excess return. The quintiles split signals low→high score; bars that rise left→right mean the score ranks winners. The CI is a bootstrap and OPTIMISTIC — overlapping forward windows aren't independent, so one crossing 0 shows no skill yet.">
+        {label}
+      </div>
+      <div className="mono" style={{ fontSize: 12, lineHeight: 1.7 }}>
+        {ic == null ? (
+          <span className="dim">IC n/a · n={sic.n} (need ≥10)</span>
+        ) : (
+          <>
+            <b className={ic >= 0 ? 'pos' : 'neg'} style={{ fontSize: 15 }}>{_icNum(ic)}</b>
+            {ci && <span className="dim"> · 90% CI [{_icNum(ci[0])}, {_icNum(ci[1])}]</span>}
+            <span className="dim"> · n={sic.n}</span>
+            {ci && ci[0] > 0 && <span className="chip acc" style={{ marginLeft: 6 }}>clear of 0</span>}
+            {ci && ci[0] <= 0 && ci[1] >= 0 && <span className="chip" style={{ marginLeft: 6 }}>straddles 0</span>}
+          </>
+        )}
+      </div>
+
+      {qs.length > 0 && (
+        <>
+          <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+            {qs.map(q => {
+              const pos = q.mean_excess >= 0;
+              const barH = Math.min(Math.abs(q.mean_excess) / CAP, 1) * 22;
+              return (
+                <div key={q.q} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+                  <div style={{ position: 'relative', width: '100%', height: 46 }}
+                    title={`Q${q.q} · score ${q.score_lo}–${q.score_hi} · mean excess ${_icPct(q.mean_excess)} · hit ${(q.hit * 100).toFixed(0)}% · n=${q.n}`}>
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: 23, borderTop: '1px dashed var(--fg-3)' }} />
+                    <div style={{
+                      position: 'absolute', left: '18%', right: '18%',
+                      ...(pos ? { bottom: 23, height: barH } : { top: 23, height: barH }),
+                      background: _icShade(q.mean_excess), borderRadius: 1,
+                    }} />
+                  </div>
+                  <div className="mono dim" style={{ fontSize: 9 }}>Q{q.q}</div>
+                  <div className={`mono ${pos ? 'pos' : 'neg'}`} style={{ fontSize: 9 }}>{_icPct(q.mean_excess)}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mono dim" style={{ fontSize: 9, marginTop: 2, textAlign: 'center' }}>
+            low score → high score · mean excess per score quintile
+          </div>
+        </>
+      )}
+
+      {byv.length > 0 && (
+        <div className="mono" style={{ fontSize: 10, marginTop: 6, lineHeight: 1.9 }}>
+          <span className="dim">by methodology: </span>
+          {byv.map((s, i) => (
+            <span key={s.k}>
+              {i > 0 ? <span className="dim"> · </span> : null}
+              {s.k} <b className={s.ic >= 0 ? 'pos' : 'neg'}>{_icNum(s.ic)}</b>
+              <span className="dim">(n{s.n})</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Per-agent IC over the holdings archive — which lens's own score actually
+// predicts forward excess. Diverging bar, best-first. Same small-n caveat.
+function AgentICSection({ ha, weeks }) {
+  if (!ha || !Array.isArray(ha.windows)) return null;
+  const win = ha.windows.find(w => w.weeks === weeks) || null;
+  const agents = (win?.buckets?.agent_ic || []).filter(a => a.ic != null)
+    .sort((a, b) => b.ic - a.ic);
+  const cons = win?.score_ic;
+  if (!agents.length && !cons) return null;
+  const CAP = 0.4; // |IC| this large fills half the track
+  return (
+    <div className="sb-section">
+      <div className="dd-section-label"
+        title="Each agent's own score ranked against forward excess (Spearman IC) over the holdings archive — which lens actually predicts. Small, autocorrelated n; not actionable until the pre-registered scoreboard reads.">
+        Which lens predicts · agent IC ({weeks}W holdings)
+      </div>
+      {agents.length ? (
+        <table className="sb-table"><tbody>
+          {agents.map(a => {
+            const pos = a.ic >= 0;
+            const frac = Math.min(Math.abs(a.ic) / CAP, 1);
+            return (
+              <tr key={a.k} title={`${a.k} · IC ${_icNum(a.ic)} · n=${a.n}`}>
+                <td className="k">{a.k}</td>
+                <td className="n">n={a.n}</td>
+                <td className="g">
+                  <div style={{ position: 'relative', height: 6, background: 'rgba(127,127,127,0.15)', borderRadius: 2 }}>
+                    <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'var(--fg-3)' }} />
+                    <div style={{
+                      position: 'absolute', top: 0, bottom: 0,
+                      ...(pos ? { left: '50%', width: `${frac * 50}%` } : { right: '50%', width: `${frac * 50}%` }),
+                      background: _icShade(a.ic, 0.7), borderRadius: 2,
+                    }} />
+                  </div>
+                </td>
+                <td className={`v ${pos ? 'pos' : 'neg'}`}>{_icNum(a.ic)}</td>
+              </tr>
+            );
+          })}
+        </tbody></table>
+      ) : (
+        <div className="mono dim" style={{ fontSize: 10 }}>n too small for a per-agent read at {weeks}W</div>
+      )}
+      {cons && (
+        <div className="mono dim" style={{ fontSize: 10, marginTop: 4 }}>
+          consensus hold-mode IC {cons.ic == null ? `n/a (n=${cons.n})` : `${_icNum(cons.ic)} (n=${cons.n})`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 Object.assign(window, {
   _fmtElapsed, _AGENT_KINDS, _DESIGN_AGENTS, _AGENT_NAME_MAP, DDTranscriptEntry, RRChip,
   holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireChart, FireBody, fmtSgdCompact,
-  AttributionHeatmap, BacktestSection,
+  AttributionHeatmap, BacktestSection, ScoreICSection, AgentICSection,
   NewsUtils: { NEWS_PERIOD_SECS, parseAgoMs, newsEffectiveTs, decayImp, applyNewsFilters },
 });
 })();

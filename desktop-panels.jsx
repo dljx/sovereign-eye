@@ -8,7 +8,7 @@ const { useState, useEffect, useMemo, useRef, useCallback } = React;
 
 // Hold-mode labels + shared card/news helpers live in dd-shared.jsx (window
 // exports) so desktop and mobile can't drift apart.
-const { holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireBody, FireChart, fmtSgdCompact, AttributionHeatmap, BacktestSection } = window;
+const { holdLabel, gradeForResult, DDResultFull, normalizeScoutCard, FireBody, FireChart, fmtSgdCompact, AttributionHeatmap, BacktestSection, ScoreICSection, AgentICSection } = window;
 
 // =============================================================
 // HOLDINGS PANEL
@@ -1747,6 +1747,8 @@ function ScoreboardPanel() {
               );
             })}
 
+            {w.score_ic && <ScoreICSection sic={w.score_ic} />}
+
             {(w.top?.length || w.bottom?.length) ? (
               <div className="sb-section">
                 <div className="dd-section-label">Best / worst vs index</div>
@@ -1778,6 +1780,8 @@ function ScoreboardPanel() {
                        ['mos', 'Margin of safety']]}
                 label="Holdings archive · agent calibration (mean excess)" />
             )}
+
+            {sb.holdings_analysis && <AgentICSection ha={sb.holdings_analysis} weeks={w.weeks} />}
 
             {sb.behavior_gap?.paper && (() => {
               const bg = sb.behavior_gap;
